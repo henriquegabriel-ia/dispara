@@ -90,7 +90,14 @@ interface CompileCtx {
   edges: CompiledEdge[];
   nodeIds: Set<string>;
   edgeIds: Set<string>;
+  /** forma sanitizada (como o executor faz [^a-zA-Z0-9]→_) → id original */
+  sanitizedNodeIds: Map<string, string>;
   pos: Map<string, Position>;
+}
+
+/** Mesma sanitização de id que o executor aplica ao indexar `outputs`. */
+function sanitizeNodeId(id: string): string {
+  return id.replace(/[^a-zA-Z0-9]/g, "_");
 }
 
 const FALLBACK_POS: Position = { x: 0, y: 0 };
@@ -107,6 +114,17 @@ function addNode(
   if (ctx.nodeIds.has(node.id)) {
     throw new FlowCompileError(`Id de node compilado duplicado: "${node.id}".`, node.id);
   }
+  // O executor indexa `outputs` por id sanitizado ([^a-zA-Z0-9]→_): dois ids que
+  // diferem só por '-' vs '_' colidiriam lá e uma saída sobrescreveria a outra.
+  const sanitized = sanitizeNodeId(node.id);
+  const collision = ctx.sanitizedNodeIds.get(sanitized);
+  if (collision && collision !== node.id) {
+    throw new FlowCompileError(
+      `Ids de node colidem após a sanitização do executor: "${collision}" e "${node.id}" viram "${sanitized}".`,
+      node.id
+    );
+  }
+  ctx.sanitizedNodeIds.set(sanitized, node.id);
   ctx.nodeIds.add(node.id);
   ctx.nodes.push({
     id: node.id,
@@ -138,11 +156,21 @@ function escapeLiteral(value: string): string {
 }
 
 const TEMPLATE_REF_PATTERN = /\{\{@([^:]+):([^}]+)\}\}/g;
+// Referência a variável persistida da run ({{var.reply_<askId>}}) — sobrevive a
+// resume, ao contrário de saída de nó {{@id:...}} (ver compileCondition). O
+// executor resolve as duas em __vN antes de validar; a simulação abaixo faz o
+// mesmo para as duas.
+const VAR_REF_PATTERN = /\{\{\s*var\.[a-zA-Z0-9_.-]+\s*\}\}/g;
+
+/** Chave da variável persistida com a resposta de um "Perguntar". */
+function replyVarKey(askStepId: string): string {
+  return `reply_${askStepId}`;
+}
 
 /**
  * Valida uma expressão gerada usando o condition-validator do executor:
- * 1. preValidate na expressão original (com os templates {{@...}})
- * 2. validate na expressão transformada (templates substituídos por __vN,
+ * 1. preValidate na expressão original (com os templates {{@...}} / {{var...}})
+ * 2. validate na expressão transformada (referências substituídas por __vN,
  *    exatamente como o executor faz em runtime)
  */
 function assertValidExpression(expression: string, where: string, stepId: string): void {
@@ -154,11 +182,14 @@ function assertValidExpression(expression: string, where: string, stepId: string
     );
   }
   let counter = 0;
-  const simulated = expression.replace(TEMPLATE_REF_PATTERN, () => {
+  const toVar = (): string => {
     const name = `__v${counter}`;
     counter += 1;
     return name;
-  });
+  };
+  const simulated = expression
+    .replace(TEMPLATE_REF_PATTERN, toVar)
+    .replace(VAR_REF_PATTERN, toVar);
   const result = validateConditionExpression(simulated);
   if (!result.valid) {
     throw new FlowCompileError(
@@ -250,11 +281,23 @@ function compileWait(ctx: CompileCtx, step: Step): void {
     );
   }
 
+  // setTimeout satura acima de 2^31-1 ms (~24,86 dias): um delay maior clampa
+  // para 1ms (disparo instantâneo). A UI já limita, mas árvores importadas não —
+  // então barra no compile em vez de gerar um "aguardar" que não aguarda.
+  const delayMs = value * unit.ms;
+  const MAX_DELAY_MS = 2_147_483_647;
+  if (delayMs > MAX_DELAY_MS) {
+    throw new FlowCompileError(
+      `Passo "${step.name}": duração de ${value} ${unit.plural} excede o máximo de ~24 dias suportado pelo agendador.`,
+      step.id
+    );
+  }
+
   addNode(ctx, {
     id: step.id,
     type: "action",
     label: step.name,
-    config: { actionType: ACTION_DELAY, delayMs: value * unit.ms },
+    config: { actionType: ACTION_DELAY, delayMs },
     position: posOf(ctx, step.id),
   });
 }
@@ -304,7 +347,7 @@ function compileInteractive(
 
   const askId = step.id;
   const varId = `${step.id}__var`;
-  const variableKey = `reply_${step.id}`;
+  const variableKey = replyVarKey(step.id);
   const askPos = posOf(ctx, step.id);
 
   // Q: envia a pergunta e pausa (resume_node_id = G, o ÚNICO next).
@@ -334,8 +377,13 @@ function compileInteractive(
   addEdge(ctx, askId, varId);
 
   const ref = `{{@${varId}:${REF_LABEL_REPLY}.value}}`;
+  // Botão interativo: a resposta do WhatsApp volta EXATA (o texto do botão).
+  // Usa igualdade (===), não substring (.includes) — senão o botão "Sim" (idx 0)
+  // capturaria a resposta do botão "Sim, quero mais" (idx 1). A exclusividade
+  // && !(anteriores) fica redundante com ===, mas é inofensiva e mantém o mesmo
+  // formato das condições de texto livre.
   const bases = buttons.map(
-    ({ branch }) => `${ref}.includes("${escapeLiteral(branch.label)}")`
+    ({ branch }) => `${ref} === "${escapeLiteral(branch.label)}"`
   );
 
   // fan-out: G → C_i (mutuamente exclusivas) e G → C_else
@@ -397,14 +445,19 @@ function compileCondition(
   ctx: CompileCtx,
   step: Step,
   contHeads: string[],
-  askVarNodeId: string | null,
+  askStepId: string | null,
   compileBranchChain: (child: Step | null, convergeHeads: string[]) => string[]
 ): string[] {
-  // Referência: Get Variable do "Perguntar" mais próximo ACIMA na árvore;
-  // sem um, a mensagem do trigger (o executor injeta triggerInput.message no
-  // output do node trigger — ver triggerStep + webhook: { from, to, message }).
-  const ref = askVarNodeId
-    ? `{{@${askVarNodeId}:${REF_LABEL_REPLY}.value}}`
+  // Referência ao "Perguntar" mais próximo ACIMA na árvore: usa a VARIÁVEL
+  // persistida {{var.reply_<askId>}}, não a saída de nó {{@id:...}}. Saídas de nó
+  // começam VAZIAS a cada resume (executor roda só a partir do resumeNodeId), então
+  // uma condição avaliada após um SEGUNDO "Perguntar" perderia a resposta do
+  // primeiro. A variável, ao contrário, é persistida na conversa e restaurada via
+  // initialVariables (ver resume/route.ts + workflow-conversations).
+  // Sem "Perguntar" acima, a condição só roda na execução inicial (nunca num
+  // resume), então a saída do trigger {{@__trigger:...}} é confiável.
+  const ref = askStepId
+    ? `{{var.${replyVarKey(askStepId)}}}`
     : `{{@${TRIGGER_NODE_ID}:${REF_LABEL_TRIGGER}.message}}`;
 
   const branches = step.branches ?? [];
@@ -453,24 +506,30 @@ function compileCondition(
     connect(ctx, condId, branchHeads);
   });
 
-  // Branch None (locked): negação conjunta de todas as outras.
-  if (noneBranch) {
-    const condId = `${step.id}__cond_none`;
-    const expression = noneExpression(bases);
-    assertValidExpression(expression, `"${step.name}" / branch "None"`, step.id);
+  // Branch None: SEMPRE emitida (análogo ao __cond_else do interactive) — a
+  // negação conjunta de todas as outras. Sem ela, uma resposta que não bate em
+  // nenhuma condição bloquearia o fluxo inteiro em silêncio. Se a árvore tiver
+  // uma branch "None" explícita (locked), usa seu label/child; senão, é um
+  // fallback que segue direto pra continuação.
+  const noneId = `${step.id}__cond_none`;
+  const noneExpr = noneExpression(bases);
+  assertValidExpression(noneExpr, `"${step.name}" / branch "None"`, step.id);
+  addNode(ctx, {
+    id: noneId,
+    type: "action",
+    label: noneBranch ? noneBranch.branch.label : "Outra resposta",
+    config: { actionType: ACTION_CONDITION, condition: noneExpr },
+    position: noneBranch
+      ? branchColumnPos(ctx, step, noneBranch.index)
+      : posOf(ctx, step.id, 192),
+  });
+  heads.push(noneId);
 
-    addNode(ctx, {
-      id: condId,
-      type: "action",
-      label: noneBranch.branch.label,
-      config: { actionType: ACTION_CONDITION, condition: expression },
-      position: branchColumnPos(ctx, step, noneBranch.index),
-    });
-    heads.push(condId);
-
-    const branchHeads = compileBranchChain(noneBranch.branch.child, contHeads);
-    connect(ctx, condId, branchHeads);
-  }
+  const noneHeads = compileBranchChain(
+    noneBranch ? noneBranch.branch.child : null,
+    contHeads
+  );
+  connect(ctx, noneId, noneHeads);
 
   return heads;
 }
@@ -480,7 +539,8 @@ function compileCondition(
  *
  * @param convergeHeads heads do ponto de convergência herdado (next de um
  *   container ancestral). Cadeia vazia/aberta conecta o pai direto neles.
- * @param askVarNodeId id do Get Variable do "Perguntar" mais próximo acima.
+ * @param askStepId id do STEP "Perguntar" mais próximo acima (a resposta dele
+ *   vive em {{var.reply_<askStepId>}}); null se não houver um.
  * @returns os HEADS da cadeia — nodes que o pai deve conectar. `[]` = a cadeia
  *   termina (end) e o pai não ganha saída.
  */
@@ -488,7 +548,7 @@ function compileChain(
   ctx: CompileCtx,
   step: Step | null,
   convergeHeads: string[],
-  askVarNodeId: string | null
+  askStepId: string | null
 ): string[] {
   if (!step) return convergeHeads;
 
@@ -499,32 +559,32 @@ function compileChain(
 
     case "whatsapp": {
       compileWhatsapp(ctx, step);
-      const nextHeads = compileChain(ctx, step.next, convergeHeads, askVarNodeId);
+      const nextHeads = compileChain(ctx, step.next, convergeHeads, askStepId);
       connect(ctx, step.id, nextHeads);
       return [step.id];
     }
 
     case "wait": {
       compileWait(ctx, step);
-      const nextHeads = compileChain(ctx, step.next, convergeHeads, askVarNodeId);
+      const nextHeads = compileChain(ctx, step.next, convergeHeads, askStepId);
       connect(ctx, step.id, nextHeads);
       return [step.id];
     }
 
     case "interactive": {
-      const varId = `${step.id}__var`;
       // A continuação (next) e as branches ficam ABAIXO do Perguntar na árvore →
-      // condições dentro delas referenciam o Get Variable deste step.
-      const contHeads = compileChain(ctx, step.next, convergeHeads, varId);
+      // condições dentro delas referenciam a resposta deste step (via variável
+      // persistida {{var.reply_<step.id>}}).
+      const contHeads = compileChain(ctx, step.next, convergeHeads, step.id);
       return compileInteractive(ctx, step, contHeads, (child, heads) =>
-        compileChain(ctx, child, heads, varId)
+        compileChain(ctx, child, heads, step.id)
       );
     }
 
     case "condition": {
-      const contHeads = compileChain(ctx, step.next, convergeHeads, askVarNodeId);
-      return compileCondition(ctx, step, contHeads, askVarNodeId, (child, heads) =>
-        compileChain(ctx, child, heads, askVarNodeId)
+      const contHeads = compileChain(ctx, step.next, convergeHeads, askStepId);
+      return compileCondition(ctx, step, contHeads, askStepId, (child, heads) =>
+        compileChain(ctx, child, heads, askStepId)
       );
     }
 
@@ -565,6 +625,7 @@ export function compileFlow(flow: Flow): CompiledWorkflow {
     edges: [],
     nodeIds: new Set(),
     edgeIds: new Set(),
+    sanitizedNodeIds: new Map(),
     pos,
   };
 

@@ -169,7 +169,8 @@ type ConditionEvalResult = {
  */
 function evaluateConditionExpression(
   conditionExpression: unknown,
-  outputs: NodeOutputs
+  outputs: NodeOutputs,
+  variables: Record<string, unknown> = {}
 ): ConditionEvalResult {
   console.log("[Condition] Original expression:", conditionExpression);
 
@@ -206,6 +207,23 @@ function evaluateConditionExpression(
           );
           // Store the resolved value with a readable key (the display text from the template)
           resolvedValues[rest] = evalContext[varName];
+          return varName;
+        }
+      );
+
+      // Resolve persisted run variables {{var.<key>}} — these survive a resume
+      // (restored via initialVariables), unlike node outputs which start empty on
+      // each resume. Additive: {{@id:...}} above keeps working. Mirrors the
+      // {{var.<key>}} handling in processTemplates.
+      const varTemplatePattern = /\{\{\s*var\.([a-zA-Z0-9_.-]+)\s*\}\}/g;
+      transformedExpression = transformedExpression.replace(
+        varTemplatePattern,
+        (_match, varKey: string) => {
+          const varName = `__v${varCounter.value}`;
+          varCounter.value += 1;
+          const value = variables[varKey];
+          evalContext[varName] = value;
+          resolvedValues[`var.${varKey}`] = value;
           return varName;
         }
       );
@@ -381,7 +399,7 @@ async function executeActionStep(input: {
     >;
     const originalExpression = stepInput.condition;
     const { result: evaluatedCondition, resolvedValues } =
-      evaluateConditionExpression(originalExpression, outputs);
+      evaluateConditionExpression(originalExpression, outputs, variables);
     console.log("[Condition] Final result:", evaluatedCondition);
 
     return await runWithRetry(

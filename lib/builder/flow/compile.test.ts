@@ -111,6 +111,9 @@ function edgesTo(compiled: CompiledWorkflow, target: string): string[] {
 const SYSTEM_ACTION_TYPES = new Set([ACTION_CONDITION, ACTION_DELAY, ACTION_GET_VARIABLE, "Set Variable"]);
 
 const REF_ASK = "{{@ask__var:Resposta.value}}";
+// Condições referenciam a resposta do "Perguntar" via VARIÁVEL persistida
+// (sobrevive a resume), não a saída de nó {{@ask__var:...}} (que zera no resume).
+const REF_VAR = "{{var.reply_ask}}";
 
 // ─── Cenário principal ─────────────────────────────────────────────────────────
 
@@ -202,25 +205,27 @@ describe("compileFlow — cenário principal (keywords → whatsapp → pergunta
     const cElse = nodeById(compiled, "ask__cond_else");
 
     expect(c0.data.config.actionType).toBe(ACTION_CONDITION);
-    expect(c0.data.config.condition).toBe(`${REF_ASK}.includes("Vendas")`);
+    // Botão interativo casa por igualdade EXATA (===), não substring — a resposta
+    // do WhatsApp volta com o texto exato do botão.
+    expect(c0.data.config.condition).toBe(`${REF_ASK} === "Vendas"`);
 
     // Exclusividade: cada C_i nega os anteriores via &&
     expect(c1.data.config.condition).toBe(
-      `${REF_ASK}.includes("Suporte") && !(${REF_ASK}.includes("Vendas"))`
+      `${REF_ASK} === "Suporte" && !(${REF_ASK} === "Vendas")`
     );
 
     // Branch else = negação de todas
     expect(cElse.data.config.condition).toBe(
-      `!(${REF_ASK}.includes("Vendas")) && !(${REF_ASK}.includes("Suporte"))`
+      `!(${REF_ASK} === "Vendas") && !(${REF_ASK} === "Suporte")`
     );
   });
 
-  it("condição usa o Get Variable do Perguntar mais próximo acima como referência", () => {
+  it("condição referencia a resposta do Perguntar mais próximo acima via variável persistida", () => {
     const c0 = nodeById(compiled, "cond__cond_0");
     const cNone = nodeById(compiled, "cond__cond_none");
 
-    expect(c0.data.config.condition).toBe(`${REF_ASK}.includes("urgente")`);
-    expect(cNone.data.config.condition).toBe(`!(${REF_ASK}.includes("urgente"))`);
+    expect(c0.data.config.condition).toBe(`${REF_VAR}.includes("urgente")`);
+    expect(cNone.data.config.condition).toBe(`!(${REF_VAR}.includes("urgente"))`);
   });
 
   it("convergência: caudas das branches apontam para a continuação comum", () => {
@@ -472,7 +477,10 @@ describe("compileFlow — erros claros", () => {
     expect(() => compileFlow(makeFlow(ask))).toThrow(/Not Delivered/);
   });
 
-  it("label de botão que quebra a whitelist do condition-validator falha na compilação", () => {
+  it("label de botão com conteúdo perigoso vira DADO inerte (escapeLiteral impede breakout), não código", () => {
+    // O condition-validator trata o conteúdo entre aspas como dados opacos; e
+    // escapeLiteral escapa " e \\, então é impossível quebrar pra fora do literal.
+    // Um label assim compila e vira uma comparação de string 100% inofensiva.
     const ask: Step = {
       id: "ask",
       type: "interactive",
@@ -480,12 +488,16 @@ describe("compileFlow — erros claros", () => {
       config: { message: "Escolha:" },
       next: null,
       branches: [
-        branch("b1", 'Sim; process.exit()', null),
+        branch("b1", 'Sim"; process.exit(); "', null),
         branch("b2", "Not Delivered", null, { locked: true }),
         branch("b3", "Timeout", null, { locked: true }),
       ],
     };
-    expect(() => compileFlow(makeFlow(ask))).toThrow(FlowCompileError);
+    const compiled = compileFlow(makeFlow(ask));
+    // O " do label é escapado (\"), preso dentro da string — não executa nada.
+    expect(nodeById(compiled, "ask__cond_0").data.config.condition).toBe(
+      `${REF_ASK} === "Sim\\"; process.exit(); \\""`
+    );
   });
 
   it("árvore inválida (ids duplicados) falha antes de compilar", () => {
@@ -562,5 +574,189 @@ describe("validateTree", () => {
     };
     const result = validateTree(makeFlow(whatsapp("w1", "oi", goTo)));
     expect(result.valid).toBe(true);
+  });
+});
+
+// ─── Regressões de bugs confirmados ──────────────────────────────────────────
+
+describe("compileFlow — regressões de bugs", () => {
+  /** Interactive com N botões (branches não-locked, sem continuação própria). */
+  function interactive(id: string, labels: string[], next: Step | null = null): Step {
+    return {
+      id,
+      type: "interactive",
+      name: `Ask ${id}`,
+      config: { message: "?" },
+      next,
+      branches: labels.map((label, i) => branch(`${id}-b${i}`, label, null)),
+    };
+  }
+
+  /** Resolve {{@id:...}} e {{var.x}} pro mesmo valor e AVALIA a expressão. */
+  function resolveAndEval(condition: string, replyValue: string): boolean {
+    let counter = 0;
+    const ctx: Record<string, unknown> = {};
+    const bind = (): string => {
+      const name = `__v${counter}`;
+      counter += 1;
+      ctx[name] = replyValue;
+      return name;
+    };
+    const transformed = condition
+      .replace(/\{\{@([^:]+):([^}]+)\}\}/g, bind)
+      .replace(/\{\{\s*var\.[a-zA-Z0-9_.-]+\s*\}\}/g, bind);
+    // Espelha o new Function do executor, sobre uma expressão já validada.
+    const fn = new Function(...Object.keys(ctx), `return (${transformed});`);
+    return Boolean(fn(...Object.values(ctx)));
+  }
+
+  // ── #1: botão interativo casa por igualdade EXATA (não substring) ──────────
+  it("#1 botão 'Sim' NÃO captura a resposta do botão 'Simon' (igualdade exata, não substring)", () => {
+    const compiled = compileFlow(makeFlow(interactive("ask", ["Sim", "Simon"])));
+    const c0 = String(nodeById(compiled, "ask__cond_0").data.config.condition);
+    const c1 = String(nodeById(compiled, "ask__cond_1").data.config.condition);
+
+    // Resposta exata do botão longo: só a branch dele dispara (antes do fix, o
+    // .includes("Sim") de c0 disparava errado em "Simon").
+    expect(resolveAndEval(c0, "Simon")).toBe(false);
+    expect(resolveAndEval(c1, "Simon")).toBe(true);
+    // Resposta do botão curto continua indo pra branch certa.
+    expect(resolveAndEval(c0, "Sim")).toBe(true);
+    expect(resolveAndEval(c1, "Sim")).toBe(false);
+  });
+
+  it("#1+#6 rótulo de botão com vírgula compila e roteia certo ('Sim' vs 'Sim, quero mais')", () => {
+    const compiled = compileFlow(makeFlow(interactive("ask", ["Sim", "Sim, quero mais"])));
+    const c0 = String(nodeById(compiled, "ask__cond_0").data.config.condition);
+    const c1 = String(nodeById(compiled, "ask__cond_1").data.config.condition);
+
+    expect(resolveAndEval(c0, "Sim, quero mais")).toBe(false);
+    expect(resolveAndEval(c1, "Sim, quero mais")).toBe(true);
+  });
+
+  // ── #2: rótulos/valores de 3+ palavras (tokenização do validator) ──────────
+  it("#2 rótulo de botão com 3+ palavras compila (não vira 'identificador não autorizado')", () => {
+    const labels = ["Quero saber mais", "Falar com atendente", "Ver meus pedidos"];
+    expect(() => compileFlow(makeFlow(interactive("ask", labels)))).not.toThrow();
+  });
+
+  it("#2 valor de condição com 3+ palavras compila", () => {
+    const cond: Step = {
+      id: "c1",
+      type: "condition",
+      name: "Triagem",
+      config: {},
+      next: null,
+      branches: [
+        branch("b1", "Interesse", null, { operator: "contains", value: "quero saber mais" }),
+        branch("b2", "None", null, { locked: true }),
+      ],
+    };
+    expect(() => compileFlow(makeFlow(cond))).not.toThrow();
+    expect(nodeById(compileFlow(makeFlow(cond)), "c1__cond_0").data.config.condition).toBe(
+      `{{@${TRIGGER_NODE_ID}:Gatilho.message}}.includes("quero saber mais")`
+    );
+  });
+
+  // ── #3: rótulos que contêm document/process/import ─────────────────────────
+  it("#3 rótulos 'Documento'/'Processo'/'Importante' compilam (não confundidos com keyword de código)", () => {
+    const labels = ["Documento", "Processo", "Importante"];
+    expect(() => compileFlow(makeFlow(interactive("ask", labels)))).not.toThrow();
+  });
+
+  // ── #6: emoticon ":)" (parêntese solto dentro de string) ───────────────────
+  it("#6 emoticon ':)' em valor de condição compila (parêntese desbalanceado é só dado)", () => {
+    const cond: Step = {
+      id: "c1",
+      type: "condition",
+      name: "Humor",
+      config: {},
+      next: null,
+      branches: [
+        branch("b1", "Feliz", null, { operator: "contains", value: "obrigado :)" }),
+        branch("b2", "None", null, { locked: true }),
+      ],
+    };
+    const compiled = compileFlow(makeFlow(cond));
+    expect(nodeById(compiled, "c1__cond_0").data.config.condition).toBe(
+      `{{@${TRIGGER_NODE_ID}:Gatilho.message}}.includes("obrigado :)")`
+    );
+  });
+
+  it("#6 emoticon ':)' em rótulo de botão compila", () => {
+    expect(() => compileFlow(makeFlow(interactive("ask", ["obrigado :)", "não"])))).not.toThrow();
+  });
+
+  // ── #4: condição referencia a resposta de um Perguntar ANTERIOR ────────────
+  it("#4 condição após um SEGUNDO Perguntar referencia a resposta do PRIMEIRO via {{var.reply_ask1}} (sobrevive ao resume)", () => {
+    // ask1 → (botão A) → ask2 → converge; ask1.next = cond que olha a resposta de ask1.
+    // Quando o resume é disparado por ask2, a saída de nó de ask1 já estaria vazia —
+    // por isso a condição precisa referenciar a VARIÁVEL persistida, não o nó.
+    const ask2 = interactive("ask2", ["ok", "não"]);
+    const cond: Step = {
+      id: "cond",
+      type: "condition",
+      name: "Checa ask1",
+      config: {},
+      next: null,
+      branches: [
+        branch("cb1", "Sim", null, { operator: "contains", value: "sim" }),
+        branch("cb2", "None", null, { locked: true }),
+      ],
+    };
+    const ask1: Step = {
+      id: "ask1",
+      type: "interactive",
+      name: "Ask 1",
+      config: { message: "?" },
+      next: cond,
+      branches: [branch("a1", "A", ask2), branch("a2", "B", null)],
+    };
+    const compiled = compileFlow(makeFlow(ask1));
+    const condStr = String(nodeById(compiled, "cond__cond_0").data.config.condition);
+
+    expect(condStr).toContain("{{var.reply_ask1}}");
+    expect(condStr).not.toContain("@ask1__var");
+    expect(
+      validateWorkflowSchema({ nodes: compiled.nodes, edges: compiled.edges }).success
+    ).toBe(true);
+  });
+
+  // ── #5: wait acima do teto do setTimeout (2^31-1 ms) ───────────────────────
+  it("#5 wait de 30 dias estoura o teto do agendador e falha na compilação", () => {
+    const wait: Step = {
+      id: "w",
+      type: "wait",
+      name: "Espera longa",
+      config: { mode: "duration", value: 30, unit: "days" },
+      next: null,
+    };
+    expect(() => compileFlow(makeFlow(wait))).toThrow(FlowCompileError);
+    expect(() => compileFlow(makeFlow(wait))).toThrow(/excede o máximo/);
+  });
+
+  // ── #7: colisão de ids após a sanitização do executor ──────────────────────
+  it("#7 ids que só diferem por '-' vs '_' colidem após sanitização do executor e falham", () => {
+    const flow = makeFlow(whatsapp("a-b", "x", whatsapp("a_b", "y")));
+    expect(() => compileFlow(flow)).toThrow(FlowCompileError);
+    expect(() => compileFlow(flow)).toThrow(/sanitiza/);
+  });
+
+  // ── #8: condição sem branch None ganha fallback __cond_none ─────────────────
+  it("#8 condição sem branch None ganha fallback __cond_none que segue pra continuação", () => {
+    const cont = whatsapp("cont", "continua");
+    const cond: Step = {
+      id: "c1",
+      type: "condition",
+      name: "Sem None",
+      config: {},
+      next: cont,
+      branches: [branch("b1", "Tem oi", null, { operator: "contains", value: "oi" })],
+    };
+    const compiled = compileFlow(makeFlow(cond));
+
+    expect(compiled.nodes.some((n) => n.id === "c1__cond_none")).toBe(true);
+    // Sem o fallback, uma resposta que não bate na condição travaria o fluxo.
+    expect(edgesFrom(compiled, "c1__cond_none")).toEqual(["cont"]);
   });
 });

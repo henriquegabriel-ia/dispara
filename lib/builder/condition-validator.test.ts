@@ -528,6 +528,83 @@ describe('preValidateConditionExpression', () => {
   })
 })
 
+// ─── Masking de literais de string: código vs dados (bugs #2/#3/#6) ──────────
+
+describe('validateConditionExpression — conteúdo de string é DADO opaco', () => {
+  it('aceita literal com 3+ palavras (não vira identificador não autorizado) [#2]', () => {
+    expect(validateConditionExpression('__v0.includes("Quero saber mais")')).toEqual({ valid: true })
+    expect(validateConditionExpression('__v0 === "Falar com atendente"')).toEqual({ valid: true })
+  })
+
+  it('aceita literal com vírgula [#1/#6]', () => {
+    expect(validateConditionExpression('__v0 === "Sim, quero mais"')).toEqual({ valid: true })
+  })
+
+  it('aceita literal com parêntese solto — emoticon ":)" [#6]', () => {
+    expect(validateConditionExpression('__v0.includes("obrigado :)")')).toEqual({ valid: true })
+  })
+
+  it('aceita literal com ponto e vírgula [#6]', () => {
+    expect(validateConditionExpression('__v0 === "primeiro; segundo"')).toEqual({ valid: true })
+  })
+
+  it('aceita literal contendo process/document/import [#3]', () => {
+    expect(validateConditionExpression('__v0.includes("Processo")')).toEqual({ valid: true })
+    expect(validateConditionExpression('__v0.includes("Documento")')).toEqual({ valid: true })
+    expect(validateConditionExpression('__v0 === "Importante"')).toEqual({ valid: true })
+  })
+
+  it('aceita literal com sinal de igual', () => {
+    expect(validateConditionExpression('__v0.includes("a=b")')).toEqual({ valid: true })
+  })
+
+  it('aceita {{var.key}} substituído por __vN (referência permitida) [#4]', () => {
+    // O executor troca {{var.reply_x}} por __vN antes de validar.
+    expect(validateConditionExpression('__v0.includes("urgente")')).toEqual({ valid: true })
+  })
+})
+
+describe('validateConditionExpression — ainda barra CÓDIGO fora das aspas', () => {
+  it('rejeita ponto e vírgula fora de string', () => {
+    expect(validateConditionExpression("__v0 === 'a'; __v1 === 'b'").valid).toBe(false)
+  })
+
+  it('rejeita eval() mesmo com argumento string mascarado', () => {
+    expect(validateConditionExpression("eval('x')").valid).toBe(false)
+  })
+
+  it('rejeita identificador desconhecido fora de string', () => {
+    const result = validateConditionExpression('foo === "bar"')
+    expect(result.valid).toBe(false)
+    expect((result as { error: string }).error).toContain('Unknown identifier')
+  })
+
+  it('rejeita template literal com ${} — crase NÃO é mascarada', () => {
+    expect(validateConditionExpression('`x ${__v0}`').valid).toBe(false)
+  })
+
+  it('rejeita atribuição fora de string', () => {
+    expect(validateConditionExpression('__v0 = "x"').valid).toBe(false)
+  })
+
+  it('rejeita vírgula fora de string', () => {
+    expect(validateConditionExpression('__v0, __v1').valid).toBe(false)
+  })
+})
+
+describe('preValidateConditionExpression — keyword só conta como CÓDIGO (fora das aspas)', () => {
+  it('aceita "Documento"/"Processo"/"Importante" dentro de string [#3]', () => {
+    expect(preValidateConditionExpression('{{@n:L.f}}.includes("Documento")')).toEqual({ valid: true })
+    expect(preValidateConditionExpression('{{@n:L.f}}.includes("Processo")')).toEqual({ valid: true })
+    expect(preValidateConditionExpression('{{@n:L.f}} === "Importante"')).toEqual({ valid: true })
+  })
+
+  it('ainda rejeita a keyword usada como código (fora das aspas)', () => {
+    expect(preValidateConditionExpression('process.env').valid).toBe(false)
+    expect(preValidateConditionExpression('eval("x")').valid).toBe(false)
+  })
+})
+
 // ─── sanitizeForDisplay ──────────────────────────────────────────────────────
 
 describe('sanitizeForDisplay', () => {

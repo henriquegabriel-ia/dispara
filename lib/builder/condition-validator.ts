@@ -102,6 +102,53 @@ export type ValidationResult =
   | { valid: false; error: string };
 
 /**
+ * Mascara o CONTEÚDO dos literais de string ('...' e "..."), preservando as
+ * aspas e toda a ESTRUTURA do código. As checagens deste módulo (dangerous
+ * patterns, method calls, parênteses, identificadores, keywords) devem validar
+ * CÓDIGO, não os dados opacos que o usuário digita dentro das aspas — senão um
+ * rótulo/valor como "Quero saber mais" (3 palavras), "Documento"/"Processo"
+ * (contêm document/process) ou "obrigado :)" (parêntese solto) derruba a
+ * validação por engano.
+ *
+ * Segurança: só afeta o que está DENTRO de aspas simples/duplas — conteúdo de
+ * string é inerte (não executa). Template literals com crase NÃO são mascarados
+ * DE PROPÓSITO, para que o padrão perigoso `${...}` continue detectável. O
+ * scanner respeita escapes (\\ e \") ao localizar o fim do literal, então
+ * localiza as fronteiras da string exatamente como o parser JS — é impossível
+ * "esconder" código executável fora das aspas.
+ */
+function maskStringLiterals(expression: string): string {
+  let result = "";
+  let i = 0;
+  const len = expression.length;
+  while (i < len) {
+    const char = expression[i];
+    if (char === '"' || char === "'") {
+      const quote = char;
+      i += 1;
+      while (i < len) {
+        const inner = expression[i];
+        if (inner === "\\") {
+          i += 2; // pula o caractere escapado (faz parte dos dados)
+          continue;
+        }
+        if (inner === quote) {
+          break;
+        }
+        i += 1;
+      }
+      // Literal vazio: mantém a estrutura (aspas na mesma posição), some com os dados.
+      result += `${quote}${quote}`;
+      i += 1; // consome a aspa de fechamento (ou passa do fim, se não fechada)
+    } else {
+      result += char;
+      i += 1;
+    }
+  }
+  return result;
+}
+
+/**
  * Check for dangerous patterns in the expression
  */
 function checkDangerousPatterns(expression: string): ValidationResult {
@@ -282,32 +329,36 @@ export function validateConditionExpression(
     return { valid: false, error: "Condition expression cannot be empty" };
   }
 
+  // Valida CÓDIGO como código: mascara o conteúdo dos literais de string (dados
+  // do usuário) antes de qualquer checagem estrutural. Ver maskStringLiterals.
+  const masked = maskStringLiterals(expression);
+
   // Check for dangerous patterns
-  const dangerousCheck = checkDangerousPatterns(expression);
+  const dangerousCheck = checkDangerousPatterns(masked);
   if (!dangerousCheck.valid) {
     return dangerousCheck;
   }
 
   // Check bracket expressions (array access vs array literals)
-  const bracketCheck = checkBracketExpressions(expression);
+  const bracketCheck = checkBracketExpressions(masked);
   if (!bracketCheck.valid) {
     return bracketCheck;
   }
 
   // Check method calls are allowed
-  const methodCheck = checkMethodCalls(expression);
+  const methodCheck = checkMethodCalls(masked);
   if (!methodCheck.valid) {
     return methodCheck;
   }
 
   // Validate balanced parentheses
-  const parenCheck = checkParentheses(expression);
+  const parenCheck = checkParentheses(masked);
   if (!parenCheck.valid) {
     return parenCheck;
   }
 
   // Check for unauthorized identifiers
-  const identifierCheck = checkUnauthorizedIdentifiers(expression);
+  const identifierCheck = checkUnauthorizedIdentifiers(masked);
   if (!identifierCheck.valid) {
     return identifierCheck;
   }
@@ -341,7 +392,10 @@ export function preValidateConditionExpression(
     "prototype",
   ];
 
-  const lowerExpression = expression.toLowerCase();
+  // Mascara literais de string antes de procurar keywords perigosas — senão um
+  // rótulo/valor como "Documento", "Processo" ou "Importante" (dados do usuário)
+  // seria confundido com document/process/import (código). Ver maskStringLiterals.
+  const lowerExpression = maskStringLiterals(expression).toLowerCase();
   for (const keyword of dangerousKeywords) {
     if (lowerExpression.includes(keyword.toLowerCase())) {
       return {
