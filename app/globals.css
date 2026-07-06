@@ -1126,8 +1126,12 @@ textarea:focus-visible {
   color-scheme: dark;
 }
 
-/* Rain effect background */
-.br-rain-container {
+/* ============================================================
+   Fundo corporativo do install wizard
+   (substitui a antiga "chuva matrix" — visual sóbrio, on-brand:
+   grade sutil + auroras emerald com deriva lenta + vinheta)
+   ============================================================ */
+.corp-bg {
   position: absolute;
   inset: 0;
   overflow: hidden;
@@ -1135,45 +1139,75 @@ textarea:focus-visible {
   z-index: 0;
 }
 
-.br-rain-drop {
+/* Grade técnica discreta, com fade radial para as bordas sumirem */
+.corp-grid {
   position: absolute;
-  width: 1px;
-  background: linear-gradient(to bottom, transparent, var(--br-neon-cyan), transparent);
-  opacity: 0.3;
-  animation: br-rain-fall linear infinite;
+  inset: -2px;
+  background-image:
+    linear-gradient(to right, rgba(148, 163, 184, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(148, 163, 184, 0.05) 1px, transparent 1px);
+  background-size: 48px 48px;
+  -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 38%, #000 28%, transparent 100%);
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 38%, #000 28%, transparent 100%);
 }
 
-@keyframes br-rain-fall {
-  0% {
-    transform: translateY(-100%);
-  }
-  100% {
-    transform: translateY(100vh);
-  }
+/* Auroras emerald: blobs desfocados que derivam devagar (respiração) */
+.corp-aurora {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(90px);
+  opacity: 0.16;
+  will-change: transform, opacity;
+}
+.corp-aurora-1 {
+  width: 520px;
+  height: 520px;
+  margin-left: -260px;
+  top: -170px;
+  left: 50%;
+  background: radial-gradient(circle, rgba(16, 185, 129, 0.5), transparent 70%);
+  animation: corp-drift-1 26s ease-in-out infinite;
+}
+.corp-aurora-2 {
+  width: 440px;
+  height: 440px;
+  right: -80px;
+  bottom: -150px;
+  background: radial-gradient(circle, rgba(52, 211, 153, 0.35), transparent 70%);
+  animation: corp-drift-2 32s ease-in-out infinite;
+}
+.corp-aurora-3 {
+  width: 360px;
+  height: 360px;
+  left: -130px;
+  bottom: 8%;
+  background: radial-gradient(circle, rgba(13, 148, 136, 0.3), transparent 70%);
+  animation: corp-drift-3 30s ease-in-out infinite;
 }
 
-/* Scanlines overlay */
-.br-scanlines {
+@keyframes corp-drift-1 {
+  0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.14; }
+  50% { transform: translate(40px, 30px) scale(1.08); opacity: 0.2; }
+}
+@keyframes corp-drift-2 {
+  0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.12; }
+  50% { transform: translate(-50px, -22px) scale(1.1); opacity: 0.18; }
+}
+@keyframes corp-drift-3 {
+  0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.1; }
+  50% { transform: translate(28px, -30px) scale(1.06); opacity: 0.16; }
+}
+
+/* Vinheta suave para dar foco ao card central */
+.corp-vignette {
   position: absolute;
   inset: 0;
-  pointer-events: none;
-  z-index: 1;
-  background: repeating-linear-gradient(
-    0deg,
-    transparent,
-    transparent 2px,
-    rgba(16, 185, 129, 0.02) 2px,
-    rgba(16, 185, 129, 0.02) 4px
-  );
-  animation: br-scanline-scroll 30s linear infinite;
+  background: radial-gradient(ellipse 100% 80% at 50% 40%, transparent 55%, rgba(3, 7, 18, 0.6) 100%);
 }
 
-@keyframes br-scanline-scroll {
-  0% {
-    background-position: 0 0;
-  }
-  100% {
-    background-position: 0 100px;
+@media (prefers-reduced-motion: reduce) {
+  .corp-aurora {
+    animation: none !important;
   }
 }
 

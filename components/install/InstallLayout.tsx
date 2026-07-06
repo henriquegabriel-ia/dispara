@@ -3,7 +3,7 @@
 import { motion } from 'framer-motion';
 import { ReactNode, useEffect, useRef, useCallback } from 'react';
 import { StepDots } from './StepDots';
-import { RainEffect } from './RainEffect';
+import { CorporateBackground } from './CorporateBackground';
 import { cn } from '@/lib/utils';
 import { startAmbient, stopAmbient } from '@/hooks/useSoundFX';
 
@@ -18,7 +18,7 @@ interface InstallLayoutProps {
 
 /**
  * Layout principal do wizard de instalação.
- * Tema: Blade Runner - cyberpunk noir com chuva digital.
+ * Visual corporativo, dark, on-brand (emerald): grade sutil + auroras + vinheta.
  */
 export function InstallLayout({
   children,
@@ -57,19 +57,8 @@ export function InstallLayout({
         className
       )}
     >
-      {/* Rain effect */}
-      <RainEffect dropCount={60} />
-
-      {/* Scanlines overlay */}
-      <div className="br-scanlines" />
-
-      {/* Ambient glow */}
-      <div className="absolute inset-0 pointer-events-none">
-        {/* Top cyan glow */}
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-[var(--br-neon-cyan)] opacity-[0.03] rounded-full blur-[100px]" />
-        {/* Bottom magenta glow */}
-        <div className="absolute bottom-0 right-0 w-[600px] h-[300px] bg-[var(--br-neon-magenta)] opacity-[0.02] rounded-full blur-[80px]" />
-      </div>
+      {/* Fundo corporativo (grade + auroras emerald + vinheta) */}
+      <CorporateBackground />
 
       {/* Content */}
       <div className="relative z-10 w-full max-w-md flex flex-col items-center">

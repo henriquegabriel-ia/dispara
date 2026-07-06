@@ -13,6 +13,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Palette } from 'lucide-react';
 import { toast } from 'sonner';
 import { SectionHeader } from '@/components/ui/section-header';
+import { LogoUploader } from '@/components/brand/LogoUploader';
 
 interface BrandSettings {
   name: string;
@@ -111,35 +112,25 @@ export function BrandPanel() {
         <div className="h-24 rounded-xl bg-[var(--ds-bg-elevated)] animate-pulse" />
       ) : (
         <div className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-[var(--ds-text-primary)] mb-2">
-                Nome da marca
-              </label>
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Ex: Minha Empresa"
-                className="w-full px-4 py-3 bg-[var(--ds-bg-elevated)] border border-[var(--ds-border-default)] rounded-xl focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500/50 outline-none text-sm text-[var(--ds-text-primary)] transition-all"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-[var(--ds-text-primary)] mb-2">
-                URL do logo (opcional)
-              </label>
-              <input
-                type="url"
-                value={logoUrl}
-                onChange={(e) => setLogoUrl(e.target.value)}
-                placeholder="https://exemplo.com/logo.svg"
-                className="w-full px-4 py-3 bg-[var(--ds-bg-elevated)] border border-[var(--ds-border-default)] rounded-xl focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500/50 outline-none text-sm text-[var(--ds-text-primary)] transition-all"
-              />
-              <p className="mt-1 text-xs text-[var(--ds-text-muted)]">
-                Vazio = logo padrão ({DEFAULT_LOGO})
-              </p>
-            </div>
+          <div>
+            <label className="block text-sm font-medium text-[var(--ds-text-primary)] mb-2">
+              Nome da marca
+            </label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Ex: Minha Empresa"
+              className="w-full px-4 py-3 bg-[var(--ds-bg-elevated)] border border-[var(--ds-border-default)] rounded-xl focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500/50 outline-none text-sm text-[var(--ds-text-primary)] transition-all"
+            />
           </div>
+
+          <LogoUploader
+            value={logoUrl}
+            onChange={setLogoUrl}
+            variant="settings"
+            label="Logo (opcional)"
+          />
 
           <div>
             <label className="block text-sm font-medium text-[var(--ds-text-primary)] mb-2">

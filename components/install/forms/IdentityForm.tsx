@@ -2,9 +2,10 @@
 
 import { useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { User, Mail, Lock, Eye, EyeOff, Sparkles, Image as ImageIcon, Palette } from 'lucide-react';
+import { User, Mail, Lock, Eye, EyeOff, Sparkles, Palette } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { LogoUploader } from '@/components/brand/LogoUploader';
 import { isValidEmail, VALIDATION } from '@/lib/installer/types';
 import type { FormProps } from './types';
 
@@ -241,25 +242,13 @@ export function IdentityForm({ data, onComplete }: FormProps) {
         )}
       </div>
 
-      {/* Whitelabel: Logo (opcional) */}
-      <div>
-        <label className="block text-xs font-mono text-[var(--br-muted-cyan)] mb-2 uppercase tracking-wider">
-          {'>'} URL do logo (opcional)
-        </label>
-        <div className="relative">
-          <ImageIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--br-dust-gray)]" />
-          <input
-            type="url"
-            value={brandLogoUrl}
-            onChange={(e) => setBrandLogoUrl(e.target.value)}
-            placeholder="https://exemplo.com/logo.svg"
-            className={inputClass}
-          />
-        </div>
-        <p className="mt-1 text-[10px] font-mono text-[var(--br-dust-gray)]">
-          Vazio = logo padrão do Dispara
-        </p>
-      </div>
+      {/* Whitelabel: Logo (opcional) — upload de imagem ou URL */}
+      <LogoUploader
+        value={brandLogoUrl}
+        onChange={setBrandLogoUrl}
+        variant="installer"
+        label="Logo (opcional)"
+      />
 
       {/* Whitelabel: Cor primária (opcional) */}
       <div>
