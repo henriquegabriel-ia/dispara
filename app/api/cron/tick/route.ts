@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifyCronRequest, cronUnauthorizedResponse } from '@/lib/cron-auth'
 import { isSupabaseConfigured } from '@/lib/supabase'
 import { reconcilePendingStatusEvents } from '@/lib/whatsapp-status-events'
+import { drainScheduledCampaigns } from '@/lib/cron/scheduled-campaigns'
 
 /**
  * Endpoint-relógio do Dispara.
@@ -30,6 +31,17 @@ async function handle(request: NextRequest) {
   const ran: Array<{ task: string; result: unknown }> = []
 
   if (isSupabaseConfigured()) {
+    // Fase C: dispara campanhas agendadas vencidas (claim atômico + dispatch).
+    try {
+      const result = await drainScheduledCampaigns()
+      ran.push({ task: 'scheduled-campaigns', result })
+    } catch (e) {
+      ran.push({
+        task: 'scheduled-campaigns',
+        result: { error: e instanceof Error ? e.message : String(e) },
+      })
+    }
+
     // Fase B: reconcile de eventos de status de webhook pendentes (unmatched/error).
     // Substitui o retry de 60s que o QStash fazia — best-effort, nunca derruba o tick.
     try {

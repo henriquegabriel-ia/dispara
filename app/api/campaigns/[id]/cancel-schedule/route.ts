@@ -1,14 +1,7 @@
 import { NextResponse } from 'next/server'
-import { Client as QStashClient } from '@upstash/qstash'
 import { supabase } from '@/lib/supabase'
 import { campaignDb } from '@/lib/supabase-db'
 import { CampaignStatus } from '@/types'
-
-// Registry in-memory (dev-only) for localhost scheduling.
-// QStash cannot reach localhost, então usamos um setTimeout em dev.
-const localScheduleRegistry: Map<string, NodeJS.Timeout> =
-  (globalThis as any).__disparaLocalScheduleRegistry
-  || ((globalThis as any).__disparaLocalScheduleRegistry = new Map<string, NodeJS.Timeout>())
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -19,11 +12,12 @@ interface Params {
 
 /**
  * POST /api/campaigns/[id]/cancel-schedule
- * Cancela o agendamento (one-shot) no QStash e volta a campanha para Rascunho.
+ * Cancela o agendamento de uma campanha e volta para Rascunho.
  *
- * Regras:
- * - Só faz sentido para campanhas em status SCHEDULED.
- * - É idempotente: se não houver messageId, apenas limpa o scheduledAt.
+ * Migração QStash→pg_cron (Fase C): 100% Postgres, sem QStash. O cancelamento é um
+ * UPDATE condicional (status='Agendado' → 'Rascunho'). Se o relógio já flipou a
+ * campanha para 'Enviando' entre a leitura e o update, o cancel perde a corrida e
+ * responde 409 — nunca cancela uma campanha que já começou a disparar.
  */
 export async function POST(_request: Request, { params }: Params) {
   try {
@@ -31,7 +25,7 @@ export async function POST(_request: Request, { params }: Params) {
 
     const { data: row, error } = await supabase
       .from('campaigns')
-      .select('id, status, scheduled_date, qstash_schedule_message_id')
+      .select('id, status')
       .eq('id', id)
       .single()
 
@@ -39,49 +33,29 @@ export async function POST(_request: Request, { params }: Params) {
       return NextResponse.json({ error: 'Campanha não encontrada' }, { status: 404 })
     }
 
-    // Prevent cancel after start
-    if (row.status !== CampaignStatus.SCHEDULED) {
+    // Claim atômico: só reverte se ainda estiver agendada. O WHERE status='Agendado'
+    // é a garantia contra cancelar uma campanha que o cron já iniciou.
+    const { data: won, error: updErr } = await supabase
+      .from('campaigns')
+      .update({
+        status: CampaignStatus.DRAFT,
+        scheduled_date: null,
+        started_at: null,
+        completed_at: null,
+      })
+      .eq('id', id)
+      .eq('status', CampaignStatus.SCHEDULED)
+      .select('id')
+      .maybeSingle()
+
+    if (updErr) throw updErr
+
+    if (!won) {
       return NextResponse.json(
         { error: 'Só é possível cancelar campanhas agendadas', status: row.status },
         { status: 409 }
       )
     }
-
-    const messageId = (row as any).qstash_schedule_message_id as string | null
-
-    // Also cancel local in-process schedule (dev-only) if present.
-    if (process.env.NODE_ENV === 'development' && row.scheduled_date) {
-      try {
-        const scheduledAtIso = new Date(row.scheduled_date as any).toISOString()
-        const key = `schedule:${id}:${scheduledAtIso}`
-        const t = localScheduleRegistry.get(key)
-        if (t) clearTimeout(t)
-        localScheduleRegistry.delete(key)
-      } catch (e) {
-        console.warn('[CancelSchedule] Failed to cancel local scheduler (best-effort):', e)
-      }
-    }
-
-    // Best-effort cancel in QStash
-    if (messageId && process.env.QSTASH_TOKEN) {
-      try {
-        const qstash = new QStashClient({ token: process.env.QSTASH_TOKEN })
-        await qstash.messages.delete(messageId)
-      } catch (e) {
-        // If already executed or not found, we still proceed to clear DB.
-        console.warn('[CancelSchedule] Failed to cancel QStash message (best-effort):', e)
-      }
-    }
-
-    // Clear schedule fields and revert to draft
-    await campaignDb.updateStatus(id, {
-      status: CampaignStatus.DRAFT,
-      scheduledAt: null,
-      qstashScheduleMessageId: null,
-      qstashScheduleEnqueuedAt: null,
-      startedAt: null,
-      completedAt: null,
-    })
 
     const updated = await campaignDb.getById(id)
     return NextResponse.json({ ok: true, campaign: updated })
