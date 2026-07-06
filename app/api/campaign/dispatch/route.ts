@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { Client } from '@upstash/workflow'
+import { reinvokeSelf } from '@/lib/self-invoke'
 import { getWhatsAppCredentials } from '@/lib/whatsapp-credentials'
 import { supabase } from '@/lib/supabase'
 import { templateDb } from '@/lib/supabase-db'
@@ -1042,57 +1042,55 @@ export async function POST(request: NextRequest) {
       workflowPayload.abTemplateSnapshotB = abTemplateSnapshotB
     }
 
-    // BYPASS apenas em localhost REAL (dev local) - nunca em Vercel (preview ou prod)
-    // Vercel sempre tem VERCEL_ENV definido, então se existir, estamos na cloud
+    // Vercel sempre tem VERCEL_ENV definido; se existir, estamos na cloud.
     const isVercelCloud = Boolean(process.env.VERCEL_ENV || process.env.VERCEL)
-    const shouldBypassQstash = isLocalhost && !isVercelCloud
 
-    console.log(`[Dispatch] QStash decision: isLocalhost=${isLocalhost}, isVercelCloud=${isVercelCloud}, shouldBypass=${shouldBypassQstash}`)
+    // Fase F (migração QStash→pg_cron): marca SENDING ANTES de disparar, para que o sweeper
+    // do pg_cron recupere a campanha caso a chamada fire-and-forget se perca (o sweeper busca
+    // campanhas SENDING com pending). O init do drenador reafirma SENDING (idempotente).
+    try {
+      const nowSending = new Date().toISOString()
+      await supabase
+        .from('campaigns')
+        .update({ status: CampaignStatus.SENDING, started_at: nowSending, updated_at: nowSending })
+        .eq('id', campaignId)
+        .in('status', [CampaignStatus.DRAFT, CampaignStatus.SCHEDULED, CampaignStatus.SENDING])
+    } catch (e) {
+      console.warn('[Dispatch] Falha ao marcar SENDING antes do disparo (best-effort):', e)
+    }
 
-    if (shouldBypassQstash) {
-      // DEV LOCAL: Call workflow endpoint directly (QStash can't reach localhost)
-      console.log('[Dispatch] Dev LOCAL direct call - bypassing QStash (localhost only)')
+    // Payload enxuto: NÃO mandamos a lista de contatos (a fila é campaign_contacts; o drenador
+    // claima de lá). Enviamos template/vars/credenciais/AB para o hot path bater 1:1 com o
+    // comportamento anterior; o sweeper hidrata do DB quando recebe só { campaignId }.
+    const { contacts: _omitContacts, ...leanPayload } = workflowPayload as Record<string, unknown>
 
-      const response = await fetchWithTimeout(`${baseUrl}/api/campaign/workflow`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(workflowPayload),
-        timeoutMs: 30000,
-      })
+    console.log(`[Dispatch] Drenador: isLocalhost=${isLocalhost}, isVercelCloud=${isVercelCloud}`)
 
-      if (!response.ok) {
-        const errorData = (await safeJson<any>(response)) || {}
-        throw new Error(errorData.error || `Workflow failed with status ${response.status}`)
+    if (isLocalhost && !isVercelCloud) {
+      // DEV LOCAL: chama direto e aguarda, pra erros de setup aparecerem no log.
+      console.log('[Dispatch] Dev LOCAL: chamando o drenador diretamente')
+      try {
+        const response = await fetchWithTimeout(`${baseUrl}/api/campaign/workflow`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${process.env.CRON_SECRET || process.env.DISPARA_ADMIN_KEY || ''}`,
+          },
+          body: JSON.stringify({ ...leanPayload, source: 'dispatch' }),
+          timeoutMs: 30000,
+        })
+        if (!response.ok) {
+          const errorData = (await safeJson<any>(response)) || {}
+          console.warn('[Dispatch] Drenador (dev) respondeu erro; sweeper religará:', errorData?.error || response.status)
+        }
+      } catch (e) {
+        // Não falha o dispatch: a campanha já está SENDING e o sweeper religa.
+        console.warn('[Dispatch] Chamada direta ao drenador (dev) falhou; sweeper religará:', e)
       }
     } else {
-      // PROD: QStash is required
-      if (!process.env.QSTASH_TOKEN) {
-        await markCampaignFailed('Serviço de workflow não configurado. Configure QSTASH_TOKEN.')
-        return NextResponse.json(
-          { error: 'Serviço de workflow não configurado. Configure QSTASH_TOKEN.' },
-          { status: 503 }
-        )
-      }
-
-      // PROD: Use QStash for reliable async execution
-      const workflowClient = new Client({ token: process.env.QSTASH_TOKEN })
-      try {
-        // Headers para bypass de Vercel Deployment Protection
-        const headers: Record<string, string> = {}
-        const bypassSecret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET
-        if (bypassSecret) {
-          headers['x-vercel-protection-bypass'] = bypassSecret
-        }
-
-        await workflowClient.trigger({
-          url: `${baseUrl}/api/campaign/workflow`,
-          body: workflowPayload,
-          headers: Object.keys(headers).length > 0 ? headers : undefined,
-          retries: 3,
-        })
-      } catch (err) {
-        throw err
-      }
+      // PROD/preview: fire-and-forget autenticado (substitui o QStash Workflow.trigger).
+      // Se esta chamada se perder, o sweeper do pg_cron religa a campanha SENDING+pending.
+      reinvokeSelf('/api/campaign/workflow', { ...leanPayload, source: 'dispatch' })
     }
 
     return NextResponse.json({

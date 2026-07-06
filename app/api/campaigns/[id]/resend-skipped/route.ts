@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import { Client } from '@upstash/workflow'
+import { reinvokeSelf, resolveBaseUrl } from '@/lib/self-invoke'
+import { CampaignStatus } from '@/types'
 
 import { supabase } from '@/lib/supabase'
 import { templateDb, campaignDb } from '@/lib/supabase-db'
@@ -641,61 +642,43 @@ export async function POST(_request: Request, { params }: Params) {
       )
     }
 
-    // 7) Enfileirar workflow com apenas os válidos
-    const baseUrl = (process.env.NEXT_PUBLIC_APP_URL?.trim())
-      || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL.trim()}` : null)
-      || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL.trim()}` : null)
-      || 'http://localhost:3000'
-
-    const isLocalhost = baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1')
-
+    // 7) Marca SENDING + dispara o drenador (fire-and-forget). Os válidos já estão 'pending'
+    //    em campaign_contacts (upsert acima); o drenador claima de lá. Substitui o QStash:
+    //    NÃO enviamos a lista de contatos — o /api/campaign/workflow hidrata do DB. Se a
+    //    chamada se perder, o sweeper do pg_cron religa a campanha SENDING+pending.
     const traceId = `resend_${campaignId}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
 
-    const workflowPayload = {
-      campaignId,
-      traceId,
-      templateName,
-      contacts: validForResend,
-      templateVariables,
-      templateSnapshot: {
-        name: template.name,
-        language: template.language,
-        parameter_format: (template as any).parameterFormat || 'positional',
-        spec_hash: (template as any).specHash ?? null,
-        fetched_at: (template as any).fetchedAt ?? null,
-        components: (template as any).components || (template as any).content || [],
-      },
-      phoneNumberId: credentials.phoneNumberId,
-      accessToken: credentials.accessToken,
-      isResend: true,
+    try {
+      const nowSending = new Date().toISOString()
+      await supabase
+        .from('campaigns')
+        .update({ status: CampaignStatus.SENDING, updated_at: nowSending })
+        .eq('id', campaignId)
+        .neq('status', CampaignStatus.CANCELLED)
+    } catch (e) {
+      console.warn('[ResendSkipped] Falha ao marcar SENDING antes do disparo (best-effort):', e)
     }
 
-    if (isLocalhost) {
-      const response = await fetchWithTimeout(`${baseUrl}/api/campaign/workflow`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(workflowPayload),
-        timeoutMs: 30000,
-      })
+    const baseUrl = resolveBaseUrl()
+    const isLocalhost = baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1')
+    const drainBody = { campaignId, traceId, isResend: true, source: 'resend' }
 
-      if (!response.ok) {
-        const errorData = (await safeJson<any>(response)) || {}
-        throw new Error(errorData.error || `Workflow failed with status ${response.status}`)
+    if (isLocalhost) {
+      try {
+        await fetchWithTimeout(`${baseUrl}/api/campaign/workflow`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${process.env.CRON_SECRET || process.env.DISPARA_ADMIN_KEY || ''}`,
+          },
+          body: JSON.stringify(drainBody),
+          timeoutMs: 30000,
+        })
+      } catch (e) {
+        console.warn('[ResendSkipped] Chamada direta ao drenador (dev) falhou; sweeper religará:', e)
       }
     } else {
-      if (!process.env.QSTASH_TOKEN) {
-        return NextResponse.json(
-          { error: 'Serviço de workflow não configurado. Configure QSTASH_TOKEN.' },
-          { status: 503 }
-        )
-      }
-
-      const workflowClient = new Client({ token: process.env.QSTASH_TOKEN })
-      await workflowClient.trigger({
-        url: `${baseUrl}/api/campaign/workflow`,
-        body: workflowPayload,
-        retries: 3,
-      })
+      reinvokeSelf('/api/campaign/workflow', drainBody)
     }
 
     return NextResponse.json(

@@ -4,6 +4,7 @@ import { isSupabaseConfigured, getSupabaseAdmin } from '@/lib/supabase'
 import { reconcilePendingStatusEvents } from '@/lib/whatsapp-status-events'
 import { drainScheduledCampaigns } from '@/lib/cron/scheduled-campaigns'
 import { drainWorkflowEnrollments } from '@/lib/cron/workflow-enrollments'
+import { drainStuckCampaigns } from '@/lib/cron/campaign-drain'
 
 /**
  * Endpoint-relógio do Dispara.
@@ -50,6 +51,18 @@ async function handle(request: NextRequest) {
     } catch (e) {
       ran.push({
         task: 'workflow-enrollments',
+        result: { error: e instanceof Error ? e.message : String(e) },
+      })
+    }
+
+    // Fase F: sweeper/reaper do disparo em massa — reseta 'sending' órfão e religa
+    // campanhas SENDING sem drenador ativo (fire-and-forget perdido ou dreno morto).
+    try {
+      const result = await drainStuckCampaigns()
+      ran.push({ task: 'stuck-campaigns', result })
+    } catch (e) {
+      ran.push({
+        task: 'stuck-campaigns',
         result: { error: e instanceof Error ? e.message : String(e) },
       })
     }
