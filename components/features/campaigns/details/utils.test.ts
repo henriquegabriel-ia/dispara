@@ -393,7 +393,7 @@ describe('computeLimiterInfo', () => {
     it('retorna sem telemetria para run_metrics sem dados', () => {
       const result = computeLimiterInfo({}, 'run_metrics')
       expect(result.value).toBe('Sem telemetria')
-      expect(result.subvalue).toContain('nao registrou sinal')
+      expect(result.subvalue).toContain('não registrou sinal')
       expect(result.color).toBe('#3b82f6')
     })
 
