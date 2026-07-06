@@ -5,7 +5,6 @@
  */
 
 import { supabase } from './supabase'
-import { redis } from './redis'
 import {
     Campaign,
     Contact,
@@ -2108,36 +2107,16 @@ export const customFieldDefDb = {
 // ============================================================================
 
 /**
- * Settings Database com Cache Redis
+ * Settings Database (Postgres/Supabase, fonte da verdade)
  *
- * OTIMIZAÇÃO V2 (2026-01-26):
- * - Cache em Redis com TTL de 60s para evitar queries repetidas
- * - Fallback transparente se Redis não estiver configurado
- * - Invalidação automática no set()
- *
- * Performance: ~100x mais rápido (Redis: ~1ms vs Supabase: ~100ms)
+ * Migração QStash→pg_cron (Fase B, 2026-07-05): removido o cache Redis (Upstash).
+ * O Supabase é a fonte única; sem cache, cada leitura reflete o último write (mais
+ * correto, sem janela de 60s de valor velho). As credenciais WhatsApp já liam direto
+ * do Postgres via getAll(), então o caminho quente não muda.
  */
-const SETTINGS_CACHE_PREFIX = 'settings:'
-const SETTINGS_CACHE_TTL = 60 // segundos
 
 export const settingsDb = {
     get: async (key: string): Promise<string | null> => {
-        const cacheKey = `${SETTINGS_CACHE_PREFIX}${key}`
-
-        // 1. Tenta buscar do cache Redis
-        if (redis) {
-            try {
-                const cached = await redis.get<string>(cacheKey)
-                if (cached !== null) {
-                    return cached
-                }
-            } catch (e) {
-                // Redis error - fallback silencioso para DB
-                console.warn('[settingsDb] Redis read error:', e)
-            }
-        }
-
-        // 2. Busca do Supabase
         const { data, error } = await supabase
             .from('settings')
             .select('value')
@@ -2145,16 +2124,6 @@ export const settingsDb = {
             .single()
 
         if (error || !data) return null
-
-        // 3. Armazena no cache para próximas requisições
-        if (redis && data.value) {
-            try {
-                await redis.set(cacheKey, data.value, { ex: SETTINGS_CACHE_TTL })
-            } catch (e) {
-                // Ignore cache write errors
-                console.warn('[settingsDb] Redis write error:', e)
-            }
-        }
 
         return data.value
     },
@@ -2171,17 +2140,6 @@ export const settingsDb = {
             }, { onConflict: 'key' })
 
         if (error) throw error
-
-        // Invalida cache após update
-        if (redis) {
-            try {
-                const cacheKey = `${SETTINGS_CACHE_PREFIX}${key}`
-                await redis.del(cacheKey)
-            } catch (e) {
-                // Ignore cache invalidation errors
-                console.warn('[settingsDb] Redis del error:', e)
-            }
-        }
     },
 
     getAll: async (): Promise<AppSettings> => {
