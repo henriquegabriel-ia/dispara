@@ -363,12 +363,15 @@ async function executeActionStep(input: {
   );
 
   if (actionType === "Delay") {
+    // Fase D: o Delay durável é interceptado no loop principal de executeWorkflow (pausa
+    // + enrollment com resume_at). Aqui não bloqueamos mais com setTimeout — se um Delay
+    // chegar até este ponto (caminho inesperado), retorna imediato pra não travar a
+    // função por até ~24 dias.
     const delayMs =
       typeof stepInput.delayMs === "number"
         ? stepInput.delayMs
         : Number(stepInput.delayMs || 0);
     const safeDelay = Number.isFinite(delayMs) ? Math.max(0, delayMs) : 0;
-    await new Promise((resolve) => setTimeout(resolve, safeDelay));
     return { success: true, data: { delayMs: safeDelay } };
   }
 
@@ -578,6 +581,14 @@ export async function executeWorkflow(
   input: WorkflowExecutionInput & {
     startNodeIds?: string[];
     initialVariables?: Record<string, unknown>;
+    // Nós já executados numa passada anterior (persistidos no enrollment). Ao retomar
+    // após um wait durável, o executor os pula — defesa anti-double-send (Fase D).
+    alreadyResolvedNodeIds?: string[];
+    // Snapshot das saídas dos nós já executados. Sem isto, outputs começa {} no resume e
+    // refs {{@nodeId}}/{{@__trigger}} a montante do Delay viram literal cru ou falham
+    // (ex.: Condition sobre a mensagem do gatilho após um Delay). Fase D.
+    // Tipo permissivo (Record) porque vem do jsonb do enrollment; casteado internamente.
+    initialOutputs?: Record<string, unknown>;
   }
 ) {
   "use workflow";
@@ -593,7 +604,7 @@ export async function executeWorkflow(
     workflowId: workflowId || "none",
   });
 
-  const outputs: NodeOutputs = {};
+  const outputs: NodeOutputs = { ...(input.initialOutputs || {}) } as NodeOutputs;
   const results: Record<string, ExecutionResult> = {};
   const variables: Record<string, unknown> = {
     ...(input.initialVariables || {}),
@@ -624,7 +635,9 @@ export async function executeWorkflow(
 
   const satisfiedIncoming = new Map<string, number>();
   const blockedIncoming = new Map<string, number>();
-  const resolvedNodes = new Set<string>();
+  // Re-hidrata nós já executados numa passada anterior (retomada após wait durável):
+  // o loop pula quem já está aqui (if resolvedNodes.has → continue/return). Anti-double-send.
+  const resolvedNodes = new Set<string>(input.alreadyResolvedNodeIds ?? []);
 
   const startNodeIds =
     input.startNodeIds && input.startNodeIds.length > 0
@@ -834,6 +847,60 @@ export async function executeWorkflow(
 
             if (originalCondition !== undefined) {
               processedConfig.condition = originalCondition;
+            }
+
+            // Delay durável (Fase D): em vez de bloquear com setTimeout — que morre no
+            // maxDuration (~5min) e nunca completa waits de horas/dias — o executor pausa
+            // e devolve o ponto de continuação. A borda (rota /execute ou cron drain)
+            // persiste o enrollment com resume_at. Se o Delay for terminal (sem próximo
+            // nó), não há o que retomar: trata como nó normal já resolvido.
+            if (actionType === "Delay") {
+              const delayRaw =
+                typeof processedConfig.delayMs === "number"
+                  ? processedConfig.delayMs
+                  : Number(processedConfig.delayMs || 0);
+              const delayMs = Number.isFinite(delayRaw)
+                ? Math.max(0, delayRaw)
+                : 0;
+              // TODOS os próximos nós do Delay são raízes de retomada (resume multi-head):
+              // o compile liga um Delay antes de uma Condition a TODOS os cond-heads
+              // (cond_0..cond_none). Guardar só o primeiro perderia as demais branches.
+              const delayNext = edgesBySource.get(node.id) || [];
+
+              results[nodeId] = { success: true, data: { delayMs } };
+              resolvedNodes.add(nodeId);
+              outputs[nodeId.replace(/[^a-zA-Z0-9]/g, "_")] = {
+                label: node.data.label || nodeId,
+                data: { delayMs },
+              };
+
+              if (delayNext.length > 0) {
+                // Premissa (builder v1): não há fan-out PARALELO real (só branches de
+                // Condition, que são gates mutuamente exclusivos), então ao pausar o
+                // readyQueue não tem frentes paralelas pendentes. Se um dia houver, avisar.
+                const pending = readyQueue.filter((id) => !resolvedNodes.has(id));
+                if (pending.length > 0) {
+                  console.warn(
+                    "[Workflow Executor] Delay pausou com nós paralelos pendentes no readyQueue (não suportado):",
+                    pending
+                  );
+                }
+                return {
+                  success: true,
+                  results,
+                  outputs,
+                  paused: true,
+                  wait: {
+                    kind: "delay" as const,
+                    resumeNodeIds: delayNext,
+                    resumeInMs: delayMs,
+                  },
+                  variables,
+                  resolvedNodeIds: Array.from(resolvedNodes),
+                };
+              }
+              // Delay terminal: nada a retomar; segue o loop (nó já resolvido).
+              continue;
             }
 
             const isAskQuestion = shouldTreatAsAskQuestion(

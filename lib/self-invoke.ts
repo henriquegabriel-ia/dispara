@@ -32,19 +32,34 @@ function internalSecret(): string {
 export function reinvokeSelf(path: string, body: Record<string, unknown> = {}): void {
   const url = `${resolveBaseUrl()}${path}`
   const secret = internalSecret()
+  if (!secret) {
+    // Sem CRON_SECRET nem DISPARA_ADMIN_KEY, o endpoint-alvo (verifyCronRequest)
+    // rejeita com 401. Falha ALTO em vez de disparar no escuro.
+    console.error(
+      `[self-invoke] Sem CRON_SECRET/DISPARA_ADMIN_KEY — chamada a ${path} seria rejeitada (401). Abortando.`
+    )
+    return
+  }
   after(async () => {
     try {
-      await fetch(url, {
+      const res = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(secret ? { Authorization: `Bearer ${secret}` } : {}),
+          Authorization: `Bearer ${secret}`,
         },
         body: JSON.stringify({ ...body, source: 'self-reinvoke' }),
         keepalive: true,
       })
-    } catch {
-      // best-effort — o pg_cron religa a cadeia se este fetch falhar.
+      if (!res.ok) {
+        // Não silenciar um 4xx/5xx: o pg_cron só religa cadeias de enrollments já
+        // persistidos; um disparo inicial perdido aqui NÃO tem rede de segurança.
+        console.error(
+          `[self-invoke] ${path} respondeu ${res.status} — disparo pode ter sido perdido.`
+        )
+      }
+    } catch (e) {
+      console.error(`[self-invoke] Falha ao chamar ${path}:`, e)
     }
   })
 }

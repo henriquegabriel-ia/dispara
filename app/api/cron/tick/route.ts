@@ -3,6 +3,7 @@ import { verifyCronRequest, cronUnauthorizedResponse } from '@/lib/cron-auth'
 import { isSupabaseConfigured } from '@/lib/supabase'
 import { reconcilePendingStatusEvents } from '@/lib/whatsapp-status-events'
 import { drainScheduledCampaigns } from '@/lib/cron/scheduled-campaigns'
+import { drainWorkflowEnrollments } from '@/lib/cron/workflow-enrollments'
 
 /**
  * Endpoint-relógio do Dispara.
@@ -38,6 +39,17 @@ async function handle(request: NextRequest) {
     } catch (e) {
       ran.push({
         task: 'scheduled-campaigns',
+        result: { error: e instanceof Error ? e.message : String(e) },
+      })
+    }
+
+    // Fase D: drena os waits duráveis de fluxo vencidos (Delay → resume_at).
+    try {
+      const result = await drainWorkflowEnrollments()
+      ran.push({ task: 'workflow-enrollments', result })
+    } catch (e) {
+      ran.push({
+        task: 'workflow-enrollments',
         result: { error: e instanceof Error ? e.message : String(e) },
       })
     }

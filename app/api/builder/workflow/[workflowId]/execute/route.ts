@@ -1,4 +1,4 @@
-import { serve } from "@upstash/workflow/nextjs";
+import { NextRequest, NextResponse } from "next/server";
 import { nanoid } from "nanoid";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import {
@@ -8,9 +8,25 @@ import {
 } from "@/lib/builder/workflow-db";
 import { executeWorkflow } from "@/lib/builder/workflow-executor.workflow";
 import { validateWorkflowSchema } from "@/lib/shared/workflow-schema";
+import { verifyCronRequest, cronUnauthorizedResponse } from "@/lib/cron-auth";
+import { persistDelayWait } from "@/lib/builder/workflow-enrollments";
+import { normalizePhoneNumber } from "@/lib/phone-formatter";
+
+/**
+ * Executa um workflow do builder.
+ *
+ * Migração QStash→pg_cron (Fase D): antes era um serve() do @upstash/workflow (o QStash
+ * re-invocava o endpoint por step). Agora é um POST normal autenticado (verifyCronRequest)
+ * chamado pelo webhook (fire-and-forget). O DAG roda in-process; ao encontrar um Delay o
+ * executor pausa e devolve o ponto de continuação — aqui persistimos o enrollment com
+ * resume_at, e o cron drena/retoma depois. Ask-question segue persistindo inline
+ * (workflow_conversations).
+ */
+
+export const dynamic = "force-dynamic";
+export const maxDuration = 300;
 
 type BuilderWorkflowInput = {
-  workflowId: string;
   input?: {
     to?: string;
     from?: string;
@@ -21,27 +37,49 @@ type BuilderWorkflowInput = {
   initialVariables?: Record<string, unknown>;
 };
 
-export const { POST } = serve<BuilderWorkflowInput>(async (context) => {
-  const { workflowId, input } = context.requestPayload;
+type ExecutionResultShape = {
+  success?: boolean;
+  paused?: boolean;
+  wait?: { kind: string; resumeNodeIds: string[]; resumeInMs: number };
+  variables?: Record<string, unknown>;
+  resolvedNodeIds?: string[];
+  outputs?: Record<string, unknown>;
+  results?: unknown;
+};
+
+export async function POST(
+  request: NextRequest,
+  { params }: { params: Promise<{ workflowId: string }> }
+) {
+  const auth = verifyCronRequest(request);
+  if (!auth.valid) return cronUnauthorizedResponse(auth.error);
+
+  const { workflowId } = await params;
+  const payload = (await request
+    .json()
+    .catch(() => ({}))) as BuilderWorkflowInput;
+  const input = payload.input;
+
   const supabase = getSupabaseAdmin();
   if (!supabase) {
-    return {
+    return NextResponse.json({
       executionId: nanoid(),
       status: "failed",
       error: "Supabase not configured",
-    };
+    });
   }
+
   const companyId = await getCompanyId(supabase);
   const record = await ensureWorkflowRecord(supabase, workflowId, companyId);
   const workflow = toSavedWorkflow(record);
   const validation = validateWorkflowSchema(workflow);
   if (!validation.success) {
-    return {
+    return NextResponse.json({
       executionId: nanoid(),
       status: "failed",
       error: "Invalid workflow",
       details: validation.errors,
-    };
+    });
   }
 
   const triggerNode = workflow.nodes.find(
@@ -63,7 +101,8 @@ export const { POST } = serve<BuilderWorkflowInput>(async (context) => {
     started_at: new Date().toISOString(),
   });
 
-  if (triggerType === "Keywords" && !context.requestPayload.startNodeIds) {
+  // Gate de Keywords — só no disparo inicial (não em resume, que passa startNodeIds).
+  if (triggerType === "Keywords" && !payload.startNodeIds) {
     const keywordListRaw = triggerNode?.data.config?.keywordList as
       | string
       | undefined;
@@ -82,11 +121,11 @@ export const { POST } = serve<BuilderWorkflowInput>(async (context) => {
           finished_at: new Date().toISOString(),
         })
         .eq("id", executionId);
-      return {
+      return NextResponse.json({
         executionId,
         status: "skipped",
         output: { reason: "missing_message" },
-      };
+      });
     }
 
     const matched = keywords.some((keyword) =>
@@ -101,27 +140,70 @@ export const { POST } = serve<BuilderWorkflowInput>(async (context) => {
           finished_at: new Date().toISOString(),
         })
         .eq("id", executionId);
-      return {
+      return NextResponse.json({
         executionId,
         status: "skipped",
         output: { reason: "keyword_not_matched" },
-      };
+      });
     }
   }
 
-  const execution = await context.run(`execute-workflow-${workflowId}`, () =>
-    executeWorkflow({
-      nodes: workflow.nodes,
-      edges: workflow.edges,
-      triggerInput: input ?? {},
-      executionId,
-      workflowId,
-      startNodeIds: context.requestPayload.startNodeIds,
-      initialVariables: context.requestPayload.initialVariables,
-    })
-  );
+  const execution = (await executeWorkflow({
+    nodes: workflow.nodes,
+    edges: workflow.edges,
+    triggerInput: input ?? {},
+    executionId,
+    workflowId,
+    startNodeIds: payload.startNodeIds,
+    initialVariables: payload.initialVariables,
+  })) as ExecutionResultShape;
 
-  return {
+  // Delay durável: o executor pausou por Delay — persiste o enrollment com resume_at.
+  if (execution.paused && execution.wait?.kind === "delay") {
+    const phone = normalizePhoneNumber(
+      String(input?.from || input?.to || "")
+    );
+    if (phone) {
+      await persistDelayWait(supabase, {
+        workflowId,
+        versionId: record.workflow.active_version_id ?? "",
+        phone,
+        runId: executionId,
+        resumeNodeIds: execution.wait.resumeNodeIds,
+        resumeAt: new Date(
+          Date.now() + (execution.wait.resumeInMs || 0)
+        ).toISOString(),
+        variables: execution.variables ?? {},
+        resolvedNodeIds: execution.resolvedNodeIds ?? [],
+        outputs: execution.outputs ?? {},
+      });
+      // Run em espera (não deixar 'running' órfão — igual ao ask-question).
+      await supabase
+        .from("workflow_runs")
+        .update({
+          status: "waiting",
+          output: { status: "waiting", waitKind: "delay" },
+          finished_at: null,
+        })
+        .eq("id", executionId);
+    } else {
+      // Pausou por Delay mas sem telefone pra retomar: seria um buraco silencioso
+      // (run 'running' pra sempre). Falha visível.
+      console.error(
+        "[builder/execute] Delay pausou sem telefone de retomada — marcando run como failed."
+      );
+      await supabase
+        .from("workflow_runs")
+        .update({
+          status: "failed",
+          error: "Delay sem telefone de retomada",
+          finished_at: new Date().toISOString(),
+        })
+        .eq("id", executionId);
+    }
+  }
+
+  return NextResponse.json({
     executionId,
     status: execution.paused
       ? "waiting"
@@ -129,5 +211,5 @@ export const { POST } = serve<BuilderWorkflowInput>(async (context) => {
         ? "success"
         : "failed",
     output: execution,
-  };
-});
+  });
+}

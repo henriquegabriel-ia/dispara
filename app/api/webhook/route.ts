@@ -31,7 +31,7 @@ import { getWhatsAppCredentials } from '@/lib/whatsapp-credentials'
 import { applyFlowMappingToContact } from '@/lib/flow-mapping'
 import { settingsDb } from '@/lib/supabase-db'
 import { ensureWorkflowRecord, getCompanyId } from '@/lib/builder/workflow-db'
-import { Client as WorkflowClient } from '@upstash/workflow'
+import { reinvokeSelf } from '@/lib/self-invoke'
 import { getPendingConversation } from '@/lib/builder/workflow-conversations'
 
 // T046-T048: Inbox integration
@@ -1175,33 +1175,45 @@ export async function POST(request: NextRequest) {
           }
 
           // =================================================================
+          // Dedupe de inbound (Meta at-least-once): garante que um mesmo message.id
+          // dispare o fluxo (resume/execute) UMA vez só. Sem isto, uma reentrega da
+          // Meta reenviaria as mensagens antes do primeiro wait (double-send). Fase D.
+          // =================================================================
+          const inboundMsgId = String(message?.id || '')
+          let isNewInboundForWorkflow = true
+          if (inboundMsgId) {
+            const { data: dedupeRow } = await supabaseAdmin
+              .from('processed_inbound_messages')
+              .upsert(
+                { message_id: inboundMsgId },
+                { onConflict: 'message_id', ignoreDuplicates: true }
+              )
+              .select('message_id')
+              .maybeSingle()
+            // Sem linha retornada = conflito (já processado) → não redisparar o fluxo.
+            isNewInboundForWorkflow = !!dedupeRow
+          }
+
+          // =================================================================
           // Workflow Builder (MVP): resume pending conversation if any
           // =================================================================
           const normalizedFrom = normalizePhoneNumber(from)
-          if (normalizedFrom && text) {
+          if (isNewInboundForWorkflow && normalizedFrom && text) {
             const pendingConversation = await getPendingConversation(
               supabaseAdmin,
               normalizedFrom
             )
             if (pendingConversation) {
-              try {
-                const origin = request.nextUrl.origin
-                await fetch(
-                  `${origin}/api/builder/workflow/${pendingConversation.workflow_id}/resume`,
-                  {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      workflowId: pendingConversation.workflow_id,
-                      conversationId: pendingConversation.id,
-                      input: { from: normalizedFrom, to: normalizedFrom, message: text },
-                    }),
-                  }
-                )
-                continue
-              } catch (e) {
-                console.error('[Webhook] Failed to resume conversation:', e)
-              }
+              // Fase D: chamada interna autenticada (verifyCronRequest), fire-and-forget
+              // via after() — responde rápido ao Meta. Antes já era fetch direto.
+              reinvokeSelf(
+                `/api/builder/workflow/${pendingConversation.workflow_id}/resume`,
+                {
+                  conversationId: pendingConversation.id,
+                  input: { from: normalizedFrom, to: normalizedFrom, message: text },
+                }
+              )
+              continue
             }
           }
 
@@ -1211,34 +1223,18 @@ export async function POST(request: NextRequest) {
           const matchedWorkflowId = findMatchingWorkflow(keywordWorkflows, text)
           const targetWorkflowId = matchedWorkflowId || defaultWorkflowId
 
-          if (targetWorkflowId && text && from) {
+          if (isNewInboundForWorkflow && targetWorkflowId && text && from) {
             try {
               const companyId = await getCompanyId(supabaseAdmin)
               await ensureWorkflowRecord(supabaseAdmin, targetWorkflowId, companyId)
 
-              // Usa QStash Client para ter assinatura válida (evita SignatureError)
-              const baseUrl = process.env.NEXT_PUBLIC_APP_URL
-                || (process.env.VERCEL_PROJECT_PRODUCTION_URL && `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`)
-                || (process.env.VERCEL_URL && `https://${process.env.VERCEL_URL}`)
-                || request.nextUrl.origin
-
-              const workflowClient = new WorkflowClient({ token: process.env.QSTASH_TOKEN! })
-
-              // Headers para bypass de proteção Vercel se necessário
-              const headers: Record<string, string> = {}
-              const bypassSecret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET
-              if (bypassSecret) {
-                headers['x-vercel-protection-bypass'] = bypassSecret
-              }
-
-              await workflowClient.trigger({
-                url: `${baseUrl}/api/builder/workflow/${targetWorkflowId}/execute`,
-                body: {
-                  workflowId: targetWorkflowId,
-                  input: { from, to: from, message: text },
-                },
-                headers: Object.keys(headers).length > 0 ? headers : undefined,
-              })
+              // Fase D (migração QStash→pg_cron): dispara o workflow via chamada interna
+              // autenticada (verifyCronRequest) em vez do QStash WorkflowClient.trigger.
+              // Fire-and-forget via after() — o webhook responde rápido ao Meta.
+              reinvokeSelf(
+                `/api/builder/workflow/${targetWorkflowId}/execute`,
+                { input: { from, to: from, message: text } }
+              )
             } catch (e) {
               console.error('[Webhook] Failed to trigger builder workflow:', e)
             }
