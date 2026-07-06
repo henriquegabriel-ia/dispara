@@ -1556,8 +1556,88 @@ async function runCampaignDrain(
             const isVariantB = abTestEnabled && contact.variant === 'B' && abTemplateNameB
             const effectiveTemplateName = isVariantB ? abTemplateNameB! : templateName
             const effectiveTemplateSnapshot = isVariantB && abTemplateSnapshotB ? abTemplateSnapshotB : null
-            // For variant B: use B-specific template variables, keeping precheck values as base
-            const effectiveValues = valuesForSend
+            // Valores efetivos por variante:
+            // - A: valores já resolvidos por contato no precheck (valuesForSend, com overlay do
+            //   media rehosteado do batch).
+            // - B: o precheck acima resolveu contra o template/variáveis de A. A variante B tem
+            //   template e variáveis próprios (estrutura pode diferir), então re-resolvemos
+            //   abTemplateVariablesB contra o template B — preservando a personalização por contato
+            //   ({{nome}}, custom fields) e o headerMediaId próprio de B (o do batch é de A).
+            let effectiveValues = valuesForSend
+            if (isVariantB) {
+              // Sem snapshot da estrutura do template B, só temos a estrutura de A em mãos. Enviar
+              // com o NOME de B contra a ESTRUTURA de A pode gerar mismatch de parâmetros na Meta
+              // (erro 132000) quando B difere de A. Mais seguro pular limpo — o contato é reenviável
+              // depois que o snapshot de B for ressincronizado.
+              if (!effectiveTemplateSnapshot) {
+                pushWriteOp({
+                  contact,
+                  status: 'skipped',
+                  opts: {
+                    sendingAt: sendingAtIso,
+                    skipCode: 'MISSING_TEMPLATE_SNAPSHOT_B',
+                    skipReason: `Variante B (${abTemplateNameB}) sem snapshot de estrutura — não é seguro enviar contra a estrutura da variante A. Ressincronize o template B e reenvie.`,
+                    traceId,
+                  },
+                })
+                await emitWorkflowTrace({
+                  traceId,
+                  campaignId,
+                  step,
+                  batchIndex,
+                  contactId: contact.contactId,
+                  phoneMasked,
+                  phase: 'precheck_skip',
+                  ok: true,
+                  extra: { skipCode: 'MISSING_TEMPLATE_SNAPSHOT_B', variant: 'B' },
+                })
+                skippedCount++
+                progress.bump({ skipped: 1 })
+                console.log(`⏭️ Skipped (variante B sem snapshot) ${contact.phone}`)
+                return
+              }
+
+              const templateForVariantB = effectiveTemplateSnapshot as any
+              const precheckB = precheckContactForTemplate(
+                {
+                  phone: contact.phone,
+                  name: contact.name,
+                  email: contact.email,
+                  custom_fields: contact.custom_fields,
+                  contactId: contact.contactId || null,
+                },
+                templateForVariantB,
+                abTemplateVariablesB as any
+              )
+              if (!precheckB.ok) {
+                pushWriteOp({
+                  contact,
+                  status: 'skipped',
+                  opts: {
+                    sendingAt: sendingAtIso,
+                    skipCode: precheckB.skipCode,
+                    skipReason: precheckB.reason,
+                    traceId,
+                  },
+                })
+                await emitWorkflowTrace({
+                  traceId,
+                  campaignId,
+                  step,
+                  batchIndex,
+                  contactId: contact.contactId,
+                  phoneMasked,
+                  phase: 'precheck_skip',
+                  ok: true,
+                  extra: { skipCode: precheckB.skipCode, reason: precheckB.reason, variant: 'B' },
+                })
+                skippedCount++
+                progress.bump({ skipped: 1 })
+                console.log(`⏭️ Skipped (variante B) ${contact.phone}: ${precheckB.reason}`)
+                return
+              }
+              effectiveValues = precheckB.values
+            }
 
             let whatsappPayload: any
             try {
@@ -1665,17 +1745,18 @@ async function runCampaignDrain(
 
               // Sincroniza template com inbox (fire-and-forget, non-blocking)
               // Permite que a IA tenha contexto e o operador veja o histórico
-              const activeTemplateForSync = refreshedTemplateForBatch || templateForBatch
+              // Reflete no inbox exatamente o que foi enviado (template/valores da variante correta).
+              const activeTemplateForSync = effectiveTemplateSnapshot || refreshedTemplateForBatch || templateForBatch
               syncCampaignTemplateToInbox({
                 phone: precheck.normalizedPhone,
                 contactId: contact.contactId,
                 whatsappMessageId: messageId,
-                templateName,
+                templateName: effectiveTemplateName,
                 templatePreviewText: renderTemplatePreviewText(
                   activeTemplateForSync as any,
-                  valuesForSend
+                  effectiveValues
                 ),
-                resolvedValues: valuesForSend,
+                resolvedValues: effectiveValues,
                 campaignId,
                 template: activeTemplateForSync as any,
               }).catch((err) => {
@@ -1727,7 +1808,10 @@ async function runCampaignDrain(
                 headerInfo0.format && ['IMAGE', 'VIDEO', 'DOCUMENT', 'GIF'].includes(String(headerInfo0.format))
               )
 
-              const canRetryWithRefresh = headerIsMedia && isWeplink403
+              // Este retry refaz o rehost do template do batch (variante A). Não se aplica à
+              // variante B, que tem template/mídia próprios — re-tentar aqui enviaria conteúdo da
+              // variante A. Deixamos a variante B falhar limpo (tratada pelo resend normal).
+              const canRetryWithRefresh = headerIsMedia && isWeplink403 && !isVariantB
 
               if (canRetryWithRefresh) {
                 try {
@@ -1856,7 +1940,8 @@ async function runCampaignDrain(
 
               // Fallback extra: re-hospedar a mídia do HEADER em um URL público, pois o weblink pode não ser
               // acessível para os servidores do WhatsApp, mesmo após refresh.
-              if (headerIsMedia && isWeplink403) {
+              // Também limitado à variante A (rehost do template do batch); variante B falha limpo.
+              if (headerIsMedia && isWeplink403 && !isVariantB) {
                 try {
                   const activeTemplateForRehost = refreshedTemplateForBatch || templateForBatch
                   const headerInfo = getTemplateHeaderMediaExampleLink(activeTemplateForRehost)
