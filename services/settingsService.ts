@@ -58,7 +58,6 @@ export interface AllSettingsResponse {
   }
   calendarBooking: { ok: boolean; source: 'db' | 'default'; config: CalendarBookingConfig }
   workflowExecution: { ok: boolean; source: 'db' | 'env'; config: WorkflowExecutionConfig }
-  upstashConfig: { configured: boolean; email: string; hasApiKey: boolean }
   timestamp: string
 }
 
@@ -500,41 +499,6 @@ export const settingsService = {
     const json = await response.json().catch(() => ({}))
     if (!response.ok) {
       throw new Error((json as any)?.error || 'Failed to save calendar booking config')
-    }
-  },
-
-  // =============================================================================
-  // UPSTASH CONFIG (Métricas de uso do QStash)
-  // =============================================================================
-
-  getUpstashConfig: async (): Promise<{
-    configured: boolean;
-    email: string;
-    hasApiKey: boolean;
-  }> => {
-    const response = await fetch('/api/settings/upstash', { cache: 'no-store' })
-    if (!response.ok) throw new Error('Failed to fetch Upstash config')
-    return response.json()
-  },
-
-  saveUpstashConfig: async (data: { email: string; apiKey: string }): Promise<void> => {
-    const response = await fetch('/api/settings/upstash', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    })
-
-    const json = await response.json().catch(() => ({}))
-    if (!response.ok) {
-      throw new Error((json as any)?.error || 'Failed to save Upstash config')
-    }
-  },
-
-  removeUpstashConfig: async (): Promise<void> => {
-    const response = await fetch('/api/settings/upstash', { method: 'DELETE' })
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}))
-      throw new Error((error as any)?.error || 'Failed to remove Upstash config')
     }
   },
 };

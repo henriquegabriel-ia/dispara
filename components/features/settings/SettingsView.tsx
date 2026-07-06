@@ -8,7 +8,6 @@ import { WebhookConfigSection } from './WebhookConfigSection';
 import { CalendarBookingPanel } from './CalendarBookingPanel';
 import { FlowEndpointPanel } from './FlowEndpointPanel';
 import { CredentialsForm } from './CredentialsForm';
-import { UpstashConfigPanel } from './UpstashConfigPanel';
 import { ApiDocsPanel } from './ApiDocsPanel';
 import { BrandPanel } from './BrandPanel';
 import { useDevMode } from '@/components/providers/DevModeProvider';
@@ -86,13 +85,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   workflowExecutionLoading,
   saveWorkflowExecution,
   isSavingWorkflowExecution,
-
-  // Upstash Config (métricas QStash)
-  upstashConfig,
-  upstashConfigLoading,
-  saveUpstashConfig,
-  removeUpstashConfig,
-  isSavingUpstashConfig,
 
 }) => {
   const { isDevMode } = useDevMode();
@@ -259,16 +251,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 workflowExecutionLoading={workflowExecutionLoading}
                 saveWorkflowExecution={saveWorkflowExecution}
                 isSaving={isSavingWorkflowExecution}
-              />
-            )}
-
-            {isDevMode && settings.isConnected && saveUpstashConfig && (
-              <UpstashConfigPanel
-                upstashConfig={upstashConfig}
-                upstashConfigLoading={upstashConfigLoading}
-                saveUpstashConfig={saveUpstashConfig}
-                removeUpstashConfig={removeUpstashConfig}
-                isSaving={isSavingUpstashConfig}
               />
             )}
           </>

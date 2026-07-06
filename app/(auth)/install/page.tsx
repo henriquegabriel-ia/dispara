@@ -30,8 +30,6 @@ import {
   IdentityForm,
   VercelForm,
   SupabaseForm,
-  QStashForm,
-  RedisForm,
 } from '@/components/install/forms';
 import { ProvisioningView } from '@/components/install/ProvisioningView';
 import { SuccessView } from '@/components/install/SuccessView';
@@ -160,8 +158,6 @@ export default function InstallPage() {
       1: 'cyan',
       2: 'magenta',
       3: 'cyan',
-      4: 'orange',
-      5: 'red',
     };
 
     const renderForm = () => {
@@ -179,17 +175,13 @@ export default function InstallPage() {
           return <VercelForm key="vercel" {...formProps} />;
         case 3:
           return <SupabaseForm key="supabase" {...formProps} />;
-        case 4:
-          return <QStashForm key="qstash" {...formProps} />;
-        case 5:
-          return <RedisForm key="redis" {...formProps} />;
         default:
           return null;
       }
     };
 
     return (
-      <InstallLayout currentStep={step} totalSteps={5}>
+      <InstallLayout currentStep={step} totalSteps={3}>
         {/* Botão "Voltar" removido - já existe dentro dos forms */}
         <AnimatePresence mode="wait" custom={direction}>
           <motion.div

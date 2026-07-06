@@ -5,8 +5,6 @@ import {
   User,
   Triangle,
   Database,
-  Zap,
-  Server,
   LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -14,9 +12,7 @@ import { cn } from '@/lib/utils';
 export type ServiceType =
   | 'identity'
   | 'vercel'
-  | 'supabase'
-  | 'qstash'
-  | 'redis';
+  | 'supabase';
 
 interface ServiceIconProps {
   service: ServiceType;
@@ -51,18 +47,6 @@ const serviceConfig: Record<ServiceType, ServiceConfig> = {
     bgColor: 'bg-primary-500/10',
     borderColor: 'border-primary-500/20',
   },
-  qstash: {
-    icon: Zap,
-    color: 'text-orange-400',
-    bgColor: 'bg-orange-500/10',
-    borderColor: 'border-orange-500/20',
-  },
-  redis: {
-    icon: Server,
-    color: 'text-red-400',
-    bgColor: 'bg-red-500/10',
-    borderColor: 'border-red-500/20',
-  },
 };
 
 const sizes = {
@@ -91,8 +75,6 @@ const sizes = {
  * - identity: User icon (slate)
  * - vercel: Triangle icon (white)
  * - supabase: Database icon (purple)
- * - qstash: Zap icon (orange)
- * - redis: Server icon (red)
  */
 export function ServiceIcon({
   service,
@@ -137,10 +119,6 @@ export function getServiceGlowColor(
   switch (service) {
     case 'supabase':
       return 'purple';
-    case 'qstash':
-      return 'orange';
-    case 'redis':
-      return 'red';
     default:
       return 'slate';
   }

@@ -1,4 +1,3 @@
-import { Client } from '@upstash/qstash'
 import { supabase } from '@/lib/supabase'
 
 export type WhatsAppStatus = 'sent' | 'delivered' | 'read' | 'failed'
@@ -39,45 +38,17 @@ export function buildStatusEventDedupeKey(input: {
   return `${input.messageId}:${input.status}:${ts}`
 }
 
-function getBaseUrl(): string | null {
-  const explicit = process.env.NEXT_PUBLIC_APP_URL?.trim()
-  if (explicit) return explicit
-  if (process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim()) return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL.trim()}`
-  if (process.env.VERCEL_URL?.trim()) return `https://${process.env.VERCEL_URL.trim()}`
-  return null
-}
-
-function getReconcileSecret(): string | null {
-  return (process.env.DISPARA_ADMIN_KEY || process.env.DISPARA_API_KEY || '').trim() || null
-}
-
-export async function enqueueWebhookStatusReconcileBestEffort(reason: string): Promise<void> {
-  const token = process.env.QSTASH_TOKEN
-  if (!token) return
-
-  const baseUrl = getBaseUrl()
-  if (!baseUrl) return
-
-  const secret = getReconcileSecret()
-  if (!secret) return
-
-  const client = new Client({ token })
-
-  // Dedupe to avoid flooding: one job per 5-min bucket.
-  const bucket = Math.floor(Date.now() / (5 * 60 * 1000))
-  const dedupe = `reconcile_whatsapp_status_events_${bucket}`
-
-  await client.publishJSON({
-    url: `${baseUrl}/api/webhook/reconcile-status-events`,
-    body: { reason },
-    headers: {
-      Authorization: `Bearer ${secret}`,
-      'Content-Type': 'application/json',
-    },
-    retries: 5,
-    delay: 60,
-    deduplicationId: dedupe,
-  })
+/**
+ * Reconcile de eventos de status pendentes (unmatched/error).
+ *
+ * Migração QStash→pg_cron (Fase B, 2026-07-05): antes enfileirava um job QStash com
+ * delay de 60s pra re-tentar casar eventos. Agora é no-op: os eventos já ficam
+ * persistidos em whatsapp_status_events com apply_state != 'applied' (durável), e o
+ * relógio (pg_cron → /api/cron/tick → reconcilePendingStatusEvents) os reaplica
+ * periodicamente. A assinatura é mantida pra não tocar os call-sites do webhook.
+ */
+export async function enqueueWebhookStatusReconcileBestEffort(_reason: string): Promise<void> {
+  // Nada a enfileirar — o reconcile é feito pelo cron tick.
 }
 
 export async function recordStatusEvent(params: {

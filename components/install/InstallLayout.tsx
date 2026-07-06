@@ -23,7 +23,7 @@ interface InstallLayoutProps {
 export function InstallLayout({
   children,
   currentStep = 1,
-  totalSteps = 5,
+  totalSteps = 3,
   showLogo = true,
   showDots = true,
   className,

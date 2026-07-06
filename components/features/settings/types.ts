@@ -226,11 +226,4 @@ export interface SettingsViewProps {
   workflowExecutionLoading?: boolean;
   saveWorkflowExecution?: (data: Partial<WorkflowExecutionConfig>) => Promise<WorkflowExecutionConfig | void>;
   isSavingWorkflowExecution?: boolean;
-
-  // Upstash Config (métricas QStash)
-  upstashConfig?: { email: string; hasApiKey: boolean; configured: boolean } | null;
-  upstashConfigLoading?: boolean;
-  saveUpstashConfig?: (config: { email: string; apiKey: string }) => Promise<void>;
-  removeUpstashConfig?: () => Promise<void>;
-  isSavingUpstashConfig?: boolean;
 }

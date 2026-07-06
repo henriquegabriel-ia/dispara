@@ -48,13 +48,6 @@ export function ProvisioningView({ data, progress, title, subtitle, onProgress, 
       supabase: {
         pat: data.supabasePat,
       },
-      qstash: {
-        token: data.qstashToken,
-      },
-      redis: {
-        restUrl: data.redisRestUrl,
-        restToken: data.redisRestToken,
-      },
     };
 
     try {

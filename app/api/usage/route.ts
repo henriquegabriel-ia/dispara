@@ -33,13 +33,6 @@ interface UsageData {
     quality: string
     status: 'ok' | 'warning' | 'critical'
   }
-  qstash: {
-    messagesMonth: number
-    messagesLimit: number
-    percentage: number
-    cost: number
-    status: 'ok' | 'warning' | 'critical'
-  }
 }
 
 function getStatus(percentage: number): 'ok' | 'warning' | 'critical' {
@@ -65,7 +58,6 @@ export async function GET() {
     },
     database: { storageMB: 0, limitMB: 500, percentage: 0, rowsRead: 0, rowsWritten: 0, status: 'ok' },
     whatsapp: { messagesSent: 0, tier: 'STANDARD', tierLimit: 100000, percentage: 0, quality: 'GREEN', status: 'ok' },
-    qstash: { messagesMonth: 0, messagesLimit: 500, percentage: 0, cost: 0, status: 'ok' },
   }
 
   // 1. Database Usage (Supabase)
@@ -138,57 +130,7 @@ export async function GET() {
     console.error('Failed to get Database usage:', e)
   }
 
-  // 2. QStash Usage
-  try {
-    // Tentar env vars primeiro, depois banco de dados
-    let upstashEmail = process.env.UPSTASH_EMAIL
-    let upstashApiKey = process.env.UPSTASH_API_KEY
-
-    // Se não tiver env var, buscar do banco
-    if (!upstashEmail || !upstashApiKey) {
-      try {
-        const { data: settingsData } = await supabase
-          .from('settings')
-          .select('key, value')
-          .in('key', ['upstashEmail', 'upstashApiKey'])
-
-        if (settingsData) {
-          const settingsMap = new Map(settingsData.map(s => [s.key, s.value]))
-          upstashEmail = upstashEmail || (settingsMap.get('upstashEmail') as string) || ''
-          upstashApiKey = upstashApiKey || (settingsMap.get('upstashApiKey') as string) || ''
-        }
-      } catch {
-        // Ignore errors fetching from DB
-      }
-    }
-
-    if (upstashEmail && upstashApiKey && process.env.QSTASH_TOKEN) {
-      const auth = Buffer.from(`${upstashEmail}:${upstashApiKey}`).toString('base64')
-      const statsRes = await fetchWithTimeout('https://api.upstash.com/v2/qstash/stats', {
-        headers: { 'Authorization': `Basic ${auth}` },
-        timeoutMs: 3500,
-      })
-
-      if (statsRes.ok) {
-        const stats = await statsRes.json()
-        const monthlyMessages = stats.daily_requests?.reduce((sum: number, day: any) => sum + (day.y || 0), 0) || 0
-        const monthlyBilling = stats.total_monthly_billing || 0
-        const isPayAsYouGo = monthlyBilling > 0 || monthlyMessages > 500
-
-        usage.qstash = {
-          messagesMonth: monthlyMessages,
-          messagesLimit: isPayAsYouGo ? 0 : 500,
-          percentage: isPayAsYouGo ? 0 : Math.round((monthlyMessages / 500) * 100 * 10) / 10,
-          cost: monthlyBilling,
-          status: isPayAsYouGo ? 'ok' : getStatus(Math.round((monthlyMessages / 500) * 100)) as 'ok' | 'warning' | 'critical'
-        }
-      }
-    }
-  } catch (e) {
-    console.error('Failed to get QStash usage:', e)
-  }
-
-  // 3. WhatsApp Usage
+  // 2. WhatsApp Usage
   try {
     // IMPORTANTE: o tier do WhatsApp é uma janela móvel de ~24h e é baseado em destinatários únicos.
     // Para não ficar “travado” acima de 100%, usamos campaign_contacts (sent_at) nas últimas 24h.
@@ -268,7 +210,7 @@ export async function GET() {
     console.error('Failed to get WhatsApp usage:', e)
   }
 
-  // 4. Vercel Usage
+  // 3. Vercel Usage
   try {
     if (process.env.VERCEL_API_TOKEN) {
       const teamId = process.env.VERCEL_TEAM_ID || ''

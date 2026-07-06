@@ -138,7 +138,6 @@ export {
   type HealthStatus,
   type HealthServices,
   type DatabaseHealth,
-  type QStashHealth,
   type WhatsAppHealth,
   type VercelInfo,
   // Setup wizard

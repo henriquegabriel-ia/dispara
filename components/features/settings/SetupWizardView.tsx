@@ -1,19 +1,16 @@
 import React from 'react';
-import { 
-  Database, 
-  Zap, 
-  MessageSquare, 
-  ExternalLink, 
-  Check, 
+import {
+  MessageSquare,
+  ExternalLink,
+  Check,
   AlertCircle,
-  Loader2,
   RefreshCw,
   ChevronRight,
   Sparkles
 } from 'lucide-react';
 
 export interface SetupStep {
-  id: 'qstash' | 'whatsapp';
+  id: 'whatsapp';
   title: string;
   description: string;
   status: 'pending' | 'configured' | 'error';
@@ -40,14 +37,7 @@ export const SetupWizardView: React.FC<SetupWizardViewProps> = ({
   allConfigured,
 }) => {
   const completedSteps = steps.filter(s => s.status === 'configured').length;
-  const requiredSteps = steps.filter(s => s.isRequired);
-  const requiredCompleted = requiredSteps.filter(s => s.status === 'configured').length;
-  const progressPercent = (completedSteps / steps.length) * 100;
-
-  // Check if minimum infrastructure (QStash) is ready
-  const infrastructureReady = steps
-    .filter(s => s.id === 'qstash')
-    .every(s => s.status === 'configured');
+  const progressPercent = steps.length > 0 ? (completedSteps / steps.length) * 100 : 0;
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -223,39 +213,13 @@ export const SetupWizardView: React.FC<SetupWizardViewProps> = ({
             </button>
           )}
         </div>
-      ) : infrastructureReady ? (
-        <div className="mt-8 p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl">
-          <div className="flex items-start gap-3">
-            <div className="p-2 bg-amber-500/20 rounded-lg">
-              <MessageSquare size={20} className="text-amber-400" />
-            </div>
-            <div>
-              <h4 className="font-medium text-amber-300 mb-1">
-                Infraestrutura pronta!
-              </h4>
-              <p className="text-sm text-amber-200/70">
-                QStash está configurado. Agora você pode adicionar suas credenciais 
-                do WhatsApp diretamente na tela de configurações acima.
-              </p>
-              {onContinueToSettings && (
-                <button
-                  onClick={onContinueToSettings}
-                  className="mt-3 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black font-medium rounded-lg transition-colors flex items-center gap-2"
-                >
-                  Configurar WhatsApp
-                  <ChevronRight size={16} />
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
       ) : (
         <div className="mt-8 p-4 bg-slate-800/50 border border-[var(--ds-border-subtle)] rounded-xl text-center">
           <p className="text-slate-400 text-sm">
             Complete os passos acima para liberar as configurações do WhatsApp.
           </p>
           <p className="text-slate-500 text-xs mt-2">
-            Após configurar o QStash no Vercel, clique em "Verificar novamente" para atualizar.
+            Após configurar suas credenciais, clique em "Verificar novamente" para atualizar.
           </p>
         </div>
       )}
@@ -263,17 +227,7 @@ export const SetupWizardView: React.FC<SetupWizardViewProps> = ({
       {/* Help section */}
       <div className="mt-8 pt-6 border-t border-[var(--ds-border-subtle)]">
         <h4 className="text-sm font-medium text-slate-400 mb-3">Precisa de ajuda?</h4>
-        <div className="grid grid-cols-2 gap-3">
-          <a
-            href="https://vercel.com/docs/storage/upstash"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-2 p-3 bg-slate-800/50 hover:bg-slate-800 border border-[var(--ds-border-subtle)] rounded-xl text-sm text-slate-300 transition-colors"
-          >
-            <Database size={16} className="text-red-400" />
-            Docs: Upstash no Vercel
-            <ExternalLink size={12} className="text-slate-500 ml-auto" />
-          </a>
+        <div className="grid grid-cols-1 gap-3">
           <a
             href="https://developers.facebook.com/docs/whatsapp/cloud-api/get-started"
             target="_blank"

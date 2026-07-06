@@ -8,7 +8,7 @@ import { fetchWithTimeout } from '@/lib/server-http'
  * 
  * Consolidated endpoint that returns:
  * - Health status of all services
- * - Usage metrics for Vercel, Supabase, WhatsApp, QStash
+ * - Usage metrics for Vercel, Supabase, WhatsApp
  * - Vercel deployment info
  * 
  * This replaces 3 separate API calls with 1, reducing function invocations.
@@ -20,7 +20,6 @@ interface HealthStatus {
   overall: 'healthy' | 'degraded' | 'unhealthy'
   services: {
     database: { status: 'ok' | 'error' | 'not_configured'; latency?: number; message?: string }
-    qstash: { status: 'ok' | 'error' | 'not_configured'; message?: string }
     whatsapp: { status: 'ok' | 'error' | 'not_configured'; source?: string; phoneNumber?: string; message?: string }
   }
 }
@@ -57,13 +56,6 @@ interface UsageData {
     tierLimit: number
     percentage: number
     quality: string
-    status: 'ok' | 'warning' | 'critical'
-  }
-  qstash: {
-    messagesMonth: number
-    messagesLimit: number
-    percentage: number
-    cost: number
     status: 'ok' | 'warning' | 'critical'
   }
 }
@@ -121,7 +113,6 @@ export async function GET() {
       overall: 'healthy',
       services: {
         database: { status: 'not_configured' },
-        qstash: { status: 'not_configured' },
         whatsapp: { status: 'not_configured' },
       },
     },
@@ -142,7 +133,6 @@ export async function GET() {
       },
       database: { plan: 'unknown', storageMB: 0, limitMB: 500, bandwidthMB: 0, bandwidthLimitMB: 5000, percentage: 0, rowsRead: 0, rowsWritten: 0, status: 'ok' },
       whatsapp: { messagesSent: 0, tier: 'STANDARD', tierLimit: 100000, percentage: 0, quality: 'GREEN', status: 'ok' },
-      qstash: { messagesMonth: 0, messagesLimit: 500, percentage: 0, cost: 0, status: 'ok' },
     },
     vercel: {
       dashboardUrl: buildVercelDashboardUrl(),
@@ -326,66 +316,7 @@ export async function GET() {
       }
     })(),
 
-    // 2. QSTASH (with usage stats)
-    (async () => {
-      if (process.env.QSTASH_TOKEN) {
-        response.health.services.qstash = { status: 'ok', message: 'Token configured' }
-
-        // Tentar env vars primeiro, depois banco de dados
-        let upstashEmail = process.env.UPSTASH_EMAIL
-        let upstashApiKey = process.env.UPSTASH_API_KEY
-
-        // Se não tiver env var, buscar do banco
-        if (!upstashEmail || !upstashApiKey) {
-          try {
-            const { data: settingsData } = await supabase
-              .from('settings')
-              .select('key, value')
-              .in('key', ['upstashEmail', 'upstashApiKey'])
-
-            if (settingsData) {
-              const settingsMap = new Map(settingsData.map(s => [s.key, s.value]))
-              upstashEmail = upstashEmail || (settingsMap.get('upstashEmail') as string) || ''
-              upstashApiKey = upstashApiKey || (settingsMap.get('upstashApiKey') as string) || ''
-            }
-          } catch {
-            // Ignore errors fetching from DB
-          }
-        }
-
-        if (upstashEmail && upstashApiKey) {
-          try {
-            const auth = Buffer.from(`${upstashEmail}:${upstashApiKey}`).toString('base64')
-            const statsRes = await fetchWithTimeout('https://api.upstash.com/v2/qstash/stats', {
-              headers: { 'Authorization': `Basic ${auth}` },
-              timeoutMs: 3500,
-            })
-
-            if (statsRes.ok) {
-              const stats = await statsRes.json()
-              const monthlyMessages = stats.daily_requests?.reduce((sum: number, day: any) => sum + (day.y || 0), 0) || 0
-              const monthlyBilling = stats.total_monthly_billing || 0
-              const isPayAsYouGo = monthlyBilling > 0 || monthlyMessages > 500
-
-              response.usage.qstash = {
-                messagesMonth: monthlyMessages,
-                messagesLimit: isPayAsYouGo ? 0 : 500,
-                percentage: isPayAsYouGo ? 0 : Math.round((monthlyMessages / 500) * 100 * 10) / 10,
-                cost: monthlyBilling,
-                status: isPayAsYouGo ? 'ok' : getStatus(Math.round((monthlyMessages / 500) * 100)) as 'ok' | 'warning' | 'critical'
-              }
-            }
-          } catch (e) {
-            console.error('Failed to get QStash stats:', e)
-          }
-        }
-      } else {
-        response.health.services.qstash = { status: 'not_configured', message: 'QSTASH_TOKEN not set' }
-        response.health.overall = 'degraded'
-      }
-    })(),
-
-    // 3. WHATSAPP
+    // 2. WHATSAPP
     (async () => {
       try {
         const credentials = await getWhatsAppCredentials()
@@ -433,7 +364,7 @@ export async function GET() {
       }
     })(),
 
-    // 4. VERCEL USAGE
+    // 3. VERCEL USAGE
     (async () => {
       const vercelToken = process.env.VERCEL_API_TOKEN || process.env.VERCEL_TOKEN
 

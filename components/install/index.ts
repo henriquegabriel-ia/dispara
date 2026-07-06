@@ -25,5 +25,3 @@ export * from './forms';
 export { IdentityStep } from './steps/IdentityStep';
 export { VercelStep } from './steps/VercelStep';
 export { SupabaseStep } from './steps/SupabaseStep';
-export { QStashStep } from './steps/QStashStep';
-export { RedisStep } from './steps/RedisStep';

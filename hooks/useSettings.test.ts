@@ -74,8 +74,6 @@ const mockGetAutoSuppression = vi.fn()
 const mockSaveAutoSuppression = vi.fn()
 const mockSaveCalendarBookingConfig = vi.fn()
 const mockSaveWorkflowExecutionConfig = vi.fn()
-const mockSaveUpstashConfig = vi.fn()
-const mockRemoveUpstashConfig = vi.fn()
 
 vi.mock('@/services/settingsService', () => ({
   settingsService: {
@@ -93,8 +91,6 @@ vi.mock('@/services/settingsService', () => ({
     saveAutoSuppression: (...args: unknown[]) => mockSaveAutoSuppression(...args),
     saveCalendarBookingConfig: (...args: unknown[]) => mockSaveCalendarBookingConfig(...args),
     saveWorkflowExecutionConfig: (...args: unknown[]) => mockSaveWorkflowExecutionConfig(...args),
-    saveUpstashConfig: (...args: unknown[]) => mockSaveUpstashConfig(...args),
-    removeUpstashConfig: (...args: unknown[]) => mockRemoveUpstashConfig(...args),
   },
 }))
 
@@ -150,7 +146,6 @@ const mockAllSettings = {
     source: 'db' as const,
     config: { retryCount: 3, retryDelayMs: 1000, timeoutMs: 30000 },
   },
-  upstashConfig: { configured: true, email: 'user@test.com', hasApiKey: true },
   timestamp: '2026-02-08T12:00:00Z',
 }
 
@@ -181,7 +176,6 @@ const mockSystemHealth = {
     overall: 'healthy',
     services: {
       database: { status: 'ok', provider: 'supabase', latency: 12 },
-      qstash: { status: 'ok' },
       whatsapp: { status: 'ok', source: 'db', phoneNumber: '+5511999999999' },
     },
   },
@@ -258,8 +252,6 @@ describe('useSettingsController', () => {
     mockSaveAutoSuppression.mockResolvedValue({})
     mockSaveCalendarBookingConfig.mockResolvedValue(undefined)
     mockSaveWorkflowExecutionConfig.mockResolvedValue({})
-    mockSaveUpstashConfig.mockResolvedValue(undefined)
-    mockRemoveUpstashConfig.mockResolvedValue(undefined)
     mockTestConnection.mockResolvedValue({
       ok: true,
       phoneNumberId: '123',
@@ -387,16 +379,6 @@ describe('useSettingsController', () => {
       })
 
       expect(result.current.workflowExecution).toEqual(mockAllSettings.workflowExecution)
-    })
-
-    it('deve derivar upstashConfig de allSettings', async () => {
-      const { result } = renderHookWithProviders(() => useSettingsController())
-
-      await waitFor(() => {
-        expect(result.current.isLoading).toBe(false)
-      })
-
-      expect(result.current.upstashConfig).toEqual(mockAllSettings.upstashConfig)
     })
 
     it('deve retornar webhookPath do allSettings ou default', async () => {
@@ -671,36 +653,6 @@ describe('useSettingsController', () => {
       expect(mockSaveWorkflowExecutionConfig.mock.calls[0][0]).toEqual(config)
     })
 
-    it('deve salvar upstash config', async () => {
-      const { result } = renderHookWithProviders(() => useSettingsController())
-
-      await waitFor(() => {
-        expect(result.current.isLoading).toBe(false)
-      })
-
-      const config = { email: 'user@test.com', apiKey: 'key-123' }
-
-      await act(async () => {
-        await result.current.saveUpstashConfig(config)
-      })
-
-      expect(mockSaveUpstashConfig.mock.calls[0][0]).toEqual(config)
-    })
-
-    it('deve remover upstash config', async () => {
-      const { result } = renderHookWithProviders(() => useSettingsController())
-
-      await waitFor(() => {
-        expect(result.current.isLoading).toBe(false)
-      })
-
-      await act(async () => {
-        await result.current.removeUpstashConfig()
-      })
-
-      expect(mockRemoveUpstashConfig).toHaveBeenCalled()
-    })
-
     it('deve expor isSaving states', async () => {
       const { result } = renderHookWithProviders(() => useSettingsController())
 
@@ -715,7 +667,6 @@ describe('useSettingsController', () => {
       expect(result.current.isSavingAutoSuppression).toBe(false)
       expect(result.current.isSavingCalendarBooking).toBe(false)
       expect(result.current.isSavingWorkflowExecution).toBe(false)
-      expect(result.current.isSavingUpstashConfig).toBe(false)
     })
   })
 
@@ -915,9 +866,8 @@ describe('useSettingsController', () => {
       })
 
       expect(result.current.setupSteps).toBeDefined()
-      expect(result.current.setupSteps.length).toBe(2)
-      expect(result.current.setupSteps[0].id).toBe('qstash')
-      expect(result.current.setupSteps[1].id).toBe('whatsapp')
+      expect(result.current.setupSteps.length).toBe(1)
+      expect(result.current.setupSteps[0].id).toBe('whatsapp')
     })
 
     it('deve marcar step como configured quando serviço OK', async () => {
@@ -927,11 +877,10 @@ describe('useSettingsController', () => {
         expect(result.current.systemHealth).not.toBeNull()
       })
 
-      expect(result.current.setupSteps[0].status).toBe('configured') // qstash ok
-      expect(result.current.setupSteps[1].status).toBe('configured') // whatsapp ok
+      expect(result.current.setupSteps[0].status).toBe('configured') // whatsapp ok
     })
 
-    it('deve indicar needsSetup=false quando QStash está OK', async () => {
+    it('deve indicar needsSetup=false (WhatsApp é opcional, sem passo obrigatório)', async () => {
       const { result } = renderHookWithProviders(() => useSettingsController())
 
       await waitFor(() => {
@@ -941,32 +890,7 @@ describe('useSettingsController', () => {
       expect(result.current.needsSetup).toBe(false)
     })
 
-    it('deve indicar needsSetup=true quando QStash falha', async () => {
-      // Override systemHealth com QStash em erro
-      globalThis.fetch = createFetchMock({
-        system: {
-          health: {
-            overall: 'unhealthy',
-            services: {
-              database: { status: 'ok' },
-              qstash: { status: 'error', message: 'Token inválido' },
-              whatsapp: { status: 'ok' },
-            },
-          },
-          timestamp: '2026-02-08T12:00:00Z',
-        },
-      })
-
-      const { result } = renderHookWithProviders(() => useSettingsController())
-
-      await waitFor(() => {
-        expect(result.current.systemHealth).not.toBeNull()
-      })
-
-      expect(result.current.needsSetup).toBe(true)
-    })
-
-    it('deve indicar infrastructureReady quando QStash OK', async () => {
+    it('deve indicar infrastructureReady quando health carregado', async () => {
       const { result } = renderHookWithProviders(() => useSettingsController())
 
       await waitFor(() => {
@@ -1132,11 +1056,6 @@ describe('useSettingsController', () => {
       // Workflow Execution
       expect(result.current).toHaveProperty('workflowExecution')
       expect(result.current).toHaveProperty('saveWorkflowExecution')
-
-      // Upstash Config
-      expect(result.current).toHaveProperty('upstashConfig')
-      expect(result.current).toHaveProperty('saveUpstashConfig')
-      expect(result.current).toHaveProperty('removeUpstashConfig')
     })
   })
 })

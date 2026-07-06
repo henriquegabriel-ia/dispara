@@ -10,8 +10,7 @@ import {
   CheckCircle2,
   TrendingUp,
   ExternalLink,
-  RefreshCw,
-  Send
+  RefreshCw
 } from 'lucide-react'
 import { Container } from '@/components/ui/container'
 
@@ -45,13 +44,6 @@ interface UsageData {
     tierLimit: number
     percentage: number
     quality: string
-    status: 'ok' | 'warning' | 'critical'
-  }
-  qstash?: {
-    messagesMonth: number
-    messagesLimit: number
-    percentage: number
-    cost: number
     status: 'ok' | 'warning' | 'critical'
   }
 }
@@ -337,22 +329,6 @@ export const UsagePanel: React.FC<UsagePanelProps> = ({ usage, isLoading, onRefr
             </a>
           )}
         </div>
-
-        {/* QStash */}
-        {usage.qstash && (
-          <UsageItem
-            icon={Send}
-            iconColor="text-violet-400"
-            title="QStash"
-            subtitle={usage.qstash.messagesLimit === 0 ? 'Pay-as-you-go' : 'Mensagens/mês'}
-            value={formatNumber(usage.qstash.messagesMonth)}
-            limit={usage.qstash.messagesLimit === 0 ? 'Unlimited' : formatNumber(usage.qstash.messagesLimit)}
-            percentage={usage.qstash.percentage}
-            status={usage.qstash.status}
-            helpText={(usage.qstash?.cost ?? 0) > 0 ? `Custo: $${(usage.qstash?.cost ?? 0).toFixed(3)}` : '✓ Dentro do limite gratuito'}
-            upgradeUrl="https://console.upstash.com/qstash"
-          />
-        )}
 
         {/* Database - Custom section with plan badge */}
         <div className={`p-4 rounded-xl border transition-all ${usage.database.status === 'critical'

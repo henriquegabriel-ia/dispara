@@ -20,7 +20,7 @@ import {
   type AccountHealth
 } from '../lib/account-health';
 import { DEFAULT_WEBHOOK_PATH } from '../lib/business/settings';
-import { Zap, MessageSquare } from 'lucide-react';
+import { MessageSquare } from 'lucide-react';
 import React from 'react';
 import { SetupStep } from '../components/features/settings/SetupWizardView';
 
@@ -210,12 +210,6 @@ export const useSettingsController = () => {
     isLoading: allSettingsQuery.isLoading,
   };
 
-  // Upstash Config - derived from consolidated query
-  const upstashConfigQuery = {
-    data: allSettingsQuery.data?.upstashConfig,
-    isLoading: allSettingsQuery.isLoading,
-  };
-
   // Domains - derived from consolidated query and transformed to DomainOption format
   const availableDomains = useMemo((): DomainOption[] => {
     const rawDomains = allSettingsQuery.data?.domains?.domains || [];
@@ -370,29 +364,6 @@ export const useSettingsController = () => {
     },
     onError: (err: Error) => {
       toast.error(err?.message || 'Erro ao salvar configuração de execução');
-    },
-  });
-
-  // Upstash Config Mutations
-  const saveUpstashConfigMutation = useMutation({
-    mutationFn: settingsService.saveUpstashConfig,
-    onSuccess: async () => {
-      await queryClient.refetchQueries({ queryKey: ['allSettings'] });
-      toast.success('Credenciais do Upstash salvas!');
-    },
-    onError: (err: Error) => {
-      toast.error(err?.message || 'Erro ao salvar credenciais do Upstash');
-    },
-  });
-
-  const removeUpstashConfigMutation = useMutation({
-    mutationFn: settingsService.removeUpstashConfig,
-    onSuccess: async () => {
-      await queryClient.refetchQueries({ queryKey: ['allSettings'] });
-      toast.success('Credenciais do Upstash removidas!');
-    },
-    onError: (err: Error) => {
-      toast.error(err?.message || 'Erro ao remover credenciais do Upstash');
     },
   });
 
@@ -693,21 +664,6 @@ export const useSettingsController = () => {
 
     return [
       {
-        id: 'qstash',
-        title: 'QStash (Upstash)',
-        description: 'Filas de mensagens para processamento assíncrono de campanhas. Configure pelo assistente (/install).',
-        status: health?.services.qstash?.status === 'ok'
-          ? 'configured'
-          : health?.services.qstash?.status === 'error'
-            ? 'error'
-            : 'pending',
-        icon: React.createElement(Zap, { size: 20, className: 'text-primary-400' }),
-        actionLabel: 'Abrir assistente',
-        actionUrl: '/install',
-        errorMessage: health?.services.qstash?.message,
-        isRequired: true,
-      },
-      {
         id: 'whatsapp',
         title: 'WhatsApp Business API',
         description: 'Credenciais da Meta para enviar mensagens. (Opcional no início — você pode configurar depois.)',
@@ -728,17 +684,14 @@ export const useSettingsController = () => {
     const health = healthQuery.data;
     if (!health) return false; // Don't show wizard while loading - show settings instead
 
-    // Setup é necessário apenas para infra mínima (QStash).
-    // WhatsApp é opcional e pode ser configurado depois.
-    return health.services.qstash?.status !== 'ok';
-  }, [healthQuery.data]);
+    // Infra de filas migrou para pg_cron: não há mais passo obrigatório de setup.
+    // WhatsApp é opcional e pode ser configurado depois em Configurações.
+    return setupSteps.some((step) => step.isRequired && step.status !== 'configured');
+  }, [healthQuery.data, setupSteps]);
 
-  // Check if infrastructure is ready (QStash configured)
+  // Check if infrastructure is ready (filas agora rodam via pg_cron, sempre prontas)
   const infrastructureReady = useMemo(() => {
-    const health = healthQuery.data;
-    if (!health) return false;
-
-    return health.services.qstash?.status === 'ok';
+    return !!healthQuery.data;
   }, [healthQuery.data]);
 
   // Check if all steps are configured
@@ -849,13 +802,5 @@ export const useSettingsController = () => {
     workflowExecutionLoading: workflowExecutionQuery.isLoading,
     saveWorkflowExecution: saveWorkflowExecutionMutation.mutateAsync,
     isSavingWorkflowExecution: saveWorkflowExecutionMutation.isPending,
-
-    // Upstash Config (métricas de uso do QStash)
-    upstashConfig: upstashConfigQuery.data || null,
-    upstashConfigLoading: upstashConfigQuery.isLoading,
-    saveUpstashConfig: saveUpstashConfigMutation.mutateAsync,
-    removeUpstashConfig: removeUpstashConfigMutation.mutateAsync,
-    isSavingUpstashConfig: saveUpstashConfigMutation.isPending,
-
   };
 };  

@@ -105,16 +105,6 @@ export function getFriendlyCopy(check: MetaDiagnosticsCheck): FriendlyCopy {
         why: 'O app salva configurações e resultados de envio no Supabase.',
       }
 
-    case 'infra_qstash':
-      return {
-        title: 'Fila de envio (QStash)',
-        message:
-          check.status === 'pass'
-            ? 'OK. Envio em lote/campanhas pode funcionar.'
-            : 'Nao configurado. Campanhas podem falhar para enfileirar.',
-        why: 'Campanhas usam fila para enviar com estabilidade.',
-      }
-
     case 'meta_health_status':
       return {
         title: 'Posso enviar agora?',

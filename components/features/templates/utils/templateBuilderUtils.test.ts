@@ -556,10 +556,10 @@ describe('validateCarouselSpec', () => {
       ],
     }
     const errors = validateCarouselSpec(carousel)
-    expect(errors).toContain('Card 1: header e obrigatorio.')
-    expect(errors).toContain('Card 1: body e obrigatorio.')
-    expect(errors).toContain('Card 2: header e obrigatorio.')
-    expect(errors).toContain('Card 2: body e obrigatorio.')
+    expect(errors).toContain('Card 1: header é obrigatório.')
+    expect(errors).toContain('Card 1: body é obrigatório.')
+    expect(errors).toContain('Card 2: header é obrigatório.')
+    expect(errors).toContain('Card 2: body é obrigatório.')
   })
 
   it('should require IMAGE or VIDEO header format', () => {
@@ -603,7 +603,7 @@ describe('validateCarouselSpec', () => {
       ],
     }
     const errors = validateCarouselSpec(carousel)
-    expect(errors).toContain('Card 1: maximo de 2 botoes.')
+    expect(errors).toContain('Card 1: máximo de 2 botões.')
   })
 
   it('should pass valid carousel', () => {

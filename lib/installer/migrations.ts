@@ -209,6 +209,59 @@ export async function runSchemaMigration(dbUrl: string) {
 }
 
 /**
+ * Fase G (migração QStash→pg_cron): configura o relógio no Supabase pós-migrations.
+ *
+ * Grava no Vault do Supabase os secrets que a função public.dispara_cron_tick() lê a cada
+ * minuto (app_base_url + cron_secret) e garante o agendamento cron.schedule (caso a migration
+ * o tenha adiado por a extensão pg_cron ainda não estar visível na mesma transação).
+ *
+ * Idempotente: usa vault.update_secret quando o secret já existe, senão vault.create_secret.
+ * Best-effort no chamador — se o Vault não estiver disponível, a app ainda dispara campanhas
+ * via auto-reinvocação; apenas os jobs agendados/reconcile ficam sem relógio até configurar.
+ */
+export async function configureCronVault(
+  dbUrl: string,
+  opts: { appBaseUrl: string; cronSecret: string }
+): Promise<void> {
+  const normalizedDbUrl = stripSslModeParam(dbUrl);
+
+  const client = new Client({
+    connectionString: normalizedDbUrl,
+    ssl: needsSsl(dbUrl) ? { rejectUnauthorized: false } : undefined,
+  });
+
+  await client.connect();
+  try {
+    // Upsert idempotente de um secret nomeado no Vault.
+    const upsertSecret = async (name: string, value: string) => {
+      const existing = await client.query<{ id: string }>(
+        'select id from vault.secrets where name = $1 limit 1',
+        [name]
+      );
+      if (existing.rows.length > 0) {
+        await client.query('select vault.update_secret($1, $2, $3)', [existing.rows[0].id, value, name]);
+      } else {
+        await client.query('select vault.create_secret($1, $2)', [value, name]);
+      }
+    };
+
+    await upsertSecret('app_base_url', opts.appBaseUrl.replace(/\/$/, ''));
+    await upsertSecret('cron_secret', opts.cronSecret);
+
+    // Garante o agendamento (cron.schedule faz upsert pelo nome do job — idempotente).
+    try {
+      await client.query(
+        `select cron.schedule('dispara-cron-tick', '* * * * *', 'select public.dispara_cron_tick();')`
+      );
+    } catch (e) {
+      console.warn('[cron-vault] cron.schedule adiado (pg_cron ainda não pronto?):', e instanceof Error ? e.message : e);
+    }
+  } finally {
+    await client.end().catch(() => {});
+  }
+}
+
+/**
  * Verifica se o schema já foi aplicado (para health check).
  */
 export async function checkSchemaApplied(dbUrl: string): Promise<boolean> {

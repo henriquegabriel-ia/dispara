@@ -100,8 +100,10 @@ playwright-report/
 coverage/
 .nyc_output/
 
-# Testes (mantidos apenas localmente - repo público)
-tests/
+# Testes (suites pesadas mantidas apenas localmente)
+# Usa tests/* (não tests/) para que a negação de tests/helpers/ funcione:
+# git não reinclui subpastas de um diretório inteiramente excluído.
+tests/*
 # Helpers de teste são necessários no CI
 !tests/helpers/
 !tests/helpers/**

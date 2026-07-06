@@ -35,11 +35,6 @@ const RunSchema = z
       projectRef: z.string().optional(),
       dbPass: z.string().min(1).optional(), // Senha do banco (criada junto com o projeto)
     }),
-    upstash: z.object({
-      qstashToken: z.string().min(1),
-      redisRestUrl: z.string().url(),
-      redisRestToken: z.string().min(1),
-    }),
     admin: z.object({
       name: z.string().min(1),
       email: z.string().email(),
@@ -101,7 +96,7 @@ export async function POST(req: Request) {
     return new Response(JSON.stringify({ error: 'Payload inválido', details: parsed.error.flatten() }), { status: 400 });
   }
 
-  const { vercel, supabase, upstash, admin, healthCheck } = parsed.data;
+  const { vercel, supabase, admin, healthCheck } = parsed.data;
   const envTargets = vercel.targets;
   const shouldWaitStorage = process.env.DISPARA_WAIT_STORAGE === 'true';
 
@@ -181,12 +176,11 @@ export async function POST(req: Request) {
       { key: 'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY', value: resolvedAnonKey, targets: envTargets },
       { key: 'SUPABASE_SECRET_KEY', value: resolvedServiceRoleKey, targets: envTargets },
 
-      // QStash
-      { key: 'QSTASH_TOKEN', value: upstash.qstashToken, targets: envTargets },
-
-      // Redis
-      { key: 'UPSTASH_REDIS_REST_URL', value: upstash.redisRestUrl, targets: envTargets },
-      { key: 'UPSTASH_REDIS_REST_TOKEN', value: upstash.redisRestToken, targets: envTargets },
+      // Relógio pg_cron (substitui QSTASH_TOKEN + UPSTASH_REDIS_*). O app_base_url + cron_secret
+      // do Vault (que fazem o pg_cron disparar /api/cron/tick) devem ser configurados via o
+      // fluxo principal /api/installer/provision ou manualmente — esta rota programática só
+      // recebe projectId, não a URL pública do deploy.
+      { key: 'CRON_SECRET', value: `cron_${crypto.randomUUID().replace(/-/g, '')}${crypto.randomUUID().replace(/-/g, '')}`, targets: envTargets },
 
       // Auth
       { key: 'MASTER_PASSWORD', value: admin.passwordHash, targets: envTargets },

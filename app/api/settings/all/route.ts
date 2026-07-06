@@ -101,12 +101,6 @@ interface WorkflowExecutionData {
   config: any
 }
 
-interface UpstashConfigData {
-  configured: boolean
-  email: string
-  hasApiKey: boolean
-}
-
 interface AllSettingsResponse {
   credentials: CredentialsData
   ai: AISettingsData
@@ -115,7 +109,6 @@ interface AllSettingsResponse {
   domains: DomainsData
   calendarBooking: CalendarBookingData
   workflowExecution: WorkflowExecutionData
-  upstashConfig: UpstashConfigData
   timestamp: string
 }
 
@@ -350,23 +343,6 @@ async function fetchWorkflowExecution(): Promise<WorkflowExecutionData> {
   }
 }
 
-async function fetchUpstashConfig(): Promise<UpstashConfigData> {
-  const { data } = await supabase.admin
-    ?.from('settings')
-    .select('key, value')
-    .in('key', ['upstashEmail', 'upstashApiKey']) || { data: null }
-
-  const settingsMap = new Map(data?.map(s => [s.key, s.value]) || [])
-  const email = (settingsMap.get('upstashEmail') as string) || ''
-  const apiKey = (settingsMap.get('upstashApiKey') as string) || ''
-
-  return {
-    configured: Boolean(email && apiKey),
-    email,
-    hasApiKey: Boolean(apiKey),
-  }
-}
-
 // === MAIN HANDLER ===
 
 export async function GET() {
@@ -374,7 +350,7 @@ export async function GET() {
 
   try {
     // Fetch all settings in parallel
-    const [credentials, ai, metaApp, testContact, domains, calendarBooking, workflowExecution, upstashConfig] = await Promise.all([
+    const [credentials, ai, metaApp, testContact, domains, calendarBooking, workflowExecution] = await Promise.all([
       fetchCredentials().catch((e) => ({ source: 'none' as const, isConnected: false, warning: e.message })),
       fetchAISettings().catch(() => ({
         provider: 'google', model: '', providers: {}, isConfigured: false, source: 'none',
@@ -385,7 +361,6 @@ export async function GET() {
       fetchDomains().catch(() => ({ domains: [], webhookPath: DEFAULT_WEBHOOK_PATH, currentSelection: null })),
       fetchCalendarBooking().catch(() => ({ ok: true, source: 'default' as const, config: DEFAULT_CALENDAR_BOOKING_CONFIG })),
       fetchWorkflowExecution().catch(() => ({ ok: true, source: 'env' as const, config: {} })),
-      fetchUpstashConfig().catch(() => ({ configured: false, email: '', hasApiKey: false })),
     ])
 
     const response: AllSettingsResponse = {
@@ -396,7 +371,6 @@ export async function GET() {
       domains,
       calendarBooking,
       workflowExecution,
-      upstashConfig,
       timestamp: new Date().toISOString(),
     }
 

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Dispara ("Dispara API Oficial") é um SaaS single-tenant de disparos e automação via WhatsApp API Oficial, construído com Next.js 16 (App Router), React 19, Supabase (PostgreSQL) e Upstash QStash. Integra Meta WhatsApp Cloud API (v24.0) para mensagens com template e Vercel AI SDK v6 para geração de conteúdo.
+Dispara ("Dispara API Oficial") é um SaaS single-tenant de disparos e automação via WhatsApp API Oficial, construído com Next.js 16 (App Router), React 19 e Supabase (PostgreSQL). O relógio de fundo (disparo em massa, agendamentos, waits de fluxo, reconcile) é o **pg_cron do Supabase** (via pg_net → `/api/cron/tick`) + auto-reinvocação — sem QStash/Redis, o onboarding exige só Supabase + Vercel. Integra Meta WhatsApp Cloud API (v24.0) para mensagens com template e Vercel AI SDK v6 para geração de conteúdo.
 
 ## Development Commands
 
@@ -54,13 +54,20 @@ app/api/campaigns/route.ts            # API Route → Supabase DB
 - **Services**: typed fetch wrappers for API routes
 - **API Routes**: validation (Zod), business logic, DB operations
 
-### Backend Pattern: Serverless + Queues
+### Backend Pattern: Serverless + pg_cron
 
 ```
-API Routes (Next.js)  →  QStash Workflow  →  Meta WhatsApp API
-        ↓                     ↓
-  Supabase DB           (queue/durable steps)
+API Routes (Next.js)  →  Meta WhatsApp API
+        ↓
+  Supabase DB (campaign_contacts = fila; claim CAS pending→sending)
+        ↑
+  pg_cron (a cada minuto, pg_net → /api/cron/tick) + auto-reinvocação (after())
 ```
+
+O relógio é o pg_cron do Supabase: a função `dispara_cron_tick()` lê `app_base_url`+`cron_secret`
+do Vault e faz POST em `/api/cron/tick`, que drena campanhas agendadas, enrollments de fluxo,
+reconcile de status e o sweeper do disparo em massa. O hot path do disparo usa auto-reinvocação
+(`reinvokeSelf` via `after()`); o pg_cron é a rede de segurança.
 
 ### Key Directories
 
@@ -156,7 +163,7 @@ export const useCampaignsController = () => {
 
 ### WhatsApp Credentials
 
-Fetched from Supabase `settings` table first, env vars as fallback, Redis-cached (60s TTL):
+Fetched from Supabase `settings` table first, env vars as fallback (in-process cache, 60s TTL):
 
 ```typescript
 import { getWhatsAppCredentials } from '@/lib/whatsapp-credentials'
@@ -182,10 +189,13 @@ validatePhoneNumber(phone)  // Uses libphonenumber-js
 
 ## Workflow Engine
 
-Upstash Workflow SDK with durable steps:
+Executor DAG próprio com waits duráveis via Postgres (tabela `workflow_enrollments`) — sem QStash.
+Delays pausam o fluxo (persistem `resume_at`) e o pg_cron (`drainWorkflowEnrollments`) os retoma:
 
 ```
-lib/builder/workflow-executor.workflow.ts  # Main executor
+lib/builder/workflow-executor.workflow.ts  # Main executor (DAG in-memory + sinaliza pausa)
+lib/builder/workflow-enrollments.ts        # Persistência dos waits (resume_at, CAS)
+lib/cron/workflow-enrollments.ts           # Drena/retoma enrollments vencidos (via /api/cron/tick)
 lib/builder/nodes/                         # Node-specific handlers
 ```
 
@@ -219,7 +229,7 @@ Node types: `start`, `message`, `template`, `menu`, `input`, `condition`, `delay
 
 ## Database Schema (Key Tables)
 
-- `settings` - Config (credentials, tokens), Redis-cached
+- `settings` - Config (credentials, tokens), in-process cache
 - `campaigns` - Campaign metadata + counters (sent/delivered/read/failed)
 - `campaign_contacts` - Per-contact status + message_id
 - `contacts` - Contact info + custom fields
@@ -240,7 +250,7 @@ Node types: `start`, `message`, `template`, `menu`, `input`, `condition`, `delay
 
 Required:
 - `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY`
-- `QSTASH_TOKEN`
+- `CRON_SECRET` (autentica as chamadas do pg_cron a `/api/cron/tick`; deve ser igual ao secret `cron_secret` no Vault do Supabase)
 - `MASTER_PASSWORD` (login password)
 - `DISPARA_API_KEY`, `DISPARA_ADMIN_KEY`
 

@@ -1,19 +1,10 @@
 import { NextResponse } from 'next/server'
 import { campaignDb, campaignContactDb } from '@/lib/supabase-db'
 import { CreateCampaignSchema, validateBody, formatZodErrors } from '@/lib/api-validation'
-import { Client as QStashClient } from '@upstash/qstash'
-import { fetchWithTimeout, safeText } from '@/lib/server-http'
 
 // Force dynamic - NO caching at all
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
-
-// Registry in-memory (dev-only) for localhost scheduling.
-// QStash cannot reach localhost, então usamos um setTimeout para disparar o dispatch.
-// Observação: isso só funciona enquanto o processo do `next dev` estiver rodando.
-const localScheduleRegistry: Map<string, NodeJS.Timeout> =
-  (globalThis as any).__disparaLocalScheduleRegistry
-  || ((globalThis as any).__disparaLocalScheduleRegistry = new Map<string, NodeJS.Timeout>())
 
 /**
  * GET /api/campaigns
@@ -155,129 +146,11 @@ export async function POST(request: Request) {
       )
     }
 
-    // If scheduled, enqueue a one-shot QStash message to trigger dispatch at the right time.
-    if (data.scheduledAt) {
-      const scheduledMs = new Date(data.scheduledAt).getTime()
-      const nowMs = Date.now()
-
-      const explicitAppUrl = process.env.NEXT_PUBLIC_APP_URL?.trim() || null
-      const vercelEnv = (process.env.VERCEL_ENV || '').trim()
-      const productionUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL
-        ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL.trim()}`
-        : null
-      const vercelUrl = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL.trim()}` : null
-      const requestOrigin = (() => {
-        const proto = request.headers.get('x-forwarded-proto') || 'https'
-        const host = request.headers.get('x-forwarded-host') || request.headers.get('host')
-        if (!host) return null
-        return `${proto}://${host}`
-      })()
-
-      // Preview/dev: prefer origin to avoid cross-deploy scheduling.
-      const baseUrl = (vercelEnv === 'production')
-        ? (explicitAppUrl || productionUrl || vercelUrl || requestOrigin || 'http://localhost:3000')
-        : (requestOrigin || vercelUrl || explicitAppUrl || productionUrl || 'http://localhost:3000')
-
-      const isLocalhost = baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1')
-
-      if (isLocalhost) {
-        // QStash cannot reach localhost.
-        // DEV fallback: schedule an in-process dispatch so scheduling works locally.
-        const scheduledAtIso = new Date(data.scheduledAt).toISOString()
-        const dedupeSafeIso = scheduledAtIso.replace(/:/g, '_')
-        const delayMs = Number.isFinite(scheduledMs) ? Math.max(0, scheduledMs - nowMs) : NaN
-
-        console.warn('[Campaigns] scheduledAt set, but localhost detected; using local scheduler (dev-only).')
-
-        if (process.env.NODE_ENV === 'development' && Number.isFinite(delayMs)) {
-          const key = `schedule:${campaign.id}:${scheduledAtIso}`
-          const existing = localScheduleRegistry.get(key)
-          if (existing) clearTimeout(existing)
-
-          console.info('[Campaigns][LocalScheduler] armed', {
-            campaignId: campaign.id,
-            scheduledAt: scheduledAtIso,
-            delayMs,
-          })
-
-          const t = setTimeout(async () => {
-            try {
-              console.info('[Campaigns][LocalScheduler] firing', {
-                campaignId: campaign.id,
-                scheduledAt: scheduledAtIso,
-              })
-              const resp = await fetchWithTimeout(`${baseUrl}/api/campaign/dispatch`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  campaignId: campaign.id,
-                  templateName: campaign.templateName,
-                  trigger: 'schedule',
-                  scheduledAt: scheduledAtIso,
-                }),
-                timeoutMs: 30000,
-              })
-
-              if (!resp.ok) {
-                const text = (await safeText(resp)) || ''
-                console.warn('[Campaigns][LocalScheduler] dispatch failed:', resp.status, text)
-              }
-            } catch (e) {
-              console.warn('[Campaigns][LocalScheduler] dispatch failed (exception):', e)
-            } finally {
-              // Clean up key after execution attempt
-              localScheduleRegistry.delete(key)
-            }
-          }, delayMs)
-
-          localScheduleRegistry.set(key, t)
-        } else {
-          // Keep campaign scheduled in DB, but do not enqueue.
-          console.warn('[Campaigns] Local scheduler inactive (NODE_ENV != development) or invalid scheduledAt; campaign will remain SCHEDULED.')
-        }
-      } else if (!process.env.QSTASH_TOKEN) {
-        console.warn('[Campaigns] scheduledAt set, but QSTASH_TOKEN not configured; skipping QStash enqueue.')
-      } else if (!Number.isFinite(scheduledMs)) {
-        console.warn('[Campaigns] scheduledAt set, but invalid datetime; skipping QStash enqueue:', data.scheduledAt)
-      } else {
-        const delaySeconds = Math.max(0, Math.floor((scheduledMs - nowMs) / 1000))
-        const scheduledAtIso = new Date(data.scheduledAt).toISOString()
-        const dedupeSafeIso = scheduledAtIso.replace(/:/g, '_')
-
-        try {
-          const qstash = new QStashClient({ token: process.env.QSTASH_TOKEN })
-          const res = await qstash.publishJSON({
-            url: `${baseUrl}/api/campaign/dispatch`,
-            body: {
-              campaignId: campaign.id,
-              templateName: campaign.templateName,
-              trigger: 'schedule',
-              scheduledAt: scheduledAtIso,
-            },
-            // One-shot schedule
-            delay: delaySeconds,
-            retries: 3,
-            // Dedup per campaign+scheduled time (best-effort)
-            deduplicationId: `schedule-${campaign.id}-${dedupeSafeIso}`,
-          })
-
-          await campaignDb.updateStatus(campaign.id, {
-            qstashScheduleMessageId: res.messageId,
-            qstashScheduleEnqueuedAt: new Date().toISOString(),
-          })
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error)
-          console.error('[Campaigns] QStash enqueue failed:', message)
-          return NextResponse.json(
-            {
-              error: 'Falha ao agendar campanha (QStash)',
-              details: message,
-            },
-            { status: 502 }
-          )
-        }
-      }
-    }
+    // Agendamento (Fase C — migração QStash→pg_cron): nada a enfileirar aqui.
+    // A campanha já foi criada com status=SCHEDULED + scheduled_date (campaignDb.create).
+    // O relógio (pg_cron → /api/cron/tick → drainScheduledCampaigns) varre as campanhas
+    // vencidas e dispara o /api/campaign/dispatch com trigger:'schedule'. O guard
+    // isStillScheduled no dispatch continua protegendo contra disparo indevido.
 
     return NextResponse.json(campaign, { status: 201 })
   } catch (error) {

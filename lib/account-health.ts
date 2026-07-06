@@ -87,24 +87,6 @@ export async function checkAccountHealth(): Promise<AccountHealth> {
       });
     }
 
-    // Check QStash
-    // Para “saúde da conta” (visão geral), falta de QStash é um alerta (degraded),
-    // mas não necessariamente um bloqueio total do dashboard.
-    // O bloqueio de envio é tratado no quickHealthCheck().
-    if (health.services?.qstash?.status === 'ok') {
-      checks.push({
-        name: 'Fila de Mensagens (QStash)',
-        status: 'pass',
-        message: 'Configurado',
-      });
-    } else {
-      checks.push({
-        name: 'Fila de Mensagens (QStash)',
-        status: 'warn',
-        message: health.services?.qstash?.message || 'Não configurado. Rode o assistente (/install).',
-      });
-    }
-
     // Determine overall health
     const failedChecks = checks.filter(c => c.status === 'fail');
     const warnChecks = checks.filter(c => c.status === 'warn');
@@ -157,7 +139,8 @@ export async function checkAccountHealth(): Promise<AccountHealth> {
 /**
  * Quick health check - just verifies credentials and basic connectivity
  * Use this before starting a campaign
- * Exige WhatsApp (para envio) e QStash (para processamento assíncrono de campanhas).
+ * Exige WhatsApp conectado (para envio). O agendamento/processamento assíncrono
+ * de campanhas roda via pg_cron do Supabase (não depende de serviço externo).
  */
 export async function quickHealthCheck(): Promise<{
   canSend: boolean;
@@ -181,14 +164,6 @@ export async function quickHealthCheck(): Promise<{
       return {
         canSend: false,
         reason: health.services?.whatsapp?.message || 'WhatsApp não configurado. Vá para Configurações.',
-      };
-    }
-
-    // Check if QStash is available (needed for campaign processing)
-    if (health.services?.qstash?.status !== 'ok') {
-      return {
-        canSend: false,
-        reason: health.services?.qstash?.message || 'QStash não configurado. Rode o assistente (/install).',
       };
     }
 

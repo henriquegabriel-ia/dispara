@@ -21,7 +21,6 @@ interface HealthStatus {
   overall: 'healthy' | 'degraded' | 'unhealthy'
   services: {
     database: HealthService
-    qstash: HealthService
     whatsapp: HealthService
   }
 }

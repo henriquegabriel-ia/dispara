@@ -21,7 +21,7 @@
 
 import { z } from 'zod';
 import { fetchWithTimeout } from '@/lib/installer/fetch-with-timeout';
-import { runSchemaMigration, checkSchemaApplied } from '@/lib/installer/migrations';
+import { runSchemaMigration, checkSchemaApplied, configureCronVault } from '@/lib/installer/migrations';
 import { bootstrapInstance } from '@/lib/installer/bootstrap';
 import { triggerProjectRedeploy, upsertProjectEnvs, waitForVercelDeploymentReady, disableDeploymentProtection } from '@/lib/installer/vercel';
 import {
@@ -56,13 +56,6 @@ const ProvisionSchema = z.object({
   supabase: z.object({
     pat: z.string().min(40),
   }),
-  qstash: z.object({
-    token: z.string().min(30),
-  }),
-  redis: z.object({
-    restUrl: z.string().url(),
-    restToken: z.string().min(30),
-  }),
 });
 
 // =============================================================================
@@ -94,8 +87,6 @@ const STEPS: Step[] = [
   { id: 'create_project', title: 'Criando Unidade...', subtitle: 'Alocando nova instância de memória', weight: 10, returnToStep: 3 },
   { id: 'wait_project', title: 'Incubando Unidade...', subtitle: 'Aguardando células se multiplicarem', weight: 15, returnToStep: 3 },
   { id: 'resolve_keys', title: 'Extraindo DNA...', subtitle: 'Resolvendo chaves de acesso', weight: 5, returnToStep: 3 },
-  { id: 'validate_qstash', title: 'Calibrando Transmissão...', subtitle: 'Verificando canal de mensagens', weight: 5, returnToStep: 4 },
-  { id: 'validate_redis', title: 'Inicializando Cache...', subtitle: 'Testando memória temporária', weight: 5, returnToStep: 5 },
   { id: 'setup_envs', title: 'Implantando Memórias...', subtitle: 'Configurando variáveis de ambiente', weight: 10, returnToStep: 2 },
   { id: 'migrations', title: 'Estruturando Sinapses...', subtitle: 'Criando conexões neurais do banco', weight: 15, returnToStep: 3 },
   { id: 'bootstrap', title: 'Registrando Baseline...', subtitle: 'Criando identidade administrativa', weight: 10, returnToStep: 1 },
@@ -178,58 +169,6 @@ async function validateVercelToken(token: string): Promise<{ projectId: string; 
     projectName: project.name,
     teamId: project.accountId !== project.ownerId ? project.accountId : undefined,
   };
-}
-
-async function validateQStashToken(token: string): Promise<void> {
-  // Detecta região via JWT (mesmo padrão de /api/installer/qstash/validate)
-  let qstashBaseUrl = 'https://qstash.upstash.io';
-  try {
-    const payloadB64 = token.split('.')[1];
-    if (payloadB64) {
-      const payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString());
-      if (payload.iss && typeof payload.iss === 'string') {
-        qstashBaseUrl = payload.iss.replace(/\/$/, '');
-      }
-    }
-  } catch {
-    // JWT indecodificável: usa fallback genérico
-  }
-
-  const res = await fetchWithTimeout(`${qstashBaseUrl}/v2/schedules`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-
-  if (!res.ok) {
-    if (res.status === 401 || res.status === 403) {
-      throw new Error('Token QStash inválido. Copie o QSTASH_TOKEN do console Upstash → QStash → Details.');
-    }
-    throw new Error('Erro ao validar token QStash');
-  }
-}
-
-async function validateRedisCredentials(url: string, token: string): Promise<void> {
-  let normalizedUrl = url.trim();
-  try {
-    const parsed = new URL(normalizedUrl);
-    if (parsed.protocol !== 'https:') {
-      throw new Error('URL do Redis deve usar HTTPS');
-    }
-    if (!parsed.hostname.endsWith('.upstash.io')) {
-      throw new Error('URL do Redis deve ser do Upstash (*.upstash.io)');
-    }
-    normalizedUrl = parsed.origin;
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'URL do Redis inválida';
-    throw new Error(message);
-  }
-
-  const res = await fetchWithTimeout(`${normalizedUrl}/ping`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-
-  if (!res.ok) {
-    throw new Error('Credenciais Redis inválidas');
-  }
 }
 
 async function findOrCreateSupabaseProject(
@@ -378,7 +317,12 @@ export async function POST(req: Request) {
   }
 
   console.log('[provision] ✅ Payload válido');
-  const { identity, vercel, supabase, qstash, redis } = parsed.data;
+  const { identity, vercel, supabase } = parsed.data;
+
+  // Fase G (migração QStash→pg_cron): segredo do relógio. Vai como env CRON_SECRET (a app o
+  // valida em verifyCronRequest) E como secret 'cron_secret' no Vault do Supabase (o pg_cron o
+  // usa como Bearer ao chamar /api/cron/tick). Os dois PRECISAM ser o mesmo valor.
+  const cronSecret = `cron_${crypto.randomUUID().replace(/-/g, '')}${crypto.randomUUID().replace(/-/g, '')}`;
 
   // Create SSE stream
   const encoder = new TextEncoder();
@@ -571,42 +515,14 @@ export async function POST(req: Request) {
       console.log('[provision] ✅ Step 5/12: Resolve Supabase Keys - COMPLETO', { hasDbUrl: !!dbUrl });
       stepIndex++;
 
-      // Step 6: Validate QStash
-      console.log('[provision] 📍 Step 6/12: Validate QStash - INICIANDO');
-      const step6 = STEPS[stepIndex];
+      // Step 6: Setup env vars
+      console.log('[provision] 📍 Step 6/10: Setup Env Vars - INICIANDO');
+      const stepEnvs = STEPS[stepIndex];
       await sendEvent({
         type: 'progress',
         progress: calculateProgress(stepIndex),
-        title: step6.title,
-        subtitle: step6.subtitle,
-      });
-
-      await validateQStashToken(qstash.token);
-      console.log('[provision] ✅ Step 6/12: Validate QStash - COMPLETO');
-      stepIndex++;
-
-      // Step 7: Validate Redis
-      console.log('[provision] 📍 Step 7/12: Validate Redis - INICIANDO');
-      const step7 = STEPS[stepIndex];
-      await sendEvent({
-        type: 'progress',
-        progress: calculateProgress(stepIndex),
-        title: step7.title,
-        subtitle: step7.subtitle,
-      });
-
-      await validateRedisCredentials(redis.restUrl, redis.restToken);
-      console.log('[provision] ✅ Step 7/12: Validate Redis - COMPLETO');
-      stepIndex++;
-
-      // Step 8: Setup env vars
-      console.log('[provision] 📍 Step 8/12: Setup Env Vars - INICIANDO');
-      const step8 = STEPS[stepIndex];
-      await sendEvent({
-        type: 'progress',
-        progress: calculateProgress(stepIndex),
-        title: step8.title,
-        subtitle: step8.subtitle,
+        title: stepEnvs.title,
+        subtitle: stepEnvs.subtitle,
       });
 
       const passwordHash = await hashPassword(identity.password);
@@ -616,9 +532,9 @@ export async function POST(req: Request) {
         { key: 'NEXT_PUBLIC_SUPABASE_URL', value: supabaseProject.projectUrl, targets: [...envTargets] },
         { key: 'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY', value: anonKey, targets: [...envTargets] },
         { key: 'SUPABASE_SECRET_KEY', value: serviceRoleKey, targets: [...envTargets] },
-        { key: 'QSTASH_TOKEN', value: qstash.token, targets: [...envTargets] },
-        { key: 'UPSTASH_REDIS_REST_URL', value: redis.restUrl, targets: [...envTargets] },
-        { key: 'UPSTASH_REDIS_REST_TOKEN', value: redis.restToken, targets: [...envTargets] },
+        // Relógio pg_cron (substitui QSTASH_TOKEN + UPSTASH_REDIS_*): a app valida este
+        // segredo nas chamadas do pg_cron via verifyCronRequest. Mesmo valor gravado no Vault.
+        { key: 'CRON_SECRET', value: cronSecret, targets: [...envTargets] },
         { key: 'MASTER_PASSWORD', value: passwordHash, targets: [...envTargets] },
         { key: 'DISPARA_API_KEY', value: `dsp_${crypto.randomUUID().replace(/-/g, '')}`, targets: [...envTargets] },
         { key: 'SETUP_COMPLETE', value: 'true', targets: [...envTargets] },
@@ -627,13 +543,12 @@ export async function POST(req: Request) {
         { key: 'SUPABASE_ACCESS_TOKEN', value: supabase.pat, targets: [...envTargets] },
       ];
 
-      console.log('[provision] 📍 Step 8/12: Upserting', envVars.length, 'env vars...');
+      console.log('[provision] 📍 Step 6/10: Upserting', envVars.length, 'env vars...');
       await upsertProjectEnvs(vercel.token, vercelProject.projectId, envVars, vercelProject.teamId);
-      console.log('[provision] ✅ Step 8/12: Env vars upserted');
+      console.log('[provision] ✅ Step 6/10: Env vars upserted');
 
-      // Desabilita Deployment Protection para permitir acesso de serviços M2M (QStash)
-      // Isso é necessário para que workflows e webhooks funcionem corretamente
-      console.log('[provision] 📍 Step 8/12: Disabling Deployment Protection...');
+      // Desabilita Deployment Protection para permitir acesso de serviços M2M (webhook/cron).
+      console.log('[provision] 📍 Step 6/10: Disabling Deployment Protection...');
       const protectionResult = await disableDeploymentProtection(
         vercel.token,
         vercelProject.projectId,
@@ -673,12 +588,26 @@ export async function POST(req: Request) {
           await new Promise((r) => setTimeout(r, 5000));
           console.log('[provision] ✅ Step 9/12: Schema cache wait complete');
         } else {
-          console.log('[provision] ℹ️ Step 9/12: Schema already exists, skipping migrations');
+          console.log('[provision] ℹ️ Step 7/10: Schema already exists, skipping migrations');
+        }
+
+        // Fase G: configura o relógio pg_cron. Grava no Vault do Supabase os secrets que a
+        // função dispara_cron_tick() lê (app_base_url + cron_secret) e garante o cron.schedule.
+        // O <projectName>.vercel.app é o alias de produção estável da Vercel. Best-effort: se
+        // falhar, a app ainda dispara campanhas via auto-reinvocação; só os jobs agendados/
+        // reconcile ficam sem relógio até o Vault ser configurado.
+        try {
+          const appBaseUrl = `https://${vercelProject.projectName}.vercel.app`;
+          console.log('[provision] 📍 Step 7/10: Configurando relógio pg_cron (Vault + schedule)...');
+          await configureCronVault(dbUrl, { appBaseUrl, cronSecret });
+          console.log('[provision] ✅ Step 7/10: Relógio pg_cron configurado', { appBaseUrl });
+        } catch (e) {
+          console.warn('[provision] ⚠️ Step 7/10: Falha ao configurar pg_cron (best-effort):', e);
         }
       } else {
-        console.error('[provision] ❌ Step 9/12: NO DB URL - MIGRATIONS SKIPPED!');
+        console.error('[provision] ❌ Step 7/10: NO DB URL - MIGRATIONS SKIPPED!');
       }
-      console.log('[provision] ✅ Step 9/12: Run Migrations - COMPLETO');
+      console.log('[provision] ✅ Step 7/10: Run Migrations - COMPLETO');
       stepIndex++;
 
       // Step 10: Bootstrap admin
@@ -798,19 +727,11 @@ export async function POST(req: Request) {
       const errorTypeMap: Record<string, InstallErrorType> = {
         validate_vercel: 'vercel_token',
         validate_supabase: 'supabase_pat',
-        validate_qstash: 'qstash_token',
       };
 
-      // Para redis, distingue URL vs token pelo conteúdo da mensagem de erro
-      let derivedErrorType: InstallErrorType;
-      if (currentStep.id === 'validate_redis') {
-        const msg = message.toLowerCase();
-        derivedErrorType = isTimeout ? 'network'
-          : msg.includes('token') || msg.includes('inválido') || msg.includes('permiss') ? 'redis_token'
-          : 'redis_url';
-      } else {
-        derivedErrorType = isTimeout ? 'network' : (errorTypeMap[currentStep.id] ?? 'unknown');
-      }
+      const derivedErrorType: InstallErrorType = isTimeout
+        ? 'network'
+        : (errorTypeMap[currentStep.id] ?? 'unknown');
 
       await sendEvent({
         type: 'error',

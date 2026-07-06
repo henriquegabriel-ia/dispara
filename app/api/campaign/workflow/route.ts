@@ -1,6 +1,8 @@
-import { serve } from '@upstash/workflow/nextjs'
+import { NextRequest, NextResponse } from 'next/server'
 import { campaignDb, templateDb } from '@/lib/supabase-db'
-import { supabase } from '@/lib/supabase'
+import { supabase, isSupabaseConfigured } from '@/lib/supabase'
+import { verifyCronRequest, cronUnauthorizedResponse } from '@/lib/cron-auth'
+import { reinvokeSelf } from '@/lib/self-invoke'
 import { CampaignStatus, ContactStatus } from '@/types'
 import { getUserFriendlyMessageForMetaError, normalizeMetaErrorTextForStorage } from '@/lib/whatsapp-errors'
 import { buildMetaTemplatePayload, precheckContactForTemplate, renderTemplatePreviewText } from '@/lib/whatsapp/template-contract'
@@ -276,6 +278,7 @@ interface Contact {
 interface CampaignWorkflowInput {
   campaignId: string
   traceId?: string
+  source?: string
   templateName: string
   contacts: Contact[]
   templateVariables?: { header: string[], headerMediaId?: string, body: string[], buttons?: Record<string, string> }  // Meta API structure
@@ -519,35 +522,26 @@ async function updateContactStatus(
   }
 }
 
-// Upstash Workflow - Durable background processing
-// Each step is a separate HTTP request, bypasses Vercel 10s timeout
-const workflowHandler = serve<CampaignWorkflowInput>(
-  async (context) => {
-    const { campaignId, templateName, contacts, templateVariables, phoneNumberId, accessToken, templateSnapshot, traceId: incomingTraceId, throttleConfig: payloadThrottleConfig, abTestEnabled, abTemplateNameB, abTemplateVariablesB, abTemplateSnapshotB } = context.requestPayload
+// Fase F (migração QStash→pg_cron): o disparo em massa deixou de ser um serve() do
+// @upstash/workflow e virou um DRENADOR da fila campaign_contacts. runCampaignDrain claima
+// lotes (pending->sending via RPC claim_campaign_batch, FOR UPDATE SKIP LOCKED) e envia até
+// esvaziar a fila ou estourar o time budget; o POST auto-reinvoca e o pg_cron é o
+// sweeper/reaper. O no-double-send continua vindo do CAS pending->sending (agora endurecido
+// com SKIP LOCKED), não do QStash.
+async function runCampaignDrain(
+  input: CampaignWorkflowInput,
+  runtime: { deadlineMs: number; worker: string }
+): Promise<{ done: boolean; reason: 'completed' | 'deadline' | 'paused' | 'cancelled'; processedBatches: number }> {
+    const { campaignId, templateName, templateVariables, phoneNumberId, accessToken, templateSnapshot, traceId: incomingTraceId, throttleConfig: payloadThrottleConfig, abTestEnabled, abTemplateNameB, abTemplateVariablesB, abTemplateSnapshotB } = input
 
     const traceId = (incomingTraceId && String(incomingTraceId).trim().length > 0)
       ? String(incomingTraceId).trim()
       : `wf_${campaignId}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
 
-
-    // HARDENING: workflow é estritamente baseado em contact_id.
-    // Se vier algum contato sem contactId, é bug no dispatch/resend e devemos falhar cedo.
-    // NOTA: Esta validação é síncrona e determinística, pode ficar fora de context.run()
-    const missingContactIds = (contacts || []).filter((c) => !c.contactId || String(c.contactId).trim().length === 0)
-    if (missingContactIds.length > 0) {
-      const sample = missingContactIds.slice(0, 10).map((c) => ({ phone: c.phone, name: c.name || '' }))
-      throw new Error(
-        `[Workflow] Payload inválido: ${missingContactIds.length} contato(s) sem contactId. Exemplo: ${JSON.stringify(sample)}`
-      )
-    }
-
     let shouldStopWorkflow: 'cancelled' | null = null
 
-    // Step 1: Check cancellation and mark campaign as SENDING
-    // IMPORTANTE: Todo código não-determinístico (DB, fetch, etc) DEVE estar dentro de context.run()
-    // Ref: https://upstash.com/docs/workflow/basics/caveats#avoid-non-deterministic-code-outside-context-run
-    await context.run('init-campaign', async () => {
-      // Emit trace de início
+    // Step 1: checa cancelamento e marca a campanha como SENDING (idempotente entre reinvocações).
+    const initResult = await (async () => {
       await emitWorkflowTrace({
         traceId,
         campaignId,
@@ -555,9 +549,9 @@ const workflowHandler = serve<CampaignWorkflowInput>(
         phase: 'start',
         ok: true,
         extra: {
-          contacts: contacts?.length || 0,
           hasTemplateSnapshot: Boolean(templateSnapshot),
-          isResend: Boolean((context.requestPayload as any)?.isResend),
+          isResend: Boolean((input as any)?.isResend),
+          source: String((input as any)?.source || 'dispatch'),
         },
       })
 
@@ -574,8 +568,7 @@ const workflowHandler = serve<CampaignWorkflowInput>(
           ok: true,
         })
         console.log(`🛑 Campaign ${campaignId} already CANCELLED before workflow start. Exiting.`)
-        shouldStopWorkflow = 'cancelled'
-        return
+        return 'cancelled' as const
       }
 
       const startedAt = (existing as any)?.startedAt || nowIso
@@ -586,18 +579,19 @@ const workflowHandler = serve<CampaignWorkflowInput>(
         completedAt: null,
       })
 
-      console.log(`📊 Campaign ${campaignId} started with ${contacts.length} contacts (traceId=${traceId})`)
+      console.log(`📊 Campaign ${campaignId} drain started (traceId=${traceId}, worker=${runtime.worker})`)
       console.log(`📝 Template variables: ${JSON.stringify(templateVariables || [])}`)
-    })
+      return 'ok' as const
+    })()
 
-    if (shouldStopWorkflow === 'cancelled') {
+    if (initResult === 'cancelled') {
+      shouldStopWorkflow = 'cancelled'
       console.log(`🛑 Workflow stopped for campaign ${campaignId} (CANCELLED during init).`)
-      return
+      return { done: true, reason: 'cancelled', processedBatches: 0 }
     }
 
-    // Step 2: Preparar batches (usa config do payload ou fallback para DB)
-    // IMPORTANTE: Chamadas assíncronas devem estar dentro de context.run()
-    const { batches, BATCH_SIZE, cfgForBatching } = await context.run('prepare-batches', async () => {
+    // Step 2: config de throttle + tamanho do lote. NÃO fatiamos contatos: a fila é o DB.
+    const { BATCH_SIZE, cfgForBatching } = await (async () => {
       // Prioridade: config do payload (passada pelo dispatch) > DB > env > default
       let cfg: Awaited<ReturnType<typeof getAdaptiveThrottleConfigWithSource>> | null = null
       if (payloadThrottleConfig) {
@@ -611,23 +605,74 @@ const workflowHandler = serve<CampaignWorkflowInput>(
       const batchSize = Number.isFinite(rawBatchSize)
         ? Math.max(1, Math.min(200, Math.floor(rawBatchSize)))
         : 10
+      console.log(`📦 Drain batchSize=${batchSize}`)
+      return { BATCH_SIZE: batchSize, cfgForBatching: cfg }
+    })()
 
-      const contactBatches: Contact[][] = []
-      for (let i = 0; i < contacts.length; i += batchSize) {
-        contactBatches.push(contacts.slice(i, i + batchSize))
+    // Step 3+: drena a fila em lotes até esvaziar OU estourar o time budget (então reinvoca).
+    let batchIndex = -1
+    let processedBatches = 0
+    let drainReason: 'completed' | 'deadline' | 'paused' = 'completed'
+
+    while (true) {
+      // Time budget: sobra margem pro complete/reinvoke sob maxDuration.
+      if (Date.now() >= runtime.deadlineMs) {
+        drainReason = 'deadline'
+        break
       }
 
-      console.log(`📦 Prepared ${contactBatches.length} batches of up to ${batchSize} contacts each (batchSize=${batchSize})`)
-      return { batches: contactBatches, BATCH_SIZE: batchSize, cfgForBatching: cfg }
-    })
+      // Pause/cancel ANTES de claimar (senão as linhas ficariam presas em 'sending').
+      const { data: statusRow } = await supabase
+        .from('campaigns')
+        .select('status')
+        .eq('id', campaignId)
+        .single()
+      const st = (statusRow as any)?.status
+      if (st === CampaignStatus.CANCELLED) {
+        shouldStopWorkflow = 'cancelled'
+        break
+      }
+      if (st === CampaignStatus.PAUSED) {
+        drainReason = 'paused'
+        break
+      }
 
-    // Step 3+: Process contacts in smaller batches
-    // Each batch is a separate step = separate HTTP request = bypasses 10s limit
-    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
-      const batch = batches[batchIndex]
+      // Claim atômico do próximo lote (pending->sending, FOR UPDATE SKIP LOCKED).
+      const { data: claimedRows, error: claimError } = await supabase.rpc('claim_campaign_batch', {
+        p_campaign_id: campaignId,
+        p_limit: BATCH_SIZE,
+        p_trace_id: traceId,
+        p_worker: runtime.worker,
+        p_lease_seconds: 600,
+      })
+      if (claimError) {
+        console.error('[Workflow] Falha no claim_campaign_batch (deixa o sweeper reprocessar):', claimError)
+        drainReason = 'deadline'
+        break
+      }
+      const rows = (claimedRows || []) as any[]
+      if (rows.length === 0) {
+        drainReason = 'completed'
+        break
+      }
 
+      const claimedAtIso = new Date().toISOString()
+      const batch: Contact[] = rows.map((r) => ({
+        contactId: String(r.contact_id),
+        phone: String(r.phone),
+        name: (r.name as string) || '',
+        email: (r.email as string | null) || undefined,
+        custom_fields: (r.custom_fields as Record<string, unknown> | null) || {},
+        variant: (r.variant === 'B' ? 'B' : 'A') as 'A' | 'B',
+      }))
 
-      await context.run(`send-batch-${batchIndex}`, async () => {
+      batchIndex++
+      // O lote JÁ vem claimado do RPC: o miolo NÃO deve re-claimar (SKIP LOCKED é a fonte de
+      // verdade da fila e garante forward-progress).
+      const preClaimedBatch = true
+      const preClaimedAt: string | null = claimedAtIso
+
+      await (async () => {
         const step = `send-batch-${batchIndex}`
 
         let batchOk = true
@@ -640,7 +685,7 @@ const workflowHandler = serve<CampaignWorkflowInput>(
           batchIndex,
           phase: 'batch_start',
           ok: true,
-          extra: { batchSize: batch.length, batches: batches.length },
+          extra: { batchSize: batch.length, batches: batchIndex + 1 },
         })
 
         let sentCount = 0
@@ -1278,11 +1323,22 @@ const workflowHandler = serve<CampaignWorkflowInput>(
           // A partir daqui, só processamos contatos que foram realmente claimados.
           // =====================================================================
           const claimT0 = Date.now()
-          const { claimedAt, claimedIds } = await bulkClaimPendingForSend(
-            campaignId,
-            batch.map((c) => ({ contactId: String(c.contactId) })),
-            traceId
-          )
+          let claimedAt: string | null
+          let claimedIds: Set<string>
+          if (preClaimedBatch) {
+            // Fase F: o drenador já claimou este lote via RPC (pending->sending, SKIP LOCKED).
+            // Re-claimar aqui retornaria 0 (as linhas já estão 'sending') e abortaria o envio.
+            claimedAt = preClaimedAt
+            claimedIds = new Set(batch.map((c) => String(c.contactId)))
+          } else {
+            const claimRes = await bulkClaimPendingForSend(
+              campaignId,
+              batch.map((c) => ({ contactId: String(c.contactId) })),
+              traceId
+            )
+            claimedAt = claimRes.claimedAt
+            claimedIds = claimRes.claimedIds
+          }
           dbTimeMs += Date.now() - claimT0
 
           if (claimedAt && !firstDispatchAtInBatch) firstDispatchAtInBatch = claimedAt
@@ -1333,6 +1389,35 @@ const workflowHandler = serve<CampaignWorkflowInput>(
 
           const pushWriteOp = (op: PendingWriteOp) => {
             writeOps.push(op)
+          }
+
+          // Persiste o message_id de um envio bem-sucedido com retry curto e bounded.
+          // CRÍTICO: se essa escrita falhar de forma transitória e a linha ficar 'sending' com
+          // message_id=null, o reaper (pg_cron) a reseta pra 'pending' e o próximo drenador
+          // REENVIA (double-send = dinheiro), além do webhook não conseguir deduplicar por
+          // message_id. O retry só re-tenta em falha de DB ('error'); é idempotente (o WHERE
+          // permite status IN pending/sending/sent, então não regride delivered/read).
+          const persistSentWithRetry = async (contact: Contact, messageId: string, sendingAtIso: string) => {
+            let w = await updateContactStatus(
+              campaignId,
+              { contactId: contact.contactId, phone: contact.phone },
+              'sent',
+              { sendingAt: sendingAtIso, messageId, traceId }
+            )
+            for (let attempt = 0; attempt < 2 && !w.ok && w.reason === 'error'; attempt++) {
+              w = await updateContactStatus(
+                campaignId,
+                { contactId: contact.contactId, phone: contact.phone },
+                'sent',
+                { sendingAt: sendingAtIso, messageId, traceId }
+              )
+            }
+            if (!w.ok && w.reason === 'error') {
+              console.error(
+                `[workflow] FALHA ao persistir message_id de ${maskPhone(contact.phone)} após retries — o reaper pode reenviar (double-send).`
+              )
+            }
+            return w
           }
 
           const processContact = async (contact: Contact) => {
@@ -1471,8 +1556,88 @@ const workflowHandler = serve<CampaignWorkflowInput>(
             const isVariantB = abTestEnabled && contact.variant === 'B' && abTemplateNameB
             const effectiveTemplateName = isVariantB ? abTemplateNameB! : templateName
             const effectiveTemplateSnapshot = isVariantB && abTemplateSnapshotB ? abTemplateSnapshotB : null
-            // For variant B: use B-specific template variables, keeping precheck values as base
-            const effectiveValues = valuesForSend
+            // Valores efetivos por variante:
+            // - A: valores já resolvidos por contato no precheck (valuesForSend, com overlay do
+            //   media rehosteado do batch).
+            // - B: o precheck acima resolveu contra o template/variáveis de A. A variante B tem
+            //   template e variáveis próprios (estrutura pode diferir), então re-resolvemos
+            //   abTemplateVariablesB contra o template B — preservando a personalização por contato
+            //   ({{nome}}, custom fields) e o headerMediaId próprio de B (o do batch é de A).
+            let effectiveValues = valuesForSend
+            if (isVariantB) {
+              // Sem snapshot da estrutura do template B, só temos a estrutura de A em mãos. Enviar
+              // com o NOME de B contra a ESTRUTURA de A pode gerar mismatch de parâmetros na Meta
+              // (erro 132000) quando B difere de A. Mais seguro pular limpo — o contato é reenviável
+              // depois que o snapshot de B for ressincronizado.
+              if (!effectiveTemplateSnapshot) {
+                pushWriteOp({
+                  contact,
+                  status: 'skipped',
+                  opts: {
+                    sendingAt: sendingAtIso,
+                    skipCode: 'MISSING_TEMPLATE_SNAPSHOT_B',
+                    skipReason: `Variante B (${abTemplateNameB}) sem snapshot de estrutura — não é seguro enviar contra a estrutura da variante A. Ressincronize o template B e reenvie.`,
+                    traceId,
+                  },
+                })
+                await emitWorkflowTrace({
+                  traceId,
+                  campaignId,
+                  step,
+                  batchIndex,
+                  contactId: contact.contactId,
+                  phoneMasked,
+                  phase: 'precheck_skip',
+                  ok: true,
+                  extra: { skipCode: 'MISSING_TEMPLATE_SNAPSHOT_B', variant: 'B' },
+                })
+                skippedCount++
+                progress.bump({ skipped: 1 })
+                console.log(`⏭️ Skipped (variante B sem snapshot) ${contact.phone}`)
+                return
+              }
+
+              const templateForVariantB = effectiveTemplateSnapshot as any
+              const precheckB = precheckContactForTemplate(
+                {
+                  phone: contact.phone,
+                  name: contact.name,
+                  email: contact.email,
+                  custom_fields: contact.custom_fields,
+                  contactId: contact.contactId || null,
+                },
+                templateForVariantB,
+                abTemplateVariablesB as any
+              )
+              if (!precheckB.ok) {
+                pushWriteOp({
+                  contact,
+                  status: 'skipped',
+                  opts: {
+                    sendingAt: sendingAtIso,
+                    skipCode: precheckB.skipCode,
+                    skipReason: precheckB.reason,
+                    traceId,
+                  },
+                })
+                await emitWorkflowTrace({
+                  traceId,
+                  campaignId,
+                  step,
+                  batchIndex,
+                  contactId: contact.contactId,
+                  phoneMasked,
+                  phase: 'precheck_skip',
+                  ok: true,
+                  extra: { skipCode: precheckB.skipCode, reason: precheckB.reason, variant: 'B' },
+                })
+                skippedCount++
+                progress.bump({ skipped: 1 })
+                console.log(`⏭️ Skipped (variante B) ${contact.phone}: ${precheckB.reason}`)
+                return
+              }
+              effectiveValues = precheckB.values
+            }
 
             let whatsappPayload: any
             try {
@@ -1575,27 +1740,23 @@ const workflowHandler = serve<CampaignWorkflowInput>(
               // Caso contrário, o webhook de delivered/read pode chegar ANTES do bulk upsert,
               // falhar no lookup por message_id e a entrega nunca será contabilizada.
               const db0 = Date.now()
-              await updateContactStatus(
-                campaignId,
-                { contactId: contact.contactId, phone: contact.phone },
-                'sent',
-                { sendingAt: sendingAtIso, messageId, traceId }
-              )
+              await persistSentWithRetry(contact, messageId, sendingAtIso)
               dbTimeMs += Date.now() - db0
 
               // Sincroniza template com inbox (fire-and-forget, non-blocking)
               // Permite que a IA tenha contexto e o operador veja o histórico
-              const activeTemplateForSync = refreshedTemplateForBatch || templateForBatch
+              // Reflete no inbox exatamente o que foi enviado (template/valores da variante correta).
+              const activeTemplateForSync = effectiveTemplateSnapshot || refreshedTemplateForBatch || templateForBatch
               syncCampaignTemplateToInbox({
                 phone: precheck.normalizedPhone,
                 contactId: contact.contactId,
                 whatsappMessageId: messageId,
-                templateName,
+                templateName: effectiveTemplateName,
                 templatePreviewText: renderTemplatePreviewText(
                   activeTemplateForSync as any,
-                  valuesForSend
+                  effectiveValues
                 ),
-                resolvedValues: valuesForSend,
+                resolvedValues: effectiveValues,
                 campaignId,
                 template: activeTemplateForSync as any,
               }).catch((err) => {
@@ -1647,7 +1808,10 @@ const workflowHandler = serve<CampaignWorkflowInput>(
                 headerInfo0.format && ['IMAGE', 'VIDEO', 'DOCUMENT', 'GIF'].includes(String(headerInfo0.format))
               )
 
-              const canRetryWithRefresh = headerIsMedia && isWeplink403
+              // Este retry refaz o rehost do template do batch (variante A). Não se aplica à
+              // variante B, que tem template/mídia próprios — re-tentar aqui enviaria conteúdo da
+              // variante A. Deixamos a variante B falhar limpo (tratada pelo resend normal).
+              const canRetryWithRefresh = headerIsMedia && isWeplink403 && !isVariantB
 
               if (canRetryWithRefresh) {
                 try {
@@ -1711,12 +1875,7 @@ const workflowHandler = serve<CampaignWorkflowInput>(
                     if (response2.ok && data2?.messages?.[0]?.id) {
                       const messageId = data2.messages[0].id
                       const db0 = Date.now()
-                      await updateContactStatus(
-                        campaignId,
-                        { contactId: contact.contactId, phone: contact.phone },
-                        'sent',
-                        { sendingAt: sendingAtIso, messageId, traceId }
-                      )
+                      await persistSentWithRetry(contact, messageId, sendingAtIso)
                       dbTimeMs += Date.now() - db0
                       lastSentAtInBatch = new Date().toISOString()
 
@@ -1781,7 +1940,8 @@ const workflowHandler = serve<CampaignWorkflowInput>(
 
               // Fallback extra: re-hospedar a mídia do HEADER em um URL público, pois o weblink pode não ser
               // acessível para os servidores do WhatsApp, mesmo após refresh.
-              if (headerIsMedia && isWeplink403) {
+              // Também limitado à variante A (rehost do template do batch); variante B falha limpo.
+              if (headerIsMedia && isWeplink403 && !isVariantB) {
                 try {
                   const activeTemplateForRehost = refreshedTemplateForBatch || templateForBatch
                   const headerInfo = getTemplateHeaderMediaExampleLink(activeTemplateForRehost)
@@ -1844,12 +2004,7 @@ const workflowHandler = serve<CampaignWorkflowInput>(
                     if (response3.ok && data3?.messages?.[0]?.id) {
                       const messageId = data3.messages[0].id
                       const db0 = Date.now()
-                      await updateContactStatus(
-                        campaignId,
-                        { contactId: contact.contactId, phone: contact.phone },
-                        'sent',
-                        { sendingAt: sendingAtIso, messageId, traceId }
-                      )
+                      await persistSentWithRetry(contact, messageId, sendingAtIso)
                       dbTimeMs += Date.now() - db0
                       lastSentAtInBatch = new Date().toISOString()
 
@@ -2412,25 +2567,79 @@ const workflowHandler = serve<CampaignWorkflowInput>(
           }
         )
 
-        console.log(`📦 Batch ${batchIndex + 1}/${batches.length}: ${sentCount} sent, ${failedCount} failed, ${skippedCount} skipped`)
-      })
+        console.log(`📦 Batch #${batchIndex + 1} (drain): ${sentCount} sent, ${failedCount} failed, ${skippedCount} skipped`)
+      })()
 
-
+      processedBatches++
       if (shouldStopWorkflow === 'cancelled') break
     }
 
-    // Step 3: Mark campaign as completed
+    // Só completa quando a fila esvaziou. Em deadline/pause, retorna SEM completar:
+    // o POST auto-reinvoca (deadline) e o sweeper do pg_cron continua se necessário.
     if (shouldStopWorkflow === 'cancelled') {
       console.log(`🛑 Workflow stopped early for campaign ${campaignId} (CANCELLED). Skipping completion step.`)
-      return
+      return { done: true, reason: 'cancelled', processedBatches }
+    }
+    if (drainReason === 'paused') {
+      console.log(`⏸️ Campaign ${campaignId} paused — drain parado, fila preservada.`)
+      return { done: false, reason: 'paused', processedBatches }
+    }
+    if (drainReason === 'deadline') {
+      console.log(`⏱️ Time budget de ${campaignId} atingido — auto-reinvocar (${processedBatches} lotes neste ciclo).`)
+      return { done: false, reason: 'deadline', processedBatches }
     }
 
-    await context.run('complete-campaign', async () => {
-      // Não sobrescrever cancelamento caso tenha ocorrido entre batches e este step.
+    // Fila vazia -> completa (idempotente).
+    await (async () => {
+      // Não sobrescrever cancelamento/pausa caso tenha ocorrido entre o último lote e aqui.
       const current = await campaignDb.getById(campaignId)
       if (current?.status === CampaignStatus.CANCELLED) {
         console.log(`🛑 Campaign ${campaignId} is CANCELLED. Skipping completion update.`)
         return
+      }
+      if (current?.status === CampaignStatus.PAUSED) {
+        console.log(`⏸️ Campaign ${campaignId} is PAUSED. Skipping completion update.`)
+        return
+      }
+
+      // Fase F: não completar se ainda há linhas presas em 'sending' (pause-race ou crash de um
+      // drenador anterior). Completar agora marcaria a campanha como concluída com contatos
+      // nunca enviados. O reaper (pg_cron) reseta essas linhas pra 'pending' e o sweeper
+      // re-dispara — a campanha continua SENDING até de fato esvaziar.
+      const { count: stuckSending } = await supabase
+        .from('campaign_contacts')
+        .select('id', { count: 'exact', head: true })
+        .eq('campaign_id', campaignId)
+        .eq('status', 'sending')
+      if ((stuckSending || 0) > 0) {
+        console.log(`⏳ Campaign ${campaignId}: ${stuckSending} linha(s) ainda 'sending' — adiando complete (reaper+sweeper resolvem).`)
+        return
+      }
+
+      // Fase F: linhas 'pending' sem contact_id NUNCA são claimadas (claim_campaign_batch
+      // filtra contact_id IS NOT NULL). Sem isto, a campanha completaria deixando esses
+      // destinatários presos em 'pending' pra sempre (perda silenciosa). Marca-as 'skipped'
+      // (contato sem ID) pra reconciliar os contadores e dar visibilidade na UI.
+      try {
+        const strandedReason = 'Contato sem ID (registro antigo ou contato removido).'
+        const { data: stranded } = await supabase
+          .from('campaign_contacts')
+          .update({
+            status: 'skipped',
+            skipped_at: new Date().toISOString(),
+            skip_reason: strandedReason,
+            failure_reason: strandedReason,
+            error: strandedReason,
+          })
+          .eq('campaign_id', campaignId)
+          .eq('status', 'pending')
+          .is('contact_id', null)
+          .select('id')
+        if (stranded && stranded.length > 0) {
+          console.warn(`[workflow] ${stranded.length} contato(s) sem contact_id → skipped em ${campaignId}.`)
+        }
+      } catch (e) {
+        console.warn('[workflow] Falha ao varrer pending sem contact_id (best-effort):', e)
       }
 
       const campaign = await campaignDb.getById(campaignId)
@@ -2553,7 +2762,7 @@ const workflowHandler = serve<CampaignWorkflowInput>(
               campaign_id: campaignId,
               trace_id: traceId,
               template_name: templateName,
-              recipients: contacts?.length || null,
+              recipients: (campaign as any)?.recipients ?? null,
               sent_total: sentTotal,
               failed_total: failedTotal,
               skipped_total: skippedTotal,
@@ -2595,65 +2804,177 @@ const workflowHandler = serve<CampaignWorkflowInput>(
           // best-effort
         }
       }
+    })()
+
+    return { done: true, reason: 'completed', processedBatches }
+}
+
+/**
+ * Hidrata o input do drain. Usa valores do corpo quando presentes (hot path do dispatch/resend)
+ * e completa o que faltar a partir do DB (o sweeper/reinvocação só mandam { campaignId }).
+ * A lista de contatos NUNCA vem no corpo: a fila é campaign_contacts (o drain claima de lá).
+ */
+async function hydrateDrainInput(campaignId: string, body: any): Promise<CampaignWorkflowInput | null> {
+  const { data: row, error } = await supabase
+    .from('campaigns')
+    .select(
+      'template_name, template_variables, template_snapshot, template_spec_hash, template_parameter_format, template_fetched_at, ab_test_enabled, ab_template_name_b, ab_template_variables_b, ab_template_snapshot_b'
+    )
+    .eq('id', campaignId)
+    .single()
+  if (error || !row) return null
+
+  const templateName = String(body?.templateName || (row as any).template_name || '').trim()
+  if (!templateName) {
+    throw new Error(`Campanha ${campaignId} sem template associado`)
+  }
+
+  // Credenciais: corpo > DB/env.
+  let phoneNumberId = body?.phoneNumberId ? String(body.phoneNumberId) : ''
+  let accessToken = body?.accessToken ? String(body.accessToken) : ''
+  if (!phoneNumberId || !accessToken) {
+    const creds = await getWhatsAppCredentials()
+    phoneNumberId = phoneNumberId || String(creds?.phoneNumberId || '')
+    accessToken = accessToken || String(creds?.accessToken || '')
+  }
+  if (!phoneNumberId || !accessToken) {
+    throw new Error('Credenciais WhatsApp não configuradas')
+  }
+
+  // templateSnapshot: corpo > coluna template_snapshot (com metadados da campanha).
+  let templateSnapshot = body?.templateSnapshot
+  if (!templateSnapshot && (row as any).template_snapshot) {
+    const snap = (row as any).template_snapshot
+    templateSnapshot = {
+      name: snap?.name || templateName,
+      language: snap?.language,
+      parameter_format: (row as any).template_parameter_format || snap?.parameter_format || 'positional',
+      spec_hash: (row as any).template_spec_hash ?? snap?.spec_hash ?? null,
+      fetched_at: (row as any).template_fetched_at ?? snap?.fetched_at ?? null,
+      components: snap?.components,
+    }
+  }
+
+  return {
+    campaignId,
+    traceId: body?.traceId ? String(body.traceId) : undefined,
+    templateName,
+    contacts: [], // a fila é o DB; o drain claima de campaign_contacts.
+    templateVariables: body?.templateVariables ?? (row as any).template_variables ?? undefined,
+    templateSnapshot,
+    phoneNumberId,
+    accessToken,
+    isResend: Boolean(body?.isResend),
+    throttleConfig: body?.throttleConfig ?? null,
+    abTestEnabled: body?.abTestEnabled ?? Boolean((row as any).ab_test_enabled),
+    abTemplateNameB: body?.abTemplateNameB ?? (row as any).ab_template_name_b ?? undefined,
+    abTemplateVariablesB: body?.abTemplateVariablesB ?? (row as any).ab_template_variables_b ?? undefined,
+    abTemplateSnapshotB: body?.abTemplateSnapshotB ?? (row as any).ab_template_snapshot_b ?? undefined,
+    source: body?.source ? String(body.source) : undefined,
+  } as CampaignWorkflowInput
+}
+
+export const dynamic = 'force-dynamic'
+export const maxDuration = 300
+
+/**
+ * POST /api/campaign/workflow — drenador da fila de disparo em massa (migração QStash→pg_cron).
+ *
+ * Chamado por (a) /api/campaign/dispatch e /api/campaigns/[id]/resend-skipped ao enfileirar,
+ * (b) auto-reinvocação quando o time budget de ~250s estoura, (c) o sweeper do pg_cron para
+ * campanhas SENDING que ainda têm pending. Autentica via verifyCronRequest. Adquire o lock da
+ * campanha (1 drenador por vez POR CAMPANHA — impede que o sweeper e a auto-reinvocação
+ * rodem dois rate-limiters concorrentes pra MESMA campanha), hidrata o input, dreno até esvaziar
+ * ou estourar o budget, e auto-reinvoca se sobrou fila.
+ */
+export async function POST(request: NextRequest) {
+  const auth = verifyCronRequest(request)
+  if (!auth.valid) {
+    return cronUnauthorizedResponse(auth.error)
+  }
+
+  let body: any = {}
+  try {
+    body = await request.json()
+  } catch {
+    body = {}
+  }
+
+  const campaignId = String(body?.campaignId || '').trim()
+  if (!campaignId) {
+    return NextResponse.json({ error: 'campaignId ausente' }, { status: 400 })
+  }
+  if (!isSupabaseConfigured()) {
+    return NextResponse.json({ error: 'Supabase não configurado' }, { status: 503 })
+  }
+
+  let hydrated: CampaignWorkflowInput | null
+  try {
+    hydrated = await hydrateDrainInput(campaignId, body)
+  } catch (e) {
+    console.error('[Workflow] Falha ao hidratar input do drain:', e)
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : 'Falha ao preparar disparo' },
+      { status: 500 }
+    )
+  }
+  if (!hydrated) {
+    return NextResponse.json({ error: 'Campanha não encontrada' }, { status: 404 })
+  }
+
+  const worker = `drain_${campaignId}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+
+  // Lock POR CAMPANHA: garante 1 drenador por vez para esta campanha (impede que o sweeper e a
+  // auto-reinvocação rodem dois rate-limiters concorrentes pra mesma campanha). NÃO serializa
+  // campanhas distintas no mesmo WABA — o AIMD/targetMps é global por phoneNumberId e se auto-
+  // corrige via backoff (comportamento pré-existente, herdado do modelo QStash).
+  const { data: lockOk, error: lockErr } = await supabase.rpc('try_lock_campaign_dispatch', {
+    p_campaign_id: campaignId,
+    p_worker: worker,
+    p_ttl_seconds: 360,
+  })
+  if (lockErr) {
+    console.error('[Workflow] Falha ao adquirir lock de dispatch:', lockErr)
+    return NextResponse.json({ error: 'Falha ao adquirir lock' }, { status: 500 })
+  }
+  if (!lockOk) {
+    // Outro drenador já está ativo nesta campanha. Não concorre (evita rate-limiter duplicado).
+    return NextResponse.json({ ok: true, skipped: 'locked', campaignId }, { status: 200 })
+  }
+
+  // Time budget: 250s de 300s (maxDuration) — sobra margem pro complete + reinvoke.
+  const deadlineMs = Date.now() + 250_000
+
+  let result: Awaited<ReturnType<typeof runCampaignDrain>>
+  try {
+    result = await runCampaignDrain(hydrated, { deadlineMs, worker })
+  } catch (e) {
+    console.error(`[Workflow] Drain de ${campaignId} lançou exceção:`, e)
+    await supabase
+      .rpc('release_campaign_dispatch_lock', { p_campaign_id: campaignId, p_worker: worker })
+      .then(undefined, () => {})
+    return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 })
+  }
+
+  // Libera o lock ANTES de reinvocar (senão a reinvocação não readquire o lock).
+  await supabase
+    .rpc('release_campaign_dispatch_lock', { p_campaign_id: campaignId, p_worker: worker })
+    .then(undefined, () => {})
+
+  // Sobrou fila (deadline) -> auto-reinvoca. Pause/cancel/complete são terminais.
+  if (!result.done && result.reason === 'deadline') {
+    reinvokeSelf('/api/campaign/workflow', {
+      campaignId,
+      traceId: (hydrated as any).traceId || undefined,
     })
-  },
-  {
-    // IMPORTANT:
-    // Em preview/dev, NUNCA aponte baseUrl para o domínio de produção.
-    // O baseUrl é usado pelo Upstash Workflow para chamar os próximos passos.
-    // Se ele apontar para produção, o workflow começa no preview mas continua
-    // executando passos em outro deployment (clássico: "turbo não muda nada" e
-    // métricas não aparecem no lugar esperado).
-    baseUrl: (() => {
-      const vercelEnv = (process.env.VERCEL_ENV || '').trim() // 'production' | 'preview' | 'development'
-      const deploymentUrl = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL.trim()}` : undefined
-      const productionUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL
-        ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL.trim()}`
-        : undefined
-      const explicitAppUrl = process.env.NEXT_PUBLIC_APP_URL?.trim() || undefined
-
-      if (vercelEnv && vercelEnv !== 'production') {
-        return deploymentUrl
-      }
-
-      return explicitAppUrl || productionUrl || deploymentUrl
-    })(),
-  }
-)
-
-export async function POST(request: Request) {
-  const signature =
-    request.headers.get('upstash-signature') ||
-    request.headers.get('Upstash-Signature') ||
-    null
-  const host = request.headers.get('x-forwarded-host') || request.headers.get('host') || ''
-  const proto = request.headers.get('x-forwarded-proto') || 'https'
-  const isLoopback =
-    host.includes('localhost') ||
-    host.includes('127.0.0.1') ||
-    host.includes('::1')
-  const baseUrl = host && !isLoopback ? `${proto}://${host}` : null
-  if (baseUrl && !process.env.UPSTASH_WORKFLOW_URL) {
-    process.env.UPSTASH_WORKFLOW_URL = baseUrl
-  }
-  if (baseUrl && !process.env.QSTASH_WORKFLOW_URL) {
-    process.env.QSTASH_WORKFLOW_URL = baseUrl
-  }
-  const url = new URL(request.url)
-  const shouldRewrite = baseUrl && (url.hostname === 'localhost' || url.hostname === '127.0.0.1')
-  const targetUrl = shouldRewrite
-    ? `${baseUrl}${url.pathname}${url.search}`
-    : request.url
-
-  if (shouldRewrite) {
-    request = new Request(targetUrl, {
-      method: request.method,
-      headers: request.headers,
-      body: request.body,
-      duplex: 'half',
-    } as RequestInit)
   }
 
-  const response = await (workflowHandler as any).POST(request)
-  return response
+  return NextResponse.json({
+    ok: true,
+    campaignId,
+    done: result.done,
+    reason: result.reason,
+    processedBatches: result.processedBatches,
+    authSource: auth.source,
+  })
 }
