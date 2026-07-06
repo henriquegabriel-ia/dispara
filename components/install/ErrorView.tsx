@@ -1,12 +1,10 @@
 'use client';
 
-import { useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { StepCard } from './StepCard';
 import { cn } from '@/lib/utils';
-import { playError } from '@/hooks/useSoundFX';
 import type { InstallStep, InstallErrorType } from '@/lib/installer/types';
 
 interface ErrorViewProps {
@@ -44,10 +42,6 @@ const ERROR_HINTS: Record<InstallErrorType, string> = {
  * Tema Blade Runner — exibe mensagem específica por tipo de erro.
  */
 export function ErrorView({ error, errorType, errorDetails, returnToStep, onRetry, onGoToStep }: ErrorViewProps) {
-  useEffect(() => {
-    playError();
-  }, []);
-
   const hint = errorType ? ERROR_HINTS[errorType] : ERROR_HINTS.unknown;
 
   return (

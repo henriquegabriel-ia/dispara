@@ -4,7 +4,6 @@ import { motion } from 'framer-motion';
 import { Check } from 'lucide-react';
 import { useEffect } from 'react';
 import { cn } from '@/lib/utils';
-import { playSuccess } from '@/hooks/useSoundFX';
 
 interface SuccessCheckmarkProps {
   onComplete?: () => void;
@@ -24,9 +23,6 @@ export function SuccessCheckmark({
   className,
 }: SuccessCheckmarkProps) {
   useEffect(() => {
-    // Toca som de sucesso ao montar
-    playSuccess();
-
     if (onComplete) {
       const timer = setTimeout(() => {
         onComplete();

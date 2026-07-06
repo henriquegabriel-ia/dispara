@@ -1,12 +1,10 @@
 'use client';
 
-import { useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { CheckCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { StepCard } from './StepCard';
 import { cn } from '@/lib/utils';
-import { playComplete } from '@/hooks/useSoundFX';
 
 interface SuccessViewProps {
   name: string;
@@ -27,11 +25,6 @@ function sanitizeFirstName(fullName: string): string {
  */
 export function SuccessView({ name }: SuccessViewProps) {
   const firstName = sanitizeFirstName(name);
-
-  // Som de conclusão ao montar
-  useEffect(() => {
-    playComplete();
-  }, []);
 
   const handleGoToDashboard = () => {
     window.location.href = '/login';

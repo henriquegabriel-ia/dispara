@@ -1,11 +1,10 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { ReactNode, useEffect, useRef, useCallback } from 'react';
+import { ReactNode } from 'react';
 import { StepDots } from './StepDots';
 import { CorporateBackground } from './CorporateBackground';
 import { cn } from '@/lib/utils';
-import { startAmbient, stopAmbient } from '@/hooks/useSoundFX';
 
 interface InstallLayoutProps {
   children: ReactNode;
@@ -28,29 +27,10 @@ export function InstallLayout({
   showDots = true,
   className,
 }: InstallLayoutProps) {
-  const audioStartedRef = useRef(false);
-
-  // Handler de clique direto no elemento (não no document)
-  // Isso é reconhecido como "user gesture" pelo browser
-  const handleInteraction = useCallback(() => {
-    if (!audioStartedRef.current) {
-      audioStartedRef.current = true;
-      startAmbient();
-    }
-  }, []);
-
-  // Cleanup no unmount
-  useEffect(() => {
-    return () => {
-      stopAmbient();
-    };
-  }, []);
   return (
     <div
-      onClick={handleInteraction}
-      onKeyDown={handleInteraction}
       className={cn(
-        'dark blade-runner',
+        'dark',
         'min-h-screen flex flex-col items-center justify-center p-4',
         'bg-[var(--br-void-black)]',
         'relative overflow-hidden',

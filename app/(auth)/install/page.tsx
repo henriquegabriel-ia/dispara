@@ -2,7 +2,6 @@
 
 import { useReducer, useCallback, useEffect, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { playTransition } from '@/hooks/useSoundFX';
 import {
   installReducer,
   initialState,
@@ -79,7 +78,6 @@ function getInitialState() {
 export default function InstallPage() {
   // ✅ MELHORIA: Apenas 1 useReducer, data está DENTRO do state
   const [state, dispatch] = useReducer(installReducer, undefined, getInitialState);
-  const prevStepRef = useRef<number | null>(null);
 
   // ---------------------------------------------------------------------------
   // PERSISTÊNCIA (MELHORIA #9)
@@ -94,17 +92,6 @@ export default function InstallPage() {
   useEffect(() => {
     if (isSuccess(state)) {
       clearPersistedState();
-    }
-  }, [state]);
-
-  // Som de transição entre steps
-  useEffect(() => {
-    if (isCollecting(state)) {
-      const currentStep = state.step;
-      if (prevStepRef.current !== null && prevStepRef.current !== currentStep) {
-        playTransition();
-      }
-      prevStepRef.current = currentStep;
     }
   }, [state]);
 
