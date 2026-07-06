@@ -15,8 +15,7 @@ import { normalizePhoneNumber } from '@/lib/phone-formatter'
 import { inboxDb, isHumanModeExpired, switchToBotMode, findConversationByPhoneLightweight } from './inbox-db'
 import { cancelDebounce } from '@/lib/ai/agents/chat-agent'
 import { sendWhatsAppMessage } from '@/lib/whatsapp-send'
-import { Client } from '@upstash/qstash'
-import { redis } from '@/lib/redis'
+import { reinvokeSelf } from '@/lib/self-invoke'
 import type {
   InboxConversation,
   InboxMessage,
@@ -38,15 +37,6 @@ interface ProcessInboundMessageResult {
   automation_paused_until: string | null
 }
 
-// QStash client para disparar processamento de IA (simplificado)
-const getQStashClient = () => {
-  const token = process.env.QSTASH_TOKEN
-  if (!token) {
-    console.warn('[Inbox] QSTASH_TOKEN não configurado, AI processing não disponível')
-    return null
-  }
-  return new Client({ token })
-}
 
 // =============================================================================
 // Types
@@ -295,110 +285,33 @@ async function triggerAIProcessing(
 ): Promise<boolean> {
   const conversationId = conversation.id
   const messageId = message.whatsapp_message_id // Usado para deduplicação
-  const now = Date.now()
-
-  console.log(`🔥 [TRIGGER] Starting AI processing for ${conversationId}, messageId=${messageId}`)
-
-  const qstash = getQStashClient()
-
-  if (!qstash) {
-    console.log('[Inbox] QStash client not available, skipping AI processing')
-    return false
-  }
+  const nowIso = new Date().toISOString()
 
   // 1. Busca o agente para pegar o debounce_ms configurado (usa RPC otimizada)
   const agent = await getAgentForTrigger(conversation.ai_agent_id, conversationId)
   const debounceMs = agent?.debounce_ms ?? 3000 // default 3s (padrão do mercado)
-  const debounceSeconds = Math.ceil(debounceMs / 1000)
 
-  console.log(`🔥 [TRIGGER] Agent debounce: ${debounceMs}ms (${debounceSeconds}s)`)
-
-  // 2. Se debounce desabilitado (0), dispara imediatamente
-  if (debounceMs === 0) {
-    console.log(`🔥 [TRIGGER] Debounce disabled, dispatching immediately`)
-    return await dispatchToQStash(conversationId, debounceMs, 0, messageId)
+  // 2. "Reset do timer": grava a hora da última inbound (substitui Redis ai:lastmsg).
+  // O /api/ai/respond, depois de dormir o debounce, só processa se nenhuma mensagem
+  // mais nova chegou (ai_last_inbound_at <= firedAt deste job).
+  const supabase = getSupabaseAdmin()
+  if (supabase) {
+    await supabase
+      .from('inbox_conversations')
+      .update({ ai_last_inbound_at: nowIso })
+      .eq('id', conversationId)
   }
 
-  // 3. Atualiza timestamp da ÚLTIMA MENSAGEM no Redis (isso é o "reset" do timer)
-  const redisKey = `ai:lastmsg:${conversationId}`
-  if (redis) {
-    // Expira a chave alguns segundos após o delay para limpeza automática
-    await redis.set(redisKey, now, { ex: debounceSeconds + 30 })
-    console.log(`🔥 [TRIGGER] Redis SET ${redisKey} = ${now} (última mensagem)`)
-  } else {
-    console.log(`⚠️ [TRIGGER] Redis not configured, debounce will be best-effort`)
-  }
-
-  // 4. Agenda job com delay - quando executar, vai verificar se passou tempo suficiente
-  return await dispatchToQStash(conversationId, debounceMs, debounceSeconds, messageId)
-}
-
-/**
- * Helper: Dispara job para QStash com delay opcional
- *
- * DEDUPLICAÇÃO (2026-02-03):
- * - Usa messageId como deduplicationId no QStash
- * - Evita reprocessamento em caso de retry automático do QStash
- */
-async function dispatchToQStash(
-  conversationId: string,
-  debounceMs: number,
-  delaySeconds: number,
-  messageId?: string | null
-): Promise<boolean> {
-  const qstash = getQStashClient()
-  if (!qstash) return false
-
-  // URL do endpoint - prioridade para variáveis de produção da Vercel
-  // VERCEL_PROJECT_PRODUCTION_URL sempre retorna o domínio customizado em produção
-  const baseUrl =
-    process.env.NEXT_PUBLIC_APP_URL ||
-    (process.env.VERCEL_PROJECT_PRODUCTION_URL &&
-      `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`) ||
-    (process.env.VERCEL_URL && `https://${process.env.VERCEL_URL}`) ||
-    'http://localhost:3000'
-
-  const aiRespondUrl = `${baseUrl}/api/ai/respond`
-
-  console.log(`🔥 [TRIGGER] Dispatching to ${aiRespondUrl} with delay=${delaySeconds}s, messageId=${messageId}`)
-
-  try {
-    // Headers para autenticação e bypass
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    }
-
-    // Adiciona API key para passar pelo middleware de autenticação
-    const apiKey = process.env.DISPARA_API_KEY
-    if (apiKey) {
-      headers['Authorization'] = `Bearer ${apiKey}`
-    }
-
-    // Se tiver bypass secret configurado, adiciona o header
-    // Isso permite que QStash passe pelo Deployment Protection da Vercel
-    const bypassSecret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET
-    if (bypassSecret) {
-      headers['x-vercel-protection-bypass'] = bypassSecret
-    }
-
-    await qstash.publishJSON({
-      url: aiRespondUrl,
-      body: { conversationId, debounceMs, messageId },
-      delay: delaySeconds > 0 ? delaySeconds : undefined,
-      retries: 2,
-      headers,
-      // DEDUPLICAÇÃO: QStash ignora mensagens com mesmo deduplicationId
-      // Janela de 1 hora - evita retry duplicado
-      // NOTA: QStash não aceita ":" no deduplicationId, usar "_"
-      ...(messageId && { deduplicationId: `ai_respond_${messageId.replace(/[^a-zA-Z0-9_-]/g, '_')}` }),
-    })
-
-    console.log(`✅ [TRIGGER] AI scheduled: delay=${delaySeconds}s, debounceMs=${debounceMs}, dedup=${messageId ? 'enabled' : 'disabled'}`)
-    return true
-  } catch (error) {
-    console.error('❌ [TRIGGER] Failed to dispatch AI processing:', error)
-    return false
-  }
+  // 3. Dispara o processamento de IA (fire-and-forget autenticado — substitui o QStash).
+  // O debounce (esperar o usuário parar de digitar) acontece DENTRO do /api/ai/respond,
+  // que dorme debounceMs e então checa o "reset do timer" via Postgres.
+  reinvokeSelf('/api/ai/respond', {
+    conversationId,
+    debounceMs,
+    messageId,
+    firedAt: nowIso,
+  })
+  return true
 }
 
 /**

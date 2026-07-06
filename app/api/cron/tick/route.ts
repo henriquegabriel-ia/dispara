@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyCronRequest, cronUnauthorizedResponse } from '@/lib/cron-auth'
-import { isSupabaseConfigured } from '@/lib/supabase'
+import { isSupabaseConfigured, getSupabaseAdmin } from '@/lib/supabase'
 import { reconcilePendingStatusEvents } from '@/lib/whatsapp-status-events'
 import { drainScheduledCampaigns } from '@/lib/cron/scheduled-campaigns'
 import { drainWorkflowEnrollments } from '@/lib/cron/workflow-enrollments'
@@ -64,6 +64,27 @@ async function handle(request: NextRequest) {
         task: 'reconcile-status-events',
         result: { error: e instanceof Error ? e.message : String(e) },
       })
+    }
+
+    // Fase E: higiene — remove locks de IA vencidos e dedupes de inbound antigos.
+    try {
+      const supabase = getSupabaseAdmin()
+      if (supabase) {
+        const nowIso = new Date().toISOString()
+        const weekAgoIso = new Date(
+          Date.now() - 7 * 24 * 60 * 60 * 1000
+        ).toISOString()
+        await supabase
+          .from('ai_processing_locks')
+          .delete()
+          .lt('expires_at', nowIso)
+        await supabase
+          .from('processed_inbound_messages')
+          .delete()
+          .lt('created_at', weekAgoIso)
+      }
+    } catch {
+      // higiene é best-effort — nunca derruba o tick.
     }
   }
 

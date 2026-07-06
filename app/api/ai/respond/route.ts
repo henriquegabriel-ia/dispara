@@ -16,7 +16,7 @@ import { inboxDb } from '@/lib/inbox/inbox-db'
 import { processChatAgent, type ContactContext } from '@/lib/ai/agents/chat-agent'
 import { sendWhatsAppMessage, sendTypingIndicator } from '@/lib/whatsapp-send'
 import { getSupabaseAdmin } from '@/lib/supabase'
-import { redis } from '@/lib/redis'
+import { verifyCronRequest, cronUnauthorizedResponse } from '@/lib/cron-auth'
 import type { AIAgent } from '@/types'
 
 // Fluid Compute: 5 minutos de timeout (suficiente para IA)
@@ -35,6 +35,8 @@ interface AIRespondRequest {
   debounceMs?: number
   /** ID da mensagem WhatsApp que disparou o processamento (para deduplicação) */
   messageId?: string
+  /** ISO de quando a mensagem deste job chegou (reset do debounce via Postgres) */
+  firedAt?: string
 }
 
 // =============================================================================
@@ -42,66 +44,75 @@ interface AIRespondRequest {
 // =============================================================================
 
 export async function POST(req: NextRequest) {
+  const auth = verifyCronRequest(req)
+  if (!auth.valid) return cronUnauthorizedResponse(auth.error)
+
   const startTime = Date.now()
 
-  console.log(`🤖 [AI-RESPOND] ========================================`)
   console.log(`🤖 [AI-RESPOND] Request received at ${new Date().toISOString()}`)
 
   try {
     // 1. Parse request
     const body = (await req.json()) as AIRespondRequest
-    const { conversationId, debounceMs, messageId } = body
+    const { conversationId, debounceMs, messageId, firedAt } = body
 
     if (!conversationId) {
-      console.log(`❌ [AI-RESPOND] Missing conversationId`)
       return NextResponse.json({ error: 'Missing conversationId' }, { status: 400 })
     }
 
-    console.log(`🤖 [AI-RESPOND] Processing conversation: ${conversationId}, debounceMs: ${debounceMs}, messageId: ${messageId}`)
+    const supabaseDb = getSupabaseAdmin()
 
-    // 1.2. DEDUPLICAÇÃO: Verifica se essa mensagem já foi processada
-    // Última linha de defesa contra duplicatas (QStash retry, race conditions, etc.)
-    if (messageId && redis) {
-      const dedupKey = `ai:processed:${messageId}`
-      const alreadyProcessed = await redis.get(dedupKey)
+    // 1.2. Debounce inline (substitui o delay do QStash + Redis ai:lastmsg): dorme o
+    // debounce e, ao acordar, só processa se nenhuma mensagem MAIS NOVA chegou. Se
+    // ai_last_inbound_at avançou além do firedAt deste job, outro job (mais recente)
+    // processa — replica o "debounce com reset".
+    if (debounceMs && debounceMs > 0) {
+      // Cap defensivo: nunca dormir além do orçamento da função (maxDuration=300s).
+      const safeDebounce = Math.min(debounceMs, 240000)
+      await new Promise((resolve) => setTimeout(resolve, safeDebounce))
+      if (supabaseDb && firedAt) {
+        const { data: conv } = await supabaseDb
+          .from('inbox_conversations')
+          .select('ai_last_inbound_at')
+          .eq('id', conversationId)
+          .maybeSingle()
+        const lastInbound = (conv?.ai_last_inbound_at as string | null) ?? null
+        if (
+          lastInbound &&
+          new Date(lastInbound).getTime() > new Date(firedAt).getTime()
+        ) {
+          return NextResponse.json({ skipped: true, reason: 'user-still-typing' })
+        }
+      }
+    }
 
-      if (alreadyProcessed) {
-        console.log(`⏭️ [AI-RESPOND] Duplicate detected - message ${messageId} already processed at ${alreadyProcessed}`)
+    // 1.5. Dedupe idempotente (substitui Redis ai:processed, TTL 30min): remove lock
+    // vencido (permite re-tentar após crash) e então INSERT ON CONFLICT DO NOTHING. Se
+    // não ganhou o lock, a mensagem já está/foi processada → não reenvia. É a PRIMEIRA
+    // operação com efeito antes de qualquer envio (anti double-send em retry).
+    if (supabaseDb && messageId) {
+      const nowIso = new Date().toISOString()
+      await supabaseDb
+        .from('ai_processing_locks')
+        .delete()
+        .eq('message_id', messageId)
+        .lt('expires_at', nowIso)
+      const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString()
+      const { data: lockRow } = await supabaseDb
+        .from('ai_processing_locks')
+        .upsert(
+          { message_id: messageId, expires_at: expiresAt },
+          { onConflict: 'message_id', ignoreDuplicates: true }
+        )
+        .select('message_id')
+        .maybeSingle()
+      if (!lockRow) {
         return NextResponse.json({
           success: true,
           deduplicated: true,
           messageId,
           reason: 'already-processed',
         })
-      }
-
-      // Marca como "processando" ANTES de iniciar (evita race condition)
-      // TTL de 30 minutos - tempo suficiente para qualquer processamento
-      await redis.setex(dedupKey, 1800, new Date().toISOString())
-      console.log(`🔒 [AI-RESPOND] Dedup lock acquired for message ${messageId}`)
-    }
-
-    // 1.5. Verificação de debounce - usuário parou de digitar?
-    // Verifica se passou tempo suficiente desde a ÚLTIMA MENSAGEM
-    if (debounceMs && debounceMs > 0 && redis) {
-      const redisKey = `ai:lastmsg:${conversationId}`
-      const lastMsgTimestamp = await redis.get<number>(redisKey)
-
-      if (lastMsgTimestamp) {
-        const now = Date.now()
-        const timeSinceLastMsg = now - lastMsgTimestamp
-
-        // Se não passou tempo suficiente, usuário ainda está digitando
-        // Outro job (mais recente) vai processar
-        if (timeSinceLastMsg < debounceMs) {
-          console.log(`⏭️ [AI-RESPOND] Skipping - user still typing (${timeSinceLastMsg}ms < ${debounceMs}ms)`)
-          return NextResponse.json({ skipped: true, reason: 'user-still-typing' })
-        }
-
-        // Passou tempo suficiente - usuário parou de digitar
-        // Limpa a chave e processa
-        await redis.del(redisKey)
-        console.log(`🤖 [AI-RESPOND] User stopped typing (${timeSinceLastMsg}ms >= ${debounceMs}ms) - processing`)
       }
     }
 
