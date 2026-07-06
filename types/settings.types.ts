@@ -298,8 +298,6 @@ export interface WebhookHealth {
 export interface HealthServices {
   /** Database service health */
   database: DatabaseHealth;
-  /** QStash queue service health */
-  qstash: QStashHealth;
   /** WhatsApp API service health */
   whatsapp: WhatsAppHealth;
   /** Webhook service health */
@@ -316,16 +314,6 @@ export interface DatabaseHealth {
   provider?: 'supabase' | 'none';
   /** Connection latency in milliseconds */
   latency?: number;
-  /** Status message */
-  message?: string;
-}
-
-/**
- * QStash health status.
- */
-export interface QStashHealth {
-  /** Service status */
-  status: 'ok' | 'error' | 'not_configured';
   /** Status message */
   message?: string;
 }

@@ -305,48 +305,29 @@ describe('canSendWithSettings', () => {
 // =============================================================================
 
 describe('areServicesHealthy', () => {
+  // Nota: qstash/redis foram aposentados (relógio agora é pg_cron do Supabase),
+  // então a saúde dos serviços depende apenas de database (e whatsapp).
   it('returns true when all services are ok', () => {
-    const services: HealthServices = {
-      qstash: { status: 'ok' },
+    const services = {
       database: { status: 'ok' },
       whatsapp: { status: 'ok' },
-    }
+    } as HealthServices
     expect(areServicesHealthy(services)).toBe(true)
   })
 
-  it('returns false when qstash is not ok', () => {
-    const services: HealthServices = {
-      qstash: { status: 'error' },
-      database: { status: 'ok' },
-      whatsapp: { status: 'ok' },
-    }
-    expect(areServicesHealthy(services)).toBe(false)
-  })
-
-  it('returns false when qstash is not_configured', () => {
-    const services: HealthServices = {
-      qstash: { status: 'not_configured' },
-      database: { status: 'ok' },
-      whatsapp: { status: 'ok' },
-    }
-    expect(areServicesHealthy(services)).toBe(false)
-  })
-
   it('returns false when database is error', () => {
-    const services: HealthServices = {
-      qstash: { status: 'ok' },
+    const services = {
       database: { status: 'error' },
       whatsapp: { status: 'ok' },
-    }
+    } as HealthServices
     expect(areServicesHealthy(services)).toBe(false)
   })
 
   it('returns true when database is not_configured (not error)', () => {
-    const services: HealthServices = {
-      qstash: { status: 'ok' },
+    const services = {
       database: { status: 'not_configured' },
       whatsapp: { status: 'ok' },
-    }
+    } as HealthServices
     expect(areServicesHealthy(services)).toBe(true)
   })
 })
@@ -357,70 +338,28 @@ describe('areServicesHealthy', () => {
 
 describe('getCriticalServiceIssue', () => {
   it('returns null when all services healthy', () => {
-    const services: HealthServices = {
-      qstash: { status: 'ok' },
+    const services = {
       database: { status: 'ok' },
       whatsapp: { status: 'ok' },
-    }
+    } as HealthServices
     expect(getCriticalServiceIssue(services)).toBeNull()
   })
 
-  it('returns message for qstash not_configured', () => {
-    const services: HealthServices = {
-      qstash: { status: 'not_configured' },
-      database: { status: 'ok' },
-      whatsapp: { status: 'ok' },
-    }
-    const issue = getCriticalServiceIssue(services)
-    expect(issue).toContain('QStash')
-  })
-
-  it('returns message for qstash error', () => {
-    const services: HealthServices = {
-      qstash: { status: 'error', message: 'Connection refused' },
-      database: { status: 'ok' },
-      whatsapp: { status: 'ok' },
-    }
-    expect(getCriticalServiceIssue(services)).toBe('Connection refused')
-  })
-
-  it('returns default message for qstash error without message', () => {
-    const services: HealthServices = {
-      qstash: { status: 'error' },
-      database: { status: 'ok' },
-      whatsapp: { status: 'ok' },
-    }
-    const issue = getCriticalServiceIssue(services)
-    expect(issue).toContain('QStash')
-  })
-
   it('returns message for database error', () => {
-    const services: HealthServices = {
-      qstash: { status: 'ok' },
+    const services = {
       database: { status: 'error', message: 'DB down' },
       whatsapp: { status: 'ok' },
-    }
+    } as HealthServices
     expect(getCriticalServiceIssue(services)).toBe('DB down')
   })
 
   it('returns default message for database error without message', () => {
-    const services: HealthServices = {
-      qstash: { status: 'ok' },
+    const services = {
       database: { status: 'error' },
       whatsapp: { status: 'ok' },
-    }
+    } as HealthServices
     const issue = getCriticalServiceIssue(services)
     expect(issue).toContain('banco de dados')
-  })
-
-  it('qstash not_configured takes priority over database error', () => {
-    const services: HealthServices = {
-      qstash: { status: 'not_configured' },
-      database: { status: 'error', message: 'DB down' },
-      whatsapp: { status: 'ok' },
-    }
-    const issue = getCriticalServiceIssue(services)
-    expect(issue).toContain('QStash')
   })
 })
 

@@ -13,7 +13,7 @@ export default function SettingsPage() {
   const { usage, isLoading: usageLoading, refetch: refetchUsage } = useUsage()
   const [skipWizard, setSkipWizard] = useState(false)
 
-  // Show Setup Wizard if minimum infrastructure is not ready (QStash)
+  // Show Setup Wizard apenas se algum passo obrigatório não estiver pronto
   // WhatsApp pode ser configurado depois em Configurações
   const showWizard = controller.needsSetup && !skipWizard
 
@@ -113,13 +113,6 @@ export default function SettingsPage() {
             workflowExecutionLoading={controller.workflowExecutionLoading}
             saveWorkflowExecution={controller.saveWorkflowExecution}
             isSavingWorkflowExecution={controller.isSavingWorkflowExecution}
-
-            // Upstash Config (métricas QStash)
-            upstashConfig={controller.upstashConfig}
-            upstashConfigLoading={controller.upstashConfigLoading}
-            saveUpstashConfig={controller.saveUpstashConfig}
-            removeUpstashConfig={controller.removeUpstashConfig}
-            isSavingUpstashConfig={controller.isSavingUpstashConfig}
             hideHeader
           />
         </div>

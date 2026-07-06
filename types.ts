@@ -102,9 +102,6 @@ export interface Campaign {
   templateFetchedAt?: string | null;
   // Scheduling
   scheduledAt?: string | null;  // ISO timestamp for scheduled campaigns
-  // QStash scheduling (one-shot)
-  qstashScheduleMessageId?: string | null;
-  qstashScheduleEnqueuedAt?: string | null;
   startedAt?: string | null;    // When campaign actually started sending
   firstDispatchAt?: string | null; // When the first contact started dispatching (claim/sending) (dispatch-only)
   lastSentAt?: string | null;   // When the last contact was marked as "sent" (dispatch-only)

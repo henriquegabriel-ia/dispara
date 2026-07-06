@@ -4,7 +4,6 @@ import React from 'react'
 import Link from 'next/link'
 import {
     Database,
-    Zap,
     MessageCircle,
     Sparkles,
     RefreshCw,
@@ -17,7 +16,7 @@ import type { HealthStatus } from '@/lib/health-check'
 
 // Setup step interface
 export interface SetupStep {
-    id: 'database' | 'qstash' | 'whatsapp'
+    id: 'database' | 'whatsapp'
     title: string
     description: string
     status: 'pending' | 'configured' | 'error'
@@ -66,26 +65,6 @@ export const OnboardingOverlay = ({
         },
 
         {
-            id: 'qstash',
-            title: 'QStash (Upstash)',
-            description: 'Filas de processamento',
-            status: health?.services.qstash.status === 'ok'
-                ? 'configured'
-                : health?.services.qstash.status === 'error'
-                    ? 'error'
-                    : 'pending',
-            icon: React.createElement(Zap, { size: 20, className: 'text-primary-600 dark:text-primary-400' }),
-            actionLabel: 'Configurar no Assistente',
-            actionUrl: '/install',
-            errorMessage: health?.services.qstash.message,
-            isRequired: true,
-            instructions: [
-                'QStash gerencia as filas de background.',
-                'Configure facilmente através do assistente.',
-            ],
-            helpUrl: 'https://upstash.com/docs/qstash/overall/getstarted',
-        },
-        {
             id: 'whatsapp',
             title: 'WhatsApp Business',
             description: 'Credenciais da Meta',
@@ -110,7 +89,7 @@ export const OnboardingOverlay = ({
     const completedSteps = steps.filter(s => s.status === 'configured').length
     const progressPercent = (completedSteps / steps.length) * 100
     const infrastructureReady = steps
-        .filter(s => s.id === 'database' || s.id === 'qstash')
+        .filter(s => s.id === 'database')
         .every(s => s.status === 'configured')
 
     return (
@@ -162,7 +141,7 @@ export const OnboardingOverlay = ({
                     {completedSteps === 0 && (
                         <div className="mt-4 p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl">
                             <p className="text-sm text-amber-700 dark:text-amber-300 mb-2">
-                                💡 <strong>Importante:</strong> Após configurar QStash, faça um <strong>redeploy</strong> para ativar as variáveis.
+                                💡 <strong>Importante:</strong> Após configurar as variáveis no Vercel, faça um <strong>redeploy</strong> para ativá-las.
                             </p>
                             <div className="flex gap-2">
                                 {health?.vercel?.dashboardUrl && (
@@ -325,7 +304,7 @@ export const OnboardingOverlay = ({
                                         Infraestrutura pronta!
                                     </h4>
                                     <p className="text-sm text-amber-700/70 dark:text-amber-200/70">
-                                        QStash está configurado. Agora adicione suas credenciais do WhatsApp
+                                        Banco de dados configurado. Agora adicione suas credenciais do WhatsApp
                                         na página de configurações.
                                     </p>
                                     <Link
@@ -358,17 +337,7 @@ export const OnboardingOverlay = ({
                 {/* Help links */}
                 <div className="mt-8 pt-6 border-t border-[var(--ds-border-subtle)]">
                     <h4 className="text-sm font-medium text-[var(--ds-text-secondary)] mb-3">Precisa de ajuda?</h4>
-                    <div className="grid grid-cols-2 gap-3">
-                        <a
-                            href="https://vercel.com/docs/storage/upstash"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center gap-2 p-3 bg-[var(--ds-bg-surface)] hover:bg-[var(--ds-bg-surface)] border border-[var(--ds-border-default)] rounded-xl text-sm text-[var(--ds-text-secondary)] transition-colors"
-                        >
-                            <Database size={16} className="text-red-600 dark:text-red-400" />
-                            Docs: Upstash no Vercel
-                            <ExternalLink size={12} className="text-[var(--ds-text-muted)] ml-auto" />
-                        </a>
+                    <div className="grid grid-cols-1 gap-3">
                         <a
                             href="https://developers.facebook.com/docs/whatsapp/cloud-api/get-started"
                             target="_blank"

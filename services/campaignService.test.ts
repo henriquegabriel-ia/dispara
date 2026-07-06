@@ -335,9 +335,9 @@ describe('campaignService', () => {
       const createdCampaign = createMockCampaign()
 
       mockFetch.mockResolvedValueOnce(createMockFetchResponse(createdCampaign))
-      mockFetch.mockResolvedValueOnce(createMockFetchResponse({ error: 'QSTASH_TOKEN missing' }, { ok: false }))
+      mockFetch.mockResolvedValueOnce(createMockFetchResponse({ error: 'Falha ao disparar campanha' }, { ok: false }))
 
-      await expect(campaignService.create(mockInput)).rejects.toThrow('QSTASH_TOKEN missing')
+      await expect(campaignService.create(mockInput)).rejects.toThrow('Falha ao disparar campanha')
     })
 
     it('nao deve disparar quando nao ha contatos', async () => {
@@ -422,12 +422,12 @@ describe('campaignService', () => {
 
     it('deve lancar erro com detalhes quando dispatch falha', async () => {
       mockFetch.mockResolvedValueOnce(createMockFetchResponse(
-        { error: 'Queue failed', details: 'QSTASH_TOKEN not configured' },
+        { error: 'Dispatch failed', details: 'Credenciais WhatsApp não configuradas' },
         { ok: false }
       ))
 
       await expect(campaignService.dispatchToBackend('campaign-123', 'template_name'))
-        .rejects.toThrow('Queue failed: QSTASH_TOKEN not configured')
+        .rejects.toThrow('Dispatch failed: Credenciais WhatsApp não configuradas')
     })
 
     it('deve propagar excecao de rede', async () => {

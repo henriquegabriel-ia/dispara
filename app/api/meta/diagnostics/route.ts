@@ -693,7 +693,6 @@ export async function GET() {
 	const checks: DiagnosticCheck[] = []
 
 	// 0) Infra básica
-	const hasQstashToken = Boolean(process.env.QSTASH_TOKEN)
 	const hasSupabaseUrl = Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL)
 	const hasSupabaseSecretKey = Boolean(process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY)
 
@@ -709,16 +708,6 @@ export async function GET() {
 			hasSupabaseUrl,
 			hasSupabaseSecretKey,
 		},
-	})
-
-	checks.push({
-		id: 'infra_qstash',
-		title: 'QStash configurado (fila do workflow)',
-		status: hasQstashToken ? 'pass' : 'warn',
-		message: hasQstashToken
-			? 'OK'
-			: 'QSTASH_TOKEN ausente — campanhas podem falhar ao enfileirar em preview/prod',
-		details: { hasQstashToken },
 	})
 
 	// 1) Credenciais
@@ -1437,7 +1426,6 @@ export async function GET() {
 			gitCommitRef: process.env.VERCEL_GIT_COMMIT_REF || null,
 			deploymentId: process.env.VERCEL_DEPLOYMENT_ID || null,
 			flags: {
-				hasQstashToken,
 				hasSupabaseUrl,
 				hasSupabaseSecretKey,
 				hasMetaAppId: Boolean(appId),

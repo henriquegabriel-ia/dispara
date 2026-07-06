@@ -100,8 +100,8 @@ export function installReducer(state: InstallState, action: InstallAction): Inst
         };
       }
 
-      // Step 5 → Start provisioning
-      if (state.step === 5) {
+      // Step 3 (Supabase) → Start provisioning
+      if (state.step === 3) {
         return {
           phase: 'provisioning',
           data: mergedData,
@@ -137,8 +137,8 @@ export function installReducer(state: InstallState, action: InstallAction): Inst
         return state; // Bloqueia navegação se dados incompletos
       }
 
-      // Step 5 → Start provisioning
-      if (state.step === 5) {
+      // Step 3 (Supabase) → Start provisioning
+      if (state.step === 3) {
         return {
           phase: 'provisioning',
           data: state.data,
@@ -195,13 +195,13 @@ export function installReducer(state: InstallState, action: InstallAction): Inst
     // -------------------------------------------------------------------------
 
     case 'START_PROVISIONING': {
-      if (state.phase !== 'collecting' || state.step !== 5) {
+      if (state.phase !== 'collecting' || state.step !== 3) {
         debugLog('[Installer] START_PROVISIONING ignorado - condições não satisfeitas');
         return state;
       }
 
       // Valida TODOS os steps antes de provisionar
-      for (let step = 1; step <= 5; step++) {
+      for (let step = 1; step <= 3; step++) {
         if (!stepValidators[step as InstallStep](state.data)) {
           debugLog(`[Installer] START_PROVISIONING bloqueado - step ${step} inválido`);
           return state;

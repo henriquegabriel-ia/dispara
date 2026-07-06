@@ -33,24 +33,17 @@ const validStep1Data: Partial<InstallData> = {
 
 const validStep2Data: Partial<InstallData> = {
   ...validStep1Data,
-  vercelToken: 'vercel_token_123',
+  vercelToken: 'vercel_token_1234567890abcdefgh', // >= 24 chars (VERCEL_TOKEN_MIN_LENGTH)
 };
 
 const validStep3Data: Partial<InstallData> = {
   ...validStep2Data,
-  supabasePat: 'supabase_pat_123',
-};
-
-const validStep4Data: Partial<InstallData> = {
-  ...validStep3Data,
-  qstashToken: 'qstash_token_123',
+  supabasePat: 'sbp_1234567890123456789012345678901234567890', // sbp_ + >= 40 chars
 };
 
 const validAllData: InstallData = {
   ...EMPTY_INSTALL_DATA,
-  ...validStep4Data,
-  redisRestUrl: 'https://my-redis.upstash.io',
-  redisRestToken: 'redis_test_token_1234567890_abcdef01',
+  ...validStep3Data,
 };
 
 function dispatch(state: InstallState, action: InstallAction): InstallState {
@@ -114,11 +107,11 @@ describe('NEXT Action', () => {
     }
   });
 
-  it('should go to provisioning from step 5 with all valid data', () => {
+  it('should go to provisioning from step 3 with all valid data', () => {
     let state = createInitialState(validAllData);
-    // Navigate to step 5
+    // Navigate to step 3 (último step: Supabase)
     if (isCollecting(state)) {
-      state = { ...state, step: 5 };
+      state = { ...state, step: 3 };
     }
 
     const next = dispatch(state, { type: 'NEXT' });
@@ -498,15 +491,14 @@ describe('normalizeToken', () => {
     expect(normalizeToken('"abc"def"')).toBe('abc"def');
   });
 
-  it('should allow step 5 validator to pass with quoted token', () => {
-    // Regressão: aluno cola '"AEIMAHiXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"' do .env
+  it('should allow step 3 validator to pass with quoted token', () => {
+    // Regressão: aluno cola '"sbp_XXXX..."' do .env (com aspas)
     const data = {
       ...EMPTY_INSTALL_DATA,
-      redisRestUrl: 'https://my-redis.upstash.io',
-      redisRestToken: '"redis_test_token_1234567890_abcdef01"',
+      supabasePat: '"sbp_1234567890123456789012345678901234567890"',
     };
-    // stepValidators[5] usa normalizeToken internamente
-    expect(stepValidators[5](data)).toBe(true);
+    // stepValidators[3] usa normalizeToken internamente
+    expect(stepValidators[3](data)).toBe(true);
   });
 });
 
@@ -529,7 +521,7 @@ describe('GO_TO_STEP Direction', () => {
   it('should set direction -1 when going backward', () => {
     let state = createInitialState(validAllData);
     if (isCollecting(state)) {
-      state = { ...state, step: 4 };
+      state = { ...state, step: 3 };
     }
 
     const next = dispatch(state, { type: 'GO_TO_STEP', step: 2 });
@@ -593,17 +585,16 @@ describe('SUBMIT_STEP Action', () => {
     }
   });
 
-  it('should go to provisioning from step 5 with valid data', () => {
-    let state = createInitialState(validStep4Data);
+  it('should go to provisioning from step 3 with valid data', () => {
+    let state = createInitialState(validStep2Data);
     if (isCollecting(state)) {
-      state = { ...state, step: 5 };
+      state = { ...state, step: 3 };
     }
 
     const next = dispatch(state, {
       type: 'SUBMIT_STEP',
       data: {
-        redisRestUrl: 'https://my-redis.upstash.io',
-        redisRestToken: 'redis_test_token_1234567890_abcdef01',
+        supabasePat: 'sbp_1234567890123456789012345678901234567890',
       },
     });
 

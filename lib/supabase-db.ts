@@ -125,8 +125,6 @@ export const campaignDb = {
             failed: row.failed,
             createdAt: row.created_at,
             scheduledAt: row.scheduled_date,
-            qstashScheduleMessageId: (row as any).qstash_schedule_message_id ?? null,
-            qstashScheduleEnqueuedAt: (row as any).qstash_schedule_enqueued_at ?? null,
             startedAt: row.started_at,
             firstDispatchAt: (row as any).first_dispatch_at ?? null,
             lastSentAt: (row as any).last_sent_at ?? null,
@@ -328,8 +326,6 @@ export const campaignDb = {
             failed: data.failed,
             createdAt: data.created_at,
             scheduledAt: data.scheduled_date,
-            qstashScheduleMessageId: (data as any).qstash_schedule_message_id ?? null,
-            qstashScheduleEnqueuedAt: (data as any).qstash_schedule_enqueued_at ?? null,
             startedAt: data.started_at,
             firstDispatchAt: (data as any).first_dispatch_at ?? null,
             lastSentAt: (data as any).last_sent_at ?? null,
@@ -566,8 +562,6 @@ export const campaignDb = {
         if (updates.firstDispatchAt !== undefined) updateData.first_dispatch_at = updates.firstDispatchAt
         if (updates.lastSentAt !== undefined) updateData.last_sent_at = updates.lastSentAt
         if (updates.scheduledAt !== undefined) updateData.scheduled_date = updates.scheduledAt
-        if (updates.qstashScheduleMessageId !== undefined) updateData.qstash_schedule_message_id = updates.qstashScheduleMessageId
-        if (updates.qstashScheduleEnqueuedAt !== undefined) updateData.qstash_schedule_enqueued_at = updates.qstashScheduleEnqueuedAt
         if (updates.templateSnapshot !== undefined) updateData.template_snapshot = updates.templateSnapshot
         if (updates.templateSpecHash !== undefined) updateData.template_spec_hash = updates.templateSpecHash
         if (updates.templateParameterFormat !== undefined) updateData.template_parameter_format = updates.templateParameterFormat

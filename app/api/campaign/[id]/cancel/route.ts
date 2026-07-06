@@ -63,8 +63,6 @@ export async function POST(
       cancelledAt: nowIso,
       // Defesa: caso a campanha tenha sido iniciada a partir de um agendamento.
       scheduledAt: null,
-      qstashScheduleMessageId: null,
-      qstashScheduleEnqueuedAt: null,
     })
 
     // 2) Best-effort: marca pendentes como SKIPPED (para evitar que fiquem eternamente pending)

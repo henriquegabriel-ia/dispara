@@ -2,7 +2,7 @@
  * Sistema de estado persistente para instalação resumível.
  * Salva progresso em localStorage para permitir retomar em caso de falha.
  *
- * Adaptado do CRM para Dispara - inclui steps para QStash e Redis.
+ * Adaptado do CRM para Dispara - 3 steps (Identidade, Vercel, Supabase); QStash/Redis aposentados.
  */
 
 export interface InstallStep {

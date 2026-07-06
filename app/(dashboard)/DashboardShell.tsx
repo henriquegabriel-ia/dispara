@@ -234,15 +234,13 @@ export function DashboardShell({
         refetchInterval: (query) => {
             const data = query.state.data
             const isSetupComplete = data &&
-                data.services.database?.status === 'ok' &&
-                data.services.qstash?.status === 'ok'
+                data.services.database?.status === 'ok'
             return isSetupComplete ? false : 30000 // Polling a cada 30s se não estiver configurado
         },
     })
 
     const needsSetup = !!healthStatus &&
-        (healthStatus.services.database?.status !== 'ok' ||
-            healthStatus.services.qstash.status !== 'ok')
+        healthStatus.services.database?.status !== 'ok'
 
     // Determina se WhatsApp está conectado
     const isWhatsAppConnected = healthStatus?.services.whatsapp?.status === 'ok'

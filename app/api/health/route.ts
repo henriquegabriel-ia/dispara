@@ -37,10 +37,6 @@ interface HealthCheckResult {
       latency?: number
       message?: string
     }
-    qstash: {
-      status: 'ok' | 'error' | 'not_configured'
-      message?: string
-    }
     whatsapp: {
       status: 'ok' | 'error' | 'not_configured'
       source?: 'db' | 'env' | 'none'
@@ -68,7 +64,6 @@ export async function GET() {
     overall: 'healthy',
     services: {
       database: { status: 'not_configured', provider: 'none' },
-      qstash: { status: 'not_configured' },
       whatsapp: { status: 'not_configured' },
       webhook: { status: 'not_configured' },
     },
@@ -114,21 +109,7 @@ export async function GET() {
     result.overall = 'unhealthy'
   }
 
-  // 2. Check QStash
-  if (process.env.QSTASH_TOKEN) {
-    result.services.qstash = {
-      status: 'ok',
-      message: 'Token configured',
-    }
-  } else {
-    result.services.qstash = {
-      status: 'not_configured',
-      message: 'QSTASH_TOKEN not configured',
-    }
-    result.overall = 'degraded'
-  }
-
-  // 3. Check WhatsApp credentials
+  // 2. Check WhatsApp credentials
   try {
     const credentials = await getWhatsAppCredentials()
 
@@ -173,7 +154,7 @@ export async function GET() {
     result.overall = 'degraded'
   }
 
-  // 4. Check Webhook status (only if database is configured)
+  // 3. Check Webhook status (only if database is configured)
   if (isSupabaseConfigured()) {
     try {
       let lastEventAt: string | null = null
@@ -275,8 +256,8 @@ export async function GET() {
   }
 
   // Determine overall status
-  // Webhook não é crítico para o overall - só database, qstash, whatsapp
-  const criticalServices = ['database', 'qstash', 'whatsapp'] as const
+  // Webhook não é crítico para o overall - só database e whatsapp
+  const criticalServices = ['database', 'whatsapp'] as const
   const criticalStatuses = criticalServices.map(s => result.services[s].status)
 
   if (criticalStatuses.every(s => s === 'ok')) {

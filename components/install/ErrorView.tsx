@@ -22,8 +22,6 @@ const STEP_NAMES: Record<InstallStep, string> = {
   1: 'Identidade',
   2: 'Link Neural',
   3: 'Memória Base',
-  4: 'Transmissão',
-  5: 'Cache',
 };
 
 // Nomes legíveis dos serviços para alunos
@@ -31,17 +29,12 @@ const STEP_SERVICES: Record<InstallStep, string> = {
   1: 'suas credenciais',
   2: 'token Vercel',
   3: 'token Supabase',
-  4: 'token QStash',
-  5: 'credenciais Redis',
 };
 
 // Dica de ação por tipo de erro
 const ERROR_HINTS: Record<InstallErrorType, string> = {
   vercel_token: 'Volte ao passo 2 e gere um novo token em vercel.com/account/tokens (escopo: Full Account).',
   supabase_pat: 'Volte ao passo 3 e gere um novo PAT em app.supabase.com/account/tokens (deve começar com sbp_).',
-  qstash_token: 'Volte ao passo 4 e copie o QSTASH_TOKEN do console Upstash → QStash → Details (sem aspas).',
-  redis_url: 'Volte ao passo 5 e verifique a REST URL do Upstash Redis — deve ser https://[nome].upstash.io',
-  redis_token: 'Volte ao passo 5 e copie o REST Token do Upstash Redis (não o token de Management).',
   network: 'Verifique sua conexão com a internet e tente novamente.',
   unknown: 'Tente novamente. Se o problema persistir, verifique os dados do passo indicado.',
 };

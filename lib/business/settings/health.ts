@@ -311,12 +311,7 @@ export function canSendWithSettings(settings: AppSettings): {
  * ```
  */
 export function areServicesHealthy(services: HealthServices): boolean {
-  // QStash is required
-  if (services.qstash?.status !== 'ok') {
-    return false
-  }
-
-  // Database should be ok
+  // Database should be ok (não pode estar em erro)
   if (services.database?.status === 'error') {
     return false
   }
@@ -339,14 +334,6 @@ export function areServicesHealthy(services: HealthServices): boolean {
  * ```
  */
 export function getCriticalServiceIssue(services: HealthServices): string | null {
-  if (services.qstash?.status === 'not_configured') {
-    return 'QStash não configurado - filas não funcionarão'
-  }
-
-  if (services.qstash?.status === 'error') {
-    return services.qstash.message || 'Erro na conexão com QStash'
-  }
-
   if (services.database?.status === 'error') {
     return services.database.message || 'Erro na conexão com banco de dados'
   }

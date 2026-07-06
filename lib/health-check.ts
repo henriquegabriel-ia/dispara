@@ -11,10 +11,6 @@ export interface HealthStatus {
             latency?: number
             message?: string
         }
-        qstash: {
-            status: 'ok' | 'error' | 'not_configured'
-            message?: string
-        }
         whatsapp: {
             status: 'ok' | 'error' | 'not_configured'
             source?: 'db' | 'env' | 'none'
@@ -72,7 +68,6 @@ export async function getHealthStatus(options: HealthCheckOptions = { checkExter
         overall: 'healthy',
         services: {
             database: { status: 'not_configured', provider: 'none' },
-            qstash: { status: 'not_configured' },
             whatsapp: { status: 'not_configured' },
         },
         vercel: {
@@ -118,21 +113,7 @@ export async function getHealthStatus(options: HealthCheckOptions = { checkExter
         }
     }
 
-    // 2. Check QStash
-    if (process.env.QSTASH_TOKEN) {
-        result.services.qstash = {
-            status: 'ok',
-            message: 'Token configured',
-        }
-    } else {
-        result.services.qstash = {
-            status: 'not_configured',
-            message: 'QSTASH_TOKEN not configured',
-        }
-        result.overall = 'degraded'
-    }
-
-    // 3. Check WhatsApp credentials
+    // 2. Check WhatsApp credentials
     try {
         const credentials = await getWhatsAppCredentials()
 

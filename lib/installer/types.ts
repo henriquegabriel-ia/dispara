@@ -17,7 +17,9 @@
 
 /** Versão do schema - incrementar quando mudar a estrutura de InstallData */
 // v2: whitelabel (brandLogoUrl + brandPrimaryColor no step de identidade)
-export const SCHEMA_VERSION = 2;
+// v3: migração QStash→pg_cron — removidos os steps QStash(4) e Redis(5); onboarding
+//     agora é só Identidade + Vercel + Supabase (3 passos).
+export const SCHEMA_VERSION = 3;
 
 /** Flag para habilitar logs de debug (desabilitar em produção) */
 export const DEBUG = process.env.NODE_ENV === 'development';
@@ -33,10 +35,6 @@ export const VALIDATION = {
   SUPABASE_PAT_MIN_LENGTH: 40,
   /** Prefixo obrigatório do PAT Supabase */
   SUPABASE_PAT_PREFIX: 'sbp_',
-  /** Mínimo de caracteres para token QStash */
-  QSTASH_TOKEN_MIN_LENGTH: 30,
-  /** Mínimo de caracteres para token Redis */
-  REDIS_TOKEN_MIN_LENGTH: 30,
   /** Mínimo de caracteres para senha */
   PASSWORD_MIN_LENGTH: 8,
   /** Mínimo de caracteres para nome */
@@ -50,9 +48,6 @@ export const VALIDATION = {
 export type InstallErrorType =
   | 'vercel_token'
   | 'supabase_pat'
-  | 'qstash_token'
-  | 'redis_url'
-  | 'redis_token'
   | 'network'
   | 'unknown';
 
@@ -70,9 +65,6 @@ export interface InstallData {
   brandPrimaryColor: string;
   vercelToken: string;
   supabasePat: string;
-  qstashToken: string;
-  redisRestUrl: string;
-  redisRestToken: string;
 }
 
 export const EMPTY_INSTALL_DATA: InstallData = {
@@ -83,16 +75,13 @@ export const EMPTY_INSTALL_DATA: InstallData = {
   brandPrimaryColor: '#10b981',
   vercelToken: '',
   supabasePat: '',
-  qstashToken: '',
-  redisRestUrl: '',
-  redisRestToken: '',
 };
 
 // =============================================================================
 // VALIDAÇÃO POR STEP (NOVO)
 // =============================================================================
 
-export type InstallStep = 1 | 2 | 3 | 4 | 5;
+export type InstallStep = 1 | 2 | 3;
 
 /**
  * Valida formato de email usando regex.
@@ -108,7 +97,7 @@ export function isValidEmail(email: string): boolean {
 /**
  * Normaliza tokens copiados pelo aluno.
  * Remove espaços e aspas extras (simples, duplas ou backtick) que ficam quando
- * o token é copiado de um arquivo .env ou documentação — ex: QSTASH_TOKEN="eyJ..."
+ * o token é copiado de um arquivo .env ou documentação — ex: SUPABASE_PAT="sbp_..."
  */
 export function normalizeToken(value: string): string {
   return value.trim().replace(/^["'`]|["'`]$/g, '');
@@ -130,17 +119,6 @@ export const stepValidators: Record<InstallStep, (data: InstallData) => boolean>
     const pat = normalizeToken(data.supabasePat ?? '');
     return pat.startsWith(VALIDATION.SUPABASE_PAT_PREFIX) && pat.length >= VALIDATION.SUPABASE_PAT_MIN_LENGTH;
   },
-  4: (data) => {
-    const token = normalizeToken(data.qstashToken ?? '');
-    return token.length >= VALIDATION.QSTASH_TOKEN_MIN_LENGTH;
-  },
-  5: (data) => {
-    const url = data.redisRestUrl?.trim() ?? '';
-    const token = normalizeToken(data.redisRestToken ?? '');
-    return /^https:\/\/[a-z0-9][a-z0-9-]*\.upstash\.io\/?$/i.test(url)
-      && token.length >= VALIDATION.REDIS_TOKEN_MIN_LENGTH
-      && /^[A-Za-z0-9_=+/-]+$/.test(token);
-  },
 };
 
 /** Campos requeridos por step (para mensagens de erro) */
@@ -148,8 +126,6 @@ export const stepRequiredFields: Record<InstallStep, (keyof InstallData)[]> = {
   1: ['name', 'email', 'password'],
   2: ['vercelToken'],
   3: ['supabasePat'],
-  4: ['qstashToken'],
-  5: ['redisRestUrl', 'redisRestToken'],
 };
 
 // =============================================================================
@@ -292,13 +268,6 @@ export interface ProvisionPayload {
   supabase: {
     pat: string;
   };
-  qstash: {
-    token: string;
-  };
-  redis: {
-    restUrl: string;
-    restToken: string;
-  };
 }
 
 // =============================================================================
@@ -309,6 +278,4 @@ export const STEP_META: Record<InstallStep, { title: string; service: string }> 
   1: { title: 'Identidade', service: 'identity' },
   2: { title: 'Vercel', service: 'vercel' },
   3: { title: 'Supabase', service: 'supabase' },
-  4: { title: 'QStash', service: 'qstash' },
-  5: { title: 'Redis', service: 'redis' },
 };
