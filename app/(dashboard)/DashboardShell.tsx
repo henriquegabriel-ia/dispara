@@ -79,6 +79,19 @@ export function DashboardShell({
         window.localStorage.setItem('app-sidebar-collapsed', value ? 'false' : 'true')
     }, [])
 
+    // Onboarding dispensável: o usuário pode fechar o modal e usar o sistema
+    // sem completar o fluxo (dispensa persistida no navegador).
+    const [onboardingDismissed, setOnboardingDismissed] = useState(false)
+    useEffect(() => {
+        if (typeof window === 'undefined') return
+        setOnboardingDismissed(window.localStorage.getItem('dispara_onboarding_dismissed') === '1')
+    }, [])
+    const dismissOnboarding = useCallback(() => {
+        setOnboardingDismissed(true)
+        if (typeof window === 'undefined') return
+        window.localStorage.setItem('dispara_onboarding_dismissed', '1')
+    }, [])
+
     // Enable real-time toast notifications for global events
     // This shows toasts when campaigns complete, new contacts are added, etc.
     const { useRealtimeNotifications } = require('@/hooks/useRealtimeNotifications')
@@ -387,7 +400,8 @@ export function DashboardShell({
     // Determina se deve mostrar o modal de onboarding do WhatsApp
     // Mostra quando: infra OK E onboarding não marcado como completo no banco
     // Só mostra modal de onboarding após carregar status do banco (evita flash)
-    const showWhatsAppOnboarding = !needsSetup && !isOnboardingStatusLoading && !isOnboardingCompletedInDb
+    // O usuário pode FECHAR o modal e usar o sistema (reabre pelo menu de ajuda).
+    const showWhatsAppOnboarding = !needsSetup && !isOnboardingStatusLoading && !isOnboardingCompletedInDb && !onboardingDismissed
 
     // Se WhatsApp já conectado mas onboarding não completo, força ir para step de webhook
     const onboardingForceStep = isWhatsAppConnected && !isOnboardingCompletedInDb
@@ -572,6 +586,7 @@ export function DashboardShell({
                         onSaveCredentials={handleSaveCredentials}
                         onMarkComplete={handleMarkOnboardingComplete}
                         forceStep={onboardingForceStep}
+                        onClose={dismissOnboarding}
                     />
                 )}
 

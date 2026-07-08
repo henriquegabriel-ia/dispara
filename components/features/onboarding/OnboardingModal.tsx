@@ -387,13 +387,17 @@ export function OnboardingModal({ isConnected, onSaveCredentials, onMarkComplete
   if (!shouldShow) return null;
 
   return (
-    <Dialog open={true}>
+    <Dialog open={true} onOpenChange={(open) => !open && onClose?.()}>
       <DialogContent
         className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto"
         overlayClassName="bg-black/80 backdrop-blur-sm"
-        showCloseButton={false}
+        // Fechável quando o pai fornece onClose (X + ESC); clique fora continua
+        // bloqueado para evitar fechamento acidental no meio do preenchimento.
+        showCloseButton={Boolean(onClose)}
         onPointerDownOutside={(e) => e.preventDefault()}
-        onEscapeKeyDown={(e) => e.preventDefault()}
+        onEscapeKeyDown={(e) => {
+          if (!onClose) e.preventDefault()
+        }}
       >
         {currentStep === 'welcome' ? (
           <>
