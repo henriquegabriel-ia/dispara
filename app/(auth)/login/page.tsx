@@ -2,13 +2,17 @@
 
 /**
  * Login Page
- * 
- * Simple password login for single-tenant DaaS
+ *
+ * Login por senha única (single-tenant, MASTER_PASSWORD).
+ * Visual corporativo compartilhado com o install wizard (CorporateBackground)
+ * e whitelabel-aware: logo, nome e cor primária vêm de /api/auth/status.
  */
 
 import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Lock, Eye, EyeOff, LogIn } from 'lucide-react'
+import { motion } from 'framer-motion'
+import { Lock, Eye, EyeOff, LogIn, AlertCircle, Info } from 'lucide-react'
+import { CorporateBackground } from '@/components/brand/CorporateBackground'
 
 function LoginForm() {
   const router = useRouter()
@@ -100,14 +104,20 @@ function LoginForm() {
   }
 
   return (
-    <div className="w-full max-w-md">
-      {/* Logo */}
-      <div className="text-center mb-8">
+    <div className="w-full max-w-sm">
+      {/* Marca */}
+      <motion.div
+        initial={{ opacity: 0, y: -16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, ease: 'easeOut' }}
+        className="text-center mb-8"
+      >
         {brand ? (
+          // eslint-disable-next-line @next/next/no-img-element
           <img
             src={brand.logoUrl}
             alt={brand.name}
-            className="h-16 mx-auto mb-4 object-contain"
+            className="h-12 max-w-[220px] mx-auto mb-5 object-contain"
             onError={(e) => {
               // Fallback para o logo padrão se a URL customizada falhar
               const img = e.currentTarget
@@ -118,62 +128,92 @@ function LoginForm() {
             }}
           />
         ) : (
-          <div className="h-16 mb-4" aria-hidden="true" />
+          <div className="h-12 mb-5" aria-hidden="true" />
         )}
-        <h1 className="text-2xl font-bold text-[var(--ds-text-primary)]">
+        <h1 className="text-2xl font-bold tracking-tight text-[var(--ds-text-primary)]">
           {brand ? (
             brand.name
           ) : (
             <span className="inline-block h-7 w-36 rounded-lg bg-[var(--ds-bg-elevated)] animate-pulse align-middle" aria-hidden="true" />
           )}
         </h1>
-        <p className="text-[var(--ds-text-secondary)] mt-1">Entre para continuar</p>
-      </div>
+        <p className="text-sm text-[var(--ds-text-muted)] mt-1.5">Entre para continuar</p>
+      </motion.div>
 
       {/* Card */}
-      <div className="bg-[var(--ds-bg-elevated)] border border-[var(--ds-border-default)] rounded-2xl p-6 shadow-xl">
+      <motion.div
+        initial={{ opacity: 0, y: 16, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ duration: 0.45, ease: 'easeOut', delay: 0.1 }}
+        className="relative rounded-2xl border border-[var(--ds-border-default)] bg-[var(--ds-bg-elevated)]/70 backdrop-blur-xl p-6 shadow-[0_16px_48px_-16px_rgba(0,0,0,0.6),0_0_40px_-16px_rgba(16,185,129,0.25)]"
+      >
+        {/* Hairline superior com a cor da marca */}
+        <div
+          aria-hidden="true"
+          className="absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-primary-500/60 to-transparent"
+        />
+
         {!isConfigured && isLocalhost && (
-          <div className="mb-4 bg-[var(--ds-status-success-bg)] border border-[var(--ds-status-success)]/20 rounded-xl p-4">
-            <p className="text-sm text-[var(--ds-status-success-text)] font-medium">Modo local</p>
-            <p className="text-xs text-[var(--ds-text-secondary)] mt-1">
-              Para destravar o login no localhost, defina <code className="bg-[var(--ds-bg-surface)] px-1.5 py-0.5 rounded">MASTER_PASSWORD</code> no <code className="bg-[var(--ds-bg-surface)] px-1.5 py-0.5 rounded">.env.local</code> e reinicie o dev server.
-            </p>
+          <div className="mb-5 flex gap-3 rounded-xl border border-[var(--ds-border-default)] bg-[var(--ds-bg-surface)] p-4">
+            <Info className="w-4 h-4 mt-0.5 shrink-0 text-primary-400" />
+            <div>
+              <p className="text-sm font-medium text-[var(--ds-text-primary)]">Modo local</p>
+              <p className="text-xs text-[var(--ds-text-secondary)] mt-1">
+                Para destravar o login no localhost, defina <code className="bg-[var(--ds-bg-elevated)] px-1.5 py-0.5 rounded">MASTER_PASSWORD</code> no <code className="bg-[var(--ds-bg-elevated)] px-1.5 py-0.5 rounded">.env.local</code> e reinicie o dev server.
+              </p>
+            </div>
           </div>
         )}
 
         <form onSubmit={handleSubmit}>
+          <label
+            htmlFor="login-password"
+            className="block text-xs font-medium uppercase tracking-wider text-[var(--ds-text-muted)] mb-2"
+          >
+            Senha de acesso
+          </label>
           <div className="relative">
-            <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-[var(--ds-text-muted)]" />
+            <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--ds-text-muted)]" />
             <input
+              id="login-password"
               type={showPassword ? 'text' : 'password'}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Senha"
+              placeholder="••••••••"
               name="password"
               autoComplete="current-password"
-              className="w-full bg-[var(--ds-bg-surface)] border border-[var(--ds-border-default)] rounded-xl pl-11 pr-11 py-3 text-[var(--ds-text-primary)] placeholder:text-[var(--ds-text-muted)] focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+              className="w-full h-11 bg-[var(--ds-bg-surface)] border border-[var(--ds-border-default)] rounded-xl pl-10 pr-11 text-[var(--ds-text-primary)] placeholder:text-[var(--ds-text-muted)] transition-shadow focus:outline-none focus:ring-2 focus:ring-primary-500/60 focus:border-transparent"
               autoFocus
             />
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--ds-text-muted)] hover:text-[var(--ds-text-secondary)]"
+              aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
+              className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-md text-[var(--ds-text-muted)] hover:text-[var(--ds-text-secondary)] transition-colors"
             >
-              {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+              {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
             </button>
           </div>
 
           {error && (
-            <p className="mt-4 text-[var(--ds-status-error-text)] text-sm">{error}</p>
+            <motion.div
+              initial={{ opacity: 0, y: -4 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mt-4 flex gap-2.5 rounded-xl border border-red-500/25 bg-red-500/10 p-3"
+              role="alert"
+            >
+              <AlertCircle className="w-4 h-4 mt-0.5 shrink-0 text-red-400" />
+              <p className="text-sm text-red-300">{error}</p>
+            </motion.div>
           )}
 
           <button
             type="submit"
             disabled={isLoading || (!isConfigured && isLocalhost)}
-            className="w-full mt-6 bg-primary-600 hover:bg-primary-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium py-3 rounded-xl transition-colors flex items-center justify-center gap-2"
+            className="w-full h-11 mt-6 bg-primary-600 hover:bg-primary-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium rounded-xl transition-all hover:shadow-[var(--ds-glow-brand-md)] flex items-center justify-center gap-2"
           >
             {isLoading ? (
-              <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
             ) : (
               <>
                 Entrar
@@ -182,24 +222,34 @@ function LoginForm() {
             )}
           </button>
         </form>
-      </div>
+      </motion.div>
 
       {/* Footer */}
-      <p className="text-center text-[var(--ds-text-muted)] text-sm mt-6">
-        {brand ? `${brand.name} © ${new Date().getFullYear()}` : ' '}
-      </p>
+      <motion.p
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.3, duration: 0.4 }}
+        className="text-center text-[var(--ds-text-muted)] text-xs mt-8"
+      >
+        {brand ? `${brand.name} © ${new Date().getFullYear()}` : ' '}
+      </motion.p>
     </div>
   )
 }
 
 export default function LoginPage() {
   return (
-    <div className="min-h-screen bg-[var(--ds-bg-base)] flex items-center justify-center p-4">
-      <Suspense fallback={
-        <div className="w-5 h-5 border-2 border-primary-500 border-t-transparent rounded-full animate-spin" />
-      }>
-        <LoginForm />
-      </Suspense>
+    <div className="dark relative min-h-screen overflow-hidden bg-[var(--br-void-black)] flex items-center justify-center p-4">
+      {/* Fundo corporativo compartilhado com o install wizard */}
+      <CorporateBackground />
+
+      <div className="relative z-10 w-full flex justify-center">
+        <Suspense fallback={
+          <div className="w-5 h-5 border-2 border-primary-500 border-t-transparent rounded-full animate-spin" />
+        }>
+          <LoginForm />
+        </Suspense>
+      </div>
     </div>
   )
 }

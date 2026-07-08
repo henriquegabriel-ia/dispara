@@ -3,7 +3,7 @@
 import { motion } from 'framer-motion';
 import { ReactNode } from 'react';
 import { StepDots } from './StepDots';
-import { CorporateBackground } from './CorporateBackground';
+import { CorporateBackground } from '@/components/brand/CorporateBackground';
 import { cn } from '@/lib/utils';
 
 interface InstallLayoutProps {
