@@ -59,7 +59,7 @@ export function ConfirmationDialog({
             type="button"
             onClick={() => onOpenChange(false)}
             disabled={isLoading}
-            className="flex-1 px-4 py-2 text-sm font-medium text-slate-300 bg-slate-900 border border-[var(--ds-border-subtle)] rounded-lg hover:bg-[var(--ds-bg-hover)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500 focus-visible:outline-offset-2"
+            className="flex-1 px-4 py-2 text-sm font-medium text-[var(--ds-text-secondary)] bg-[var(--ds-bg-surface)] border border-[var(--ds-border-subtle)] rounded-lg hover:bg-[var(--ds-bg-hover)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500 focus-visible:outline-offset-2"
           >
             {cancelLabel}
           </button>

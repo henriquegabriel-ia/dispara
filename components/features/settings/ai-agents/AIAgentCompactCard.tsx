@@ -50,8 +50,8 @@ export function AIAgentCompactCard({
     <div
       className={cn(
         'group flex items-center gap-3 p-3 rounded-xl transition-all',
-        'bg-[var(--ds-bg-elevated)] hover:bg-slate-800/50',
-        'border border-slate-800/50 hover:border-slate-700/50',
+        'bg-[var(--ds-bg-elevated)] hover:bg-[var(--ds-bg-hover)]',
+        'border border-[var(--ds-border-subtle)] hover:border-[var(--ds-border-subtle)]',
         !agent.is_active && 'opacity-60'
       )}
     >
@@ -60,8 +60,8 @@ export function AIAgentCompactCard({
         className={cn(
           'flex items-center justify-center w-10 h-10 rounded-lg text-sm font-semibold flex-shrink-0',
           agent.is_active
-            ? 'bg-slate-800 text-slate-300'
-            : 'bg-slate-800/50 text-slate-500'
+            ? 'bg-[var(--ds-bg-surface)] text-[var(--ds-text-secondary)]'
+            : 'bg-[var(--ds-bg-surface)] text-[var(--ds-text-muted)]'
         )}
       >
         {getInitials(agent.name)}
@@ -70,7 +70,7 @@ export function AIAgentCompactCard({
       {/* Info */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <h4 className="font-medium text-white truncate">{agent.name}</h4>
+          <h4 className="font-medium text-[var(--ds-text-primary)] truncate">{agent.name}</h4>
           {/* Status dot */}
           <Tooltip>
             <TooltipTrigger asChild>
@@ -81,7 +81,7 @@ export function AIAgentCompactCard({
                   'w-2 h-2 rounded-full transition-all flex-shrink-0',
                   agent.is_active
                     ? 'bg-primary-400 shadow-[0_0_6px] shadow-primary-400/50'
-                    : 'bg-slate-600 hover:bg-slate-500'
+                    : 'bg-[var(--ds-text-muted)] hover:bg-[var(--ds-text-secondary)]'
                 )}
               />
             </TooltipTrigger>
@@ -90,7 +90,7 @@ export function AIAgentCompactCard({
             </TooltipContent>
           </Tooltip>
         </div>
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-[var(--ds-text-muted)]">
           {agent.is_active ? 'Ativo' : 'Inativo'}
         </p>
       </div>
@@ -104,7 +104,7 @@ export function AIAgentCompactCard({
               size="sm"
               onClick={() => onSetDefault(agent)}
               disabled={isUpdating || disabled}
-              className="h-8 px-2 text-xs text-slate-400 hover:text-primary-400"
+              className="h-8 px-2 text-xs text-[var(--ds-text-secondary)] hover:text-primary-400"
             >
               <Star className="h-3.5 w-3.5 mr-1" />
               Tornar principal
@@ -120,7 +120,7 @@ export function AIAgentCompactCard({
               size="icon"
               onClick={() => onEdit(agent)}
               disabled={isUpdating || disabled}
-              className="h-8 w-8 text-slate-400 hover:text-white"
+              className="h-8 w-8 text-[var(--ds-text-secondary)] hover:text-[var(--ds-text-primary)]"
             >
               <Pencil className="h-3.5 w-3.5" />
             </Button>
@@ -135,7 +135,7 @@ export function AIAgentCompactCard({
               size="icon"
               onClick={() => onDelete(agent)}
               disabled={isUpdating || disabled}
-              className="h-8 w-8 text-slate-400 hover:text-red-400"
+              className="h-8 w-8 text-[var(--ds-text-secondary)] hover:text-red-400"
             >
               <Trash2 className="h-3.5 w-3.5" />
             </Button>

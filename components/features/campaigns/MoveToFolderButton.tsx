@@ -71,7 +71,7 @@ export function MoveToFolderButton({
             {currentFolder ? (
               <FolderIcon size={16} style={{ color: currentFolder.color }} />
             ) : (
-              <FolderInputIcon size={16} className="text-slate-400" />
+              <FolderInputIcon size={16} className="text-[var(--ds-text-secondary)]" />
             )}
           </Button>
         </TooltipTrigger>
@@ -82,18 +82,18 @@ export function MoveToFolderButton({
 
       {isOpen && (
         <div
-          className="absolute top-full right-0 mt-1 w-48 rounded-md border border-slate-700 bg-slate-800 shadow-xl z-[200]"
+          className="absolute top-full right-0 mt-1 w-48 rounded-md border border-[var(--ds-border-default)] bg-[var(--ds-bg-elevated)] shadow-xl z-[200]"
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="p-2 border-b border-slate-700">
-            <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">
+          <div className="p-2 border-b border-[var(--ds-border-default)]">
+            <span className="text-xs font-medium text-[var(--ds-text-secondary)] uppercase tracking-wider">
               Mover para
             </span>
           </div>
 
           {isLoading ? (
             <div className="flex items-center justify-center py-4">
-              <div className="h-4 w-4 animate-spin rounded-full border-2 border-slate-600 border-t-primary-500" />
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--ds-border-default)] border-t-primary-500" />
             </div>
           ) : (
             <div className="max-h-48 overflow-y-auto p-1">
@@ -101,7 +101,7 @@ export function MoveToFolderButton({
               {currentFolderId && (
                 <button
                   onClick={() => handleSelect(null)}
-                  className="flex items-center w-full px-3 py-2 rounded text-sm transition-colors gap-2 text-slate-400 hover:bg-slate-700/50 hover:text-slate-200"
+                  className="flex items-center w-full px-3 py-2 rounded text-sm transition-colors gap-2 text-[var(--ds-text-secondary)] hover:bg-[var(--ds-bg-hover)] hover:text-[var(--ds-text-primary)]"
                 >
                   <XIcon className="h-4 w-4 flex-shrink-0" />
                   <span className="flex-1 text-left">Remover da pasta</span>
@@ -119,7 +119,7 @@ export function MoveToFolderButton({
                       'flex items-center w-full px-3 py-2 rounded text-sm transition-colors gap-2',
                       isCurrentFolder
                         ? 'bg-primary-500/10 text-primary-400'
-                        : 'text-slate-200 hover:bg-slate-700/50'
+                        : 'text-[var(--ds-text-primary)] hover:bg-[var(--ds-bg-hover)]'
                     )}
                   >
                     <FolderIcon

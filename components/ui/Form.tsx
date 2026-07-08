@@ -78,7 +78,7 @@ export const FormField: React.FC<FormFieldProps> = ({
       {label && (
         <label 
           htmlFor={id}
-          className="block text-xs font-bold text-slate-500 uppercase tracking-wider ml-1"
+          className="block text-xs font-bold text-[var(--ds-text-muted)] uppercase tracking-wider ml-1"
         >
           {label}
           {required && <span className="text-red-400 ml-1">*</span>}
@@ -115,7 +115,7 @@ export const FormField: React.FC<FormFieldProps> = ({
       
       {/* Hint text */}
       {!error && hint && (
-        <p id={hintId} className="text-xs text-slate-500 mt-1 ml-1">
+        <p id={hintId} className="text-xs text-[var(--ds-text-muted)] mt-1 ml-1">
           {hint}
         </p>
       )}
@@ -138,7 +138,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
         className={`
           w-full px-4 py-3 
           bg-[var(--ds-bg-elevated)] border rounded-xl 
-          text-white placeholder-[var(--ds-text-muted)]
+          text-[var(--ds-text-primary)] placeholder-[var(--ds-text-muted)]
           outline-none transition-all duration-200
           focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500/50
           disabled:opacity-50 disabled:cursor-not-allowed
@@ -170,7 +170,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
         className={`
           w-full px-4 py-3 
           bg-[var(--ds-bg-elevated)] border rounded-xl 
-          text-white placeholder-[var(--ds-text-muted)]
+          text-[var(--ds-text-primary)] placeholder-[var(--ds-text-muted)]
           outline-none transition-all duration-200 resize-none
           focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500/50
           disabled:opacity-50 disabled:cursor-not-allowed
@@ -202,7 +202,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
         className={`
           w-full px-4 py-3 
           bg-[var(--ds-bg-elevated)] border rounded-xl 
-          text-white
+          text-[var(--ds-text-primary)]
           outline-none transition-all duration-200
           focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500/50
           disabled:opacity-50 disabled:cursor-not-allowed
@@ -245,7 +245,7 @@ export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
           flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-all
           ${props.checked 
             ? 'bg-primary-500/10 border border-primary-500/30' 
-            : 'bg-slate-800/50 border border-transparent hover:bg-slate-800'
+            : 'bg-[var(--ds-bg-surface)] border border-transparent hover:bg-[var(--ds-bg-hover)]'
           }
           ${props.disabled ? 'opacity-50 cursor-not-allowed' : ''}
           ${className}
@@ -258,7 +258,7 @@ export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
           className="w-4 h-4 text-primary-600 bg-slate-700 border-slate-600 rounded focus:ring-primary-500"
           {...props}
         />
-        <span className="text-sm text-white">{label}</span>
+        <span className="text-sm text-[var(--ds-text-primary)]">{label}</span>
         {props.checked && (
           <Check size={16} className="text-primary-400 ml-auto" />
         )}

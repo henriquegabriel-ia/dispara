@@ -73,7 +73,7 @@ export const CampaignFlowPanel: React.FC<CampaignFlowPanelProps> = ({ campaign }
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h3 className="font-semibold text-white">MiniApp / Flow</h3>
+              <h3 className="font-semibold text-[var(--ds-text-primary)]">MiniApp / Flow</h3>
               {isLive && (
                 <span className="inline-flex items-center gap-1.5 text-xs text-primary-400">
                   <span className="relative inline-flex h-2 w-2 rounded-full bg-primary-500" />
@@ -81,7 +81,7 @@ export const CampaignFlowPanel: React.FC<CampaignFlowPanelProps> = ({ campaign }
                 </span>
               )}
             </div>
-            <p className="text-sm text-slate-400">{campaign.flowName || 'Formulário interativo'}</p>
+            <p className="text-sm text-[var(--ds-text-secondary)]">{campaign.flowName || 'Formulário interativo'}</p>
           </div>
         </div>
 
@@ -95,29 +95,29 @@ export const CampaignFlowPanel: React.FC<CampaignFlowPanelProps> = ({ campaign }
 
       <div className="grid grid-cols-2 gap-4">
         {/* Submissões */}
-        <div className="bg-slate-800/50 border border-[var(--ds-border-subtle)] rounded-lg p-4">
-          <div className="flex items-center gap-2 text-slate-400 text-xs uppercase tracking-wide mb-2">
+        <div className="bg-[var(--ds-bg-surface)] border border-[var(--ds-border-subtle)] rounded-lg p-4">
+          <div className="flex items-center gap-2 text-[var(--ds-text-secondary)] text-xs uppercase tracking-wide mb-2">
             <Users size={14} />
             Respostas
           </div>
-          <div className="text-2xl font-bold text-white">
+          <div className="text-2xl font-bold text-[var(--ds-text-primary)]">
             {submissionsCount.toLocaleString('pt-BR')}
           </div>
-          <p className="text-xs text-slate-500 mt-1">
+          <p className="text-xs text-[var(--ds-text-muted)] mt-1">
             {submissionsCount === 1 ? 'pessoa respondeu' : 'pessoas responderam'}
           </p>
         </div>
 
         {/* Taxa de Conversão */}
-        <div className="bg-slate-800/50 border border-[var(--ds-border-subtle)] rounded-lg p-4">
-          <div className="flex items-center gap-2 text-slate-400 text-xs uppercase tracking-wide mb-2">
+        <div className="bg-[var(--ds-bg-surface)] border border-[var(--ds-border-subtle)] rounded-lg p-4">
+          <div className="flex items-center gap-2 text-[var(--ds-text-secondary)] text-xs uppercase tracking-wide mb-2">
             <Percent size={14} />
             Taxa de Resposta
           </div>
-          <div className="text-2xl font-bold text-white">
+          <div className="text-2xl font-bold text-[var(--ds-text-primary)]">
             {conversionRate}%
           </div>
-          <p className="text-xs text-slate-500 mt-1">
+          <p className="text-xs text-[var(--ds-text-muted)] mt-1">
             de {recipients.toLocaleString('pt-BR')} destinatários
           </p>
         </div>
@@ -125,7 +125,7 @@ export const CampaignFlowPanel: React.FC<CampaignFlowPanelProps> = ({ campaign }
 
       {/* Dica quando não há submissões */}
       {submissionsCount === 0 && (
-        <p className="text-xs text-slate-500 mt-4 text-center">
+        <p className="text-xs text-[var(--ds-text-muted)] mt-4 text-center">
           Aguardando respostas do formulário...
         </p>
       )}

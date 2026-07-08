@@ -59,8 +59,8 @@ function Gauge(props: {
 
   return (
     <Container variant="glass" padding="md">
-      <div className="text-xs text-slate-500">{props.title}</div>
-      <div className="mt-1 text-sm text-slate-300">{props.subtitle || '—'}</div>
+      <div className="text-xs text-[var(--ds-text-muted)]">{props.title}</div>
+      <div className="mt-1 text-sm text-[var(--ds-text-secondary)]">{props.subtitle || '—'}</div>
 
       <div className="mt-4 flex items-center justify-center">
         <svg width={size} height={size / 2 + 70} viewBox={`0 0 ${size} ${size / 2 + 70}`} role="img" aria-label={props.title}>
@@ -98,7 +98,7 @@ function Gauge(props: {
         </svg>
       </div>
 
-      <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
+      <div className="mt-2 flex items-center justify-between text-xs text-[var(--ds-text-muted)]">
         <span>{props.footerLeft || ''}</span>
         <span>{props.footerRight || ''}</span>
       </div>
@@ -216,7 +216,7 @@ export function SettingsPerformanceView(props: {
         <PageActions>
           <PrefetchLink
             href="/settings"
-            className="px-4 py-2 rounded-xl bg-[var(--ds-bg-hover)] text-white hover:bg-[var(--ds-bg-hover)] border border-[var(--ds-border-subtle)] hover:border-[var(--ds-border-default)] transition-all text-sm font-medium flex items-center gap-2"
+            className="px-4 py-2 rounded-xl bg-[var(--ds-bg-hover)] text-[var(--ds-text-primary)] hover:bg-[var(--ds-bg-hover)] border border-[var(--ds-border-subtle)] hover:border-[var(--ds-border-default)] transition-all text-sm font-medium flex items-center gap-2"
           >
             <ArrowLeft size={16} />
             Voltar
@@ -224,7 +224,7 @@ export function SettingsPerformanceView(props: {
 
           <button
             onClick={props.onRefresh}
-            className="px-4 py-2 rounded-xl bg-[var(--ds-bg-hover)] text-white hover:bg-[var(--ds-bg-hover)] border border-[var(--ds-border-subtle)] hover:border-[var(--ds-border-default)] transition-all text-sm font-medium flex items-center gap-2"
+            className="px-4 py-2 rounded-xl bg-[var(--ds-bg-hover)] text-[var(--ds-text-primary)] hover:bg-[var(--ds-bg-hover)] border border-[var(--ds-border-subtle)] hover:border-[var(--ds-border-default)] transition-all text-sm font-medium flex items-center gap-2"
             title="Atualizar"
           >
             <RefreshCw size={16} className={props.isFetching ? 'animate-spin' : ''} />
@@ -243,15 +243,15 @@ export function SettingsPerformanceView(props: {
       )}
 
       <div className="mt-6 flex flex-wrap items-center gap-2">
-        <div className="text-xs text-slate-400">Janela:</div>
+        <div className="text-xs text-[var(--ds-text-secondary)]">Janela:</div>
         {[7, 30, 90, 180].map((d) => (
           <button
             key={d}
             type="button"
             onClick={() => props.setRangeDays(d)}
             className={`px-3 py-1.5 rounded-lg border text-xs transition-colors ${props.rangeDays === d
-              ? 'bg-[var(--ds-bg-hover)] text-white border-[var(--ds-border-default)]'
-              : 'bg-[var(--ds-bg-elevated)] text-slate-300 border-[var(--ds-border-subtle)] hover:bg-[var(--ds-bg-hover)]'
+              ? 'bg-[var(--ds-bg-hover)] text-[var(--ds-text-primary)] border-[var(--ds-border-default)]'
+              : 'bg-[var(--ds-bg-elevated)] text-[var(--ds-text-secondary)] border-[var(--ds-border-subtle)] hover:bg-[var(--ds-bg-hover)]'
               }`}
           >
             {d}d
@@ -259,11 +259,11 @@ export function SettingsPerformanceView(props: {
         ))}
 
         <div className="ml-auto flex items-center gap-2">
-          <div className="text-xs text-slate-400">Filtro config:</div>
+          <div className="text-xs text-[var(--ds-text-secondary)]">Filtro config:</div>
           <select
             value={props.selectedConfigHash || ''}
             onChange={(e) => props.setSelectedConfigHash(e.target.value || null)}
-            className="px-3 py-2 bg-[var(--ds-bg-elevated)] border border-[var(--ds-border-subtle)] rounded-lg text-xs text-white font-mono"
+            className="px-3 py-2 bg-[var(--ds-bg-elevated)] border border-[var(--ds-border-subtle)] rounded-lg text-xs text-[var(--ds-text-primary)] font-mono"
           >
             <option value="">(todas)</option>
             {(props.configs || []).map((c) => (
@@ -277,35 +277,35 @@ export function SettingsPerformanceView(props: {
 
       <div className="mt-6 grid grid-cols-1 md:grid-cols-4 gap-4">
         <Container variant="glass" padding="sm">
-          <div className="flex items-center gap-2 text-xs text-slate-500">
+          <div className="flex items-center gap-2 text-xs text-[var(--ds-text-muted)]">
             <Activity size={14} /> Runs
           </div>
-          <div className="mt-2 text-2xl font-bold text-white">{data ? fmtInt(data.totals.runs) : '—'}</div>
-          <div className="mt-1 text-xs text-slate-500">amostras: {data ? fmtInt(data.totals.throughput_mps.samples) : '—'}</div>
+          <div className="mt-2 text-2xl font-bold text-[var(--ds-text-primary)]">{data ? fmtInt(data.totals.runs) : '—'}</div>
+          <div className="mt-1 text-xs text-[var(--ds-text-muted)]">amostras: {data ? fmtInt(data.totals.throughput_mps.samples) : '—'}</div>
         </Container>
 
         <Container variant="glass" padding="sm">
-          <div className="flex items-center gap-2 text-xs text-slate-500">
+          <div className="flex items-center gap-2 text-xs text-[var(--ds-text-muted)]">
             <TrendingUp size={14} /> Throughput (mps)
           </div>
-          <div className="mt-2 text-2xl font-bold text-white">{data ? fmtNumber(data.totals.throughput_mps.median, 2) : '—'}</div>
-          <div className="mt-1 text-xs text-slate-500">p90: {data ? fmtNumber(data.totals.throughput_mps.p90, 2) : '—'}</div>
+          <div className="mt-2 text-2xl font-bold text-[var(--ds-text-primary)]">{data ? fmtNumber(data.totals.throughput_mps.median, 2) : '—'}</div>
+          <div className="mt-1 text-xs text-[var(--ds-text-muted)]">p90: {data ? fmtNumber(data.totals.throughput_mps.p90, 2) : '—'}</div>
         </Container>
 
         <Container variant="glass" padding="sm">
-          <div className="flex items-center gap-2 text-xs text-slate-500">
+          <div className="flex items-center gap-2 text-xs text-[var(--ds-text-muted)]">
             <Timer size={14} /> Meta avg
           </div>
-          <div className="mt-2 text-2xl font-bold text-white">{data ? fmtMs(data.totals.meta_avg_ms.median) : '—'}</div>
-          <div className="mt-1 text-xs text-slate-500">amostras: {data ? fmtInt(data.totals.meta_avg_ms.samples) : '—'}</div>
+          <div className="mt-2 text-2xl font-bold text-[var(--ds-text-primary)]">{data ? fmtMs(data.totals.meta_avg_ms.median) : '—'}</div>
+          <div className="mt-1 text-xs text-[var(--ds-text-muted)]">amostras: {data ? fmtInt(data.totals.meta_avg_ms.samples) : '—'}</div>
         </Container>
 
         <Container variant="glass" padding="sm">
-          <div className="flex items-center gap-2 text-xs text-slate-500">
+          <div className="flex items-center gap-2 text-xs text-[var(--ds-text-muted)]">
             <AlertTriangle size={14} /> 130429
           </div>
-          <div className="mt-2 text-2xl font-bold text-white">{data ? fmtPct(data.totals.throughput_429_rate, 1) : '—'}</div>
-          <div className="mt-1 text-xs text-slate-500">taxa no período</div>
+          <div className="mt-2 text-2xl font-bold text-[var(--ds-text-primary)]">{data ? fmtPct(data.totals.throughput_429_rate, 1) : '—'}</div>
+          <div className="mt-1 text-xs text-[var(--ds-text-muted)]">taxa no período</div>
         </Container>
       </div>
 
@@ -320,15 +320,15 @@ export function SettingsPerformanceView(props: {
         />
 
         <Container variant="glass" padding="md" className="lg:col-span-2">
-          <div className="text-sm font-semibold text-white">Como ler esse gauge</div>
-          <div className="mt-2 text-sm text-slate-300 space-y-2">
+          <div className="text-sm font-semibold text-[var(--ds-text-primary)]">Como ler esse gauge</div>
+          <div className="mt-2 text-sm text-[var(--ds-text-secondary)] space-y-2">
             <p>
-              O ponteiro mostra a <span className="font-medium text-white">mediana</span> do throughput (mps) no período selecionado.
+              O ponteiro mostra a <span className="font-medium text-[var(--ds-text-primary)]">mediana</span> do throughput (mps) no período selecionado.
             </p>
             <p>
-              O teto é ajustado automaticamente (com base no <span className="font-medium text-white">p90</span>) para manter o velocímetro “vivo” e comparável.
+              O teto é ajustado automaticamente (com base no <span className="font-medium text-[var(--ds-text-primary)]">p90</span>) para manter o velocímetro “vivo” e comparável.
             </p>
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-[var(--ds-text-muted)]">
               Dica: aplique presets (Safe/Balanced/Boost) e rode campanhas suficientes para aumentar a confiança do baseline.
             </p>
           </div>
@@ -338,8 +338,8 @@ export function SettingsPerformanceView(props: {
       <Container variant="glass" padding="md" className="mt-6">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <div className="text-sm font-semibold text-white">Histórico de throughput (sent-only)</div>
-            <div className="text-xs text-slate-500">
+            <div className="text-sm font-semibold text-[var(--ds-text-primary)]">Histórico de throughput (sent-only)</div>
+            <div className="text-xs text-[var(--ds-text-muted)]">
               fonte: <span className="font-mono">{data?.source || '—'}</span>
               {props.selectedConfigHash ? (
                 <>
@@ -348,7 +348,7 @@ export function SettingsPerformanceView(props: {
               ) : null}
             </div>
           </div>
-          <div className="text-xs text-slate-500">{props.isLoading ? 'Carregando…' : `${props.filteredRuns.length} pontos`}</div>
+          <div className="text-xs text-[var(--ds-text-muted)]">{props.isLoading ? 'Carregando…' : `${props.filteredRuns.length} pontos`}</div>
         </div>
 
         <div ref={chartContainerRef} className="mt-4 h-72 w-full">
@@ -385,12 +385,12 @@ export function SettingsPerformanceView(props: {
       <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Container variant="glass" padding="md">
           <div className="flex items-center justify-between">
-            <div className="text-sm font-semibold text-white">Baselines por config_hash</div>
-            <div className="text-xs text-slate-500">ordenado por mediana</div>
+            <div className="text-sm font-semibold text-[var(--ds-text-primary)]">Baselines por config_hash</div>
+            <div className="text-xs text-[var(--ds-text-muted)]">ordenado por mediana</div>
           </div>
 
           {(!props.configs || props.configs.length === 0) ? (
-            <div className="mt-4 text-sm text-slate-500">Sem dados por configuração ainda.</div>
+            <div className="mt-4 text-sm text-[var(--ds-text-muted)]">Sem dados por configuração ainda.</div>
           ) : (
             <div className="mt-4 overflow-auto">
               <table className="w-full text-left text-xs">
@@ -410,7 +410,7 @@ export function SettingsPerformanceView(props: {
                         <button
                           type="button"
                           onClick={() => props.setSelectedConfigHash(c.config_hash)}
-                          className="font-mono text-white/90 hover:text-white"
+                          className="font-mono text-[var(--ds-text-primary)]/90 hover:text-[var(--ds-text-primary)]"
                           title={pickConfigSummary(c.config)}
                         >
                           <span className="inline-flex items-center gap-1">
@@ -418,14 +418,14 @@ export function SettingsPerformanceView(props: {
                             {c.config_hash}
                           </span>
                         </button>
-                        <div className="mt-1 text-[11px] text-slate-500 truncate max-w-[420px]" title={pickConfigSummary(c.config)}>
+                        <div className="mt-1 text-[11px] text-[var(--ds-text-muted)] truncate max-w-[420px]" title={pickConfigSummary(c.config)}>
                           {pickConfigSummary(c.config)}
                         </div>
                       </td>
-                      <td className="py-2 pr-2 text-slate-300">{fmtInt(c.sample_size)}</td>
-                      <td className="py-2 pr-2 text-white">{fmtNumber(c.throughput_mps.median, 2)}</td>
-                      <td className="py-2 pr-2 text-slate-300">{fmtNumber(c.throughput_mps.p90, 2)}</td>
-                      <td className="py-2 pr-2 text-slate-300">{fmtPct(c.throughput_429_rate, 1)}</td>
+                      <td className="py-2 pr-2 text-[var(--ds-text-secondary)]">{fmtInt(c.sample_size)}</td>
+                      <td className="py-2 pr-2 text-[var(--ds-text-primary)]">{fmtNumber(c.throughput_mps.median, 2)}</td>
+                      <td className="py-2 pr-2 text-[var(--ds-text-secondary)]">{fmtNumber(c.throughput_mps.p90, 2)}</td>
+                      <td className="py-2 pr-2 text-[var(--ds-text-secondary)]">{fmtPct(c.throughput_429_rate, 1)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -434,8 +434,8 @@ export function SettingsPerformanceView(props: {
           )}
 
           {props.selectedConfigHash && (
-            <div className="mt-3 text-xs text-slate-500">
-              Filtro ativo: <span className="font-mono text-white">{props.selectedConfigHash}</span>
+            <div className="mt-3 text-xs text-[var(--ds-text-muted)]">
+              Filtro ativo: <span className="font-mono text-[var(--ds-text-primary)]">{props.selectedConfigHash}</span>
               <button
                 type="button"
                 onClick={() => props.setSelectedConfigHash(null)}
@@ -449,17 +449,17 @@ export function SettingsPerformanceView(props: {
 
         <Container variant="glass" padding="md">
           <div className="flex items-center justify-between">
-            <div className="text-sm font-semibold text-white">Notas</div>
+            <div className="text-sm font-semibold text-[var(--ds-text-primary)]">Notas</div>
           </div>
 
-          <div className="mt-3 text-sm text-slate-300 space-y-2">
+          <div className="mt-3 text-sm text-[var(--ds-text-secondary)] space-y-2">
             <p>
-              <span className="font-medium text-white">Baseline</span> aqui é a <span className="font-medium">mediana</span> do throughput por <span className="font-mono">config_hash</span> no período.
+              <span className="font-medium text-[var(--ds-text-primary)]">Baseline</span> aqui é a <span className="font-medium">mediana</span> do throughput por <span className="font-mono">config_hash</span> no período.
             </p>
             <p>
               Se você mudou presets (Safe/Balanced/Boost) mas não rodou campanhas suficientes, a amostra ainda vai ficar pequena.
             </p>
-            <p className="text-slate-400 text-xs">
+            <p className="text-[var(--ds-text-secondary)] text-xs">
               Dica operacional: quando alterar muito <span className="font-mono">startMps</span>, use “Resetar aprendizado” no Turbo para alinhar o target atual.
             </p>
           </div>

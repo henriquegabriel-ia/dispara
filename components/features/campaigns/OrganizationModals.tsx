@@ -144,13 +144,13 @@ function FoldersManager() {
       </div>
 
       {/* Folders list */}
-      <div className="border rounded-lg border-slate-700 divide-y divide-slate-700 max-h-64 overflow-y-auto">
+      <div className="border rounded-lg border-[var(--ds-border-default)] divide-y divide-[var(--ds-border-default)] max-h-64 overflow-y-auto">
         {isLoading ? (
           <div className="flex items-center justify-center py-8">
-            <div className="h-5 w-5 animate-spin rounded-full border-2 border-slate-600 border-t-primary-500" />
+            <div className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--ds-border-default)] border-t-primary-500" />
           </div>
         ) : folders.length === 0 ? (
-          <div className="p-4 text-center text-sm text-slate-500">
+          <div className="p-4 text-center text-sm text-[var(--ds-text-muted)]">
             Nenhuma pasta criada
           </div>
         ) : (
@@ -159,8 +159,8 @@ function FoldersManager() {
               {/* Delete confirmation inline */}
               {pendingDeleteId === folder.id ? (
                 <div className="flex-1 flex items-center justify-between gap-2">
-                  <span className="text-sm text-slate-400">
-                    Remover <strong className="text-slate-200">{folder.name}</strong>?
+                  <span className="text-sm text-[var(--ds-text-secondary)]">
+                    Remover <strong className="text-[var(--ds-text-primary)]">{folder.name}</strong>?
                   </span>
                   <div className="flex items-center gap-1">
                     <Button
@@ -201,7 +201,7 @@ function FoldersManager() {
                     <CheckIcon className="h-4 w-4 text-green-500" />
                   </Button>
                   <Button size="icon" variant="ghost" onClick={() => setEditingFolder(null)}>
-                    <XIcon className="h-4 w-4 text-slate-400" />
+                    <XIcon className="h-4 w-4 text-[var(--ds-text-secondary)]" />
                   </Button>
                 </>
               ) : (
@@ -210,10 +210,10 @@ function FoldersManager() {
                     className="w-4 h-4 rounded flex-shrink-0"
                     style={{ backgroundColor: folder.color }}
                   />
-                  <span className="flex-1 text-sm text-slate-200 truncate">{folder.name}</span>
-                  <span className="text-xs text-slate-500">({folder.campaignCount || 0})</span>
+                  <span className="flex-1 text-sm text-[var(--ds-text-primary)] truncate">{folder.name}</span>
+                  <span className="text-xs text-[var(--ds-text-muted)]">({folder.campaignCount || 0})</span>
                   <Button size="icon" variant="ghost" onClick={() => setEditingFolder(folder)}>
-                    <PencilIcon className="h-4 w-4 text-slate-400" />
+                    <PencilIcon className="h-4 w-4 text-[var(--ds-text-secondary)]" />
                   </Button>
                   <Button
                     size="icon"
@@ -293,13 +293,13 @@ function TagsManager() {
       </div>
 
       {/* Tags list */}
-      <div className="border rounded-lg border-slate-700 divide-y divide-slate-700 max-h-64 overflow-y-auto">
+      <div className="border rounded-lg border-[var(--ds-border-default)] divide-y divide-[var(--ds-border-default)] max-h-64 overflow-y-auto">
         {isLoading ? (
           <div className="flex items-center justify-center py-8">
-            <div className="h-5 w-5 animate-spin rounded-full border-2 border-slate-600 border-t-primary-500" />
+            <div className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--ds-border-default)] border-t-primary-500" />
           </div>
         ) : tags.length === 0 ? (
-          <div className="p-4 text-center text-sm text-slate-500">
+          <div className="p-4 text-center text-sm text-[var(--ds-text-muted)]">
             Nenhuma tag criada
           </div>
         ) : (
@@ -308,8 +308,8 @@ function TagsManager() {
               {/* Delete confirmation inline */}
               {pendingDeleteId === tag.id ? (
                 <div className="flex-1 flex items-center justify-between gap-2">
-                  <span className="text-sm text-slate-400">
-                    Remover <strong className="text-slate-200">{tag.name}</strong>?
+                  <span className="text-sm text-[var(--ds-text-secondary)]">
+                    Remover <strong className="text-[var(--ds-text-primary)]">{tag.name}</strong>?
                   </span>
                   <div className="flex items-center gap-1">
                     <Button
@@ -336,7 +336,7 @@ function TagsManager() {
                     className="w-4 h-4 rounded-full flex-shrink-0"
                     style={{ backgroundColor: tag.color }}
                   />
-                  <span className="flex-1 text-sm text-slate-200 truncate">{tag.name}</span>
+                  <span className="flex-1 text-sm text-[var(--ds-text-primary)] truncate">{tag.name}</span>
                   <Button
                     size="icon"
                     variant="ghost"
@@ -372,7 +372,7 @@ function ColorPicker({ value, onChange }: ColorPickerProps) {
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="w-8 h-8 rounded border border-slate-600 transition-colors hover:border-slate-500"
+        className="w-8 h-8 rounded border border-[var(--ds-border-default)] transition-colors hover:border-slate-500"
         style={{ backgroundColor: value }}
         title="Escolher cor"
       />
@@ -383,7 +383,7 @@ function ColorPicker({ value, onChange }: ColorPickerProps) {
             className="fixed inset-0 z-40"
             onClick={() => setIsOpen(false)}
           />
-          <div className="absolute top-full left-0 mt-1 p-2 bg-slate-800 border border-slate-700 rounded-lg shadow-lg z-50">
+          <div className="absolute top-full left-0 mt-1 p-2 bg-[var(--ds-bg-elevated)] border border-[var(--ds-border-default)] rounded-lg shadow-lg z-50">
             <div className="grid grid-cols-4 gap-1">
               {TAG_COLORS.map((color) => (
                 <button
@@ -395,7 +395,7 @@ function ColorPicker({ value, onChange }: ColorPickerProps) {
                   }}
                   className={cn(
                     'w-7 h-7 rounded transition-transform hover:scale-110',
-                    value === color && 'ring-2 ring-white ring-offset-1 ring-offset-slate-800'
+                    value === color && 'ring-2 ring-[var(--ds-text-primary)] ring-offset-1 ring-offset-[var(--ds-bg-elevated)]'
                   )}
                   style={{ backgroundColor: color }}
                 />

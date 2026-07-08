@@ -147,17 +147,17 @@ export function TurboPlannerSection({
   };
 
   return (
-    <div className="mt-4 bg-slate-900/30 border border-[var(--ds-border-subtle)] rounded-2xl">
+    <div className="mt-4 bg-[var(--ds-bg-surface)] border border-[var(--ds-border-subtle)] rounded-2xl">
       <button
         type="button"
         onClick={() => setIsPlannerOpen((v) => !v)}
         className="w-full px-5 py-4 flex items-center justify-between gap-3"
       >
         <div className="text-left">
-          <div className="text-sm font-medium text-white">Planejador de disparo</div>
-          <div className="text-xs text-slate-400">Diga "quantas mensagens" e "em quanto tempo" e eu sugiro a config.</div>
+          <div className="text-sm font-medium text-[var(--ds-text-primary)]">Planejador de disparo</div>
+          <div className="text-xs text-[var(--ds-text-secondary)]">Diga "quantas mensagens" e "em quanto tempo" e eu sugiro a config.</div>
         </div>
-        <div className="text-slate-400">
+        <div className="text-[var(--ds-text-secondary)]">
           {isPlannerOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
         </div>
       </button>
@@ -166,29 +166,29 @@ export function TurboPlannerSection({
         <div className="px-5 pb-5">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1">Mensagens</label>
+              <label className="block text-xs font-medium text-[var(--ds-text-secondary)] mb-1">Mensagens</label>
               <input
                 type="number"
                 value={plannerMessages}
                 onChange={(e) => setPlannerMessages(Number(e.target.value))}
-                className="w-full px-3 py-2 bg-[var(--ds-bg-elevated)] border border-[var(--ds-border-subtle)] rounded-lg text-sm text-white font-mono"
+                className="w-full px-3 py-2 bg-[var(--ds-bg-elevated)] border border-[var(--ds-border-subtle)] rounded-lg text-sm text-[var(--ds-text-primary)] font-mono"
                 min={1}
                 max={100000}
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1">Tempo alvo (seg)</label>
+              <label className="block text-xs font-medium text-[var(--ds-text-secondary)] mb-1">Tempo alvo (seg)</label>
               <input
                 type="number"
                 value={plannerSeconds}
                 onChange={(e) => setPlannerSeconds(Number(e.target.value))}
-                className="w-full px-3 py-2 bg-[var(--ds-bg-elevated)] border border-[var(--ds-border-subtle)] rounded-lg text-sm text-white font-mono"
+                className="w-full px-3 py-2 bg-[var(--ds-bg-elevated)] border border-[var(--ds-border-subtle)] rounded-lg text-sm text-[var(--ds-text-primary)] font-mono"
                 min={1}
                 max={3600}
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1">Latencia estimada (ms)</label>
+              <label className="block text-xs font-medium text-[var(--ds-text-secondary)] mb-1">Latencia estimada (ms)</label>
               <input
                 type="number"
                 value={plannerLatencyMs}
@@ -196,11 +196,11 @@ export function TurboPlannerSection({
                   setPlannerLatencyTouched(true);
                   setPlannerLatencyMs(Number(e.target.value));
                 }}
-                className="w-full px-3 py-2 bg-[var(--ds-bg-elevated)] border border-[var(--ds-border-subtle)] rounded-lg text-sm text-white font-mono"
+                className="w-full px-3 py-2 bg-[var(--ds-bg-elevated)] border border-[var(--ds-border-subtle)] rounded-lg text-sm text-[var(--ds-text-primary)] font-mono"
                 min={50}
                 max={5000}
               />
-              <div className="mt-1 text-[11px] text-slate-500">
+              <div className="mt-1 text-[11px] text-[var(--ds-text-muted)]">
                 {plannerLoadingBaseline
                   ? 'Buscando baseline...'
                   : plannerBaselineMetaMs != null
@@ -209,47 +209,47 @@ export function TurboPlannerSection({
               </div>
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1">Margem (headroom)</label>
+              <label className="block text-xs font-medium text-[var(--ds-text-secondary)] mb-1">Margem (headroom)</label>
               <input
                 type="number"
                 value={plannerHeadroom}
                 onChange={(e) => setPlannerHeadroom(Number(e.target.value))}
-                className="w-full px-3 py-2 bg-[var(--ds-bg-elevated)] border border-[var(--ds-border-subtle)] rounded-lg text-sm text-white font-mono"
+                className="w-full px-3 py-2 bg-[var(--ds-bg-elevated)] border border-[var(--ds-border-subtle)] rounded-lg text-sm text-[var(--ds-text-primary)] font-mono"
                 min={1.0}
                 max={2.5}
                 step={0.05}
               />
-              <div className="mt-1 text-[11px] text-slate-500">1.2 = folga padrao</div>
+              <div className="mt-1 text-[11px] text-[var(--ds-text-muted)]">1.2 = folga padrao</div>
             </div>
           </div>
 
           <div className="mt-4 grid grid-cols-1 lg:grid-cols-3 gap-4">
             <div className="bg-[var(--ds-bg-elevated)] border border-[var(--ds-border-subtle)] rounded-xl p-4">
-              <div className="text-xs text-slate-500">Meta</div>
-              <div className="mt-2 text-sm text-white">
+              <div className="text-xs text-[var(--ds-text-muted)]">Meta</div>
+              <div className="mt-2 text-sm text-[var(--ds-text-primary)]">
                 {turboPlan.msgs} msgs em {turboPlan.secs}s
               </div>
-              <div className="mt-1 text-xs text-slate-400">
-                Precisa de <span className="font-mono text-white">{turboPlan.desiredMps.toFixed(2)}</span> mps
+              <div className="mt-1 text-xs text-[var(--ds-text-secondary)]">
+                Precisa de <span className="font-mono text-[var(--ds-text-primary)]">{turboPlan.desiredMps.toFixed(2)}</span> mps
               </div>
-              <div className="mt-2 text-[11px] text-slate-500">
+              <div className="mt-2 text-[11px] text-[var(--ds-text-muted)]">
                 Regra pratica: throughput = concurrency / latencia
               </div>
             </div>
 
             <div className="bg-[var(--ds-bg-elevated)] border border-[var(--ds-border-subtle)] rounded-xl p-4">
-              <div className="text-xs text-slate-500">Sugestao de config</div>
-              <div className="mt-2 text-xs text-slate-300 space-y-1">
-                <div className="flex justify-between gap-3"><span className="text-slate-400">sendConcurrency</span><span className="font-mono text-white">{turboPlan.recommended.sendConcurrency}</span></div>
-                <div className="flex justify-between gap-3"><span className="text-slate-400">batchSize</span><span className="font-mono text-white">{turboPlan.recommended.batchSize}</span></div>
-                <div className="flex justify-between gap-3"><span className="text-slate-400">startMps</span><span className="font-mono text-white">{turboPlan.recommended.startMps}</span></div>
-                <div className="flex justify-between gap-3"><span className="text-slate-400">maxMps</span><span className="font-mono text-white">{turboPlan.recommended.maxMps}</span></div>
+              <div className="text-xs text-[var(--ds-text-muted)]">Sugestao de config</div>
+              <div className="mt-2 text-xs text-[var(--ds-text-secondary)] space-y-1">
+                <div className="flex justify-between gap-3"><span className="text-[var(--ds-text-secondary)]">sendConcurrency</span><span className="font-mono text-[var(--ds-text-primary)]">{turboPlan.recommended.sendConcurrency}</span></div>
+                <div className="flex justify-between gap-3"><span className="text-[var(--ds-text-secondary)]">batchSize</span><span className="font-mono text-[var(--ds-text-primary)]">{turboPlan.recommended.batchSize}</span></div>
+                <div className="flex justify-between gap-3"><span className="text-[var(--ds-text-secondary)]">startMps</span><span className="font-mono text-[var(--ds-text-primary)]">{turboPlan.recommended.startMps}</span></div>
+                <div className="flex justify-between gap-3"><span className="text-[var(--ds-text-secondary)]">maxMps</span><span className="font-mono text-[var(--ds-text-primary)]">{turboPlan.recommended.maxMps}</span></div>
               </div>
               <div className="mt-3 flex flex-wrap gap-2">
                 <button
                   type="button"
                   onClick={handleApplySuggestion}
-                  className="h-10 px-3 bg-white text-black font-semibold rounded-lg hover:bg-slate-200 transition-colors text-sm"
+                  className="h-10 px-3 bg-primary-600 text-white dark:bg-white dark:text-black font-semibold rounded-lg hover:bg-primary-500 dark:hover:bg-neutral-100 transition-colors text-sm"
                 >
                   Aplicar no Turbo
                 </button>
@@ -257,7 +257,7 @@ export function TurboPlannerSection({
                 <button
                   type="button"
                   onClick={handleLoadExample}
-                  className="h-10 px-3 bg-slate-800 hover:bg-slate-700 border border-[var(--ds-border-subtle)] rounded-lg transition-colors text-sm text-white"
+                  className="h-10 px-3 bg-[var(--ds-bg-surface)] hover:bg-[var(--ds-bg-hover)] border border-[var(--ds-border-subtle)] rounded-lg transition-colors text-sm text-[var(--ds-text-primary)]"
                 >
                   Exemplo 174/10s
                 </button>
@@ -265,19 +265,19 @@ export function TurboPlannerSection({
             </div>
 
             <div className="bg-[var(--ds-bg-elevated)] border border-[var(--ds-border-subtle)] rounded-xl p-4">
-              <div className="text-xs text-slate-500">Estimativa</div>
-              <div className="mt-2 text-xs text-slate-300 space-y-1">
+              <div className="text-xs text-[var(--ds-text-muted)]">Estimativa</div>
+              <div className="mt-2 text-xs text-[var(--ds-text-secondary)] space-y-1">
                 <div className="flex justify-between gap-3">
-                  <span className="text-slate-400">teto por concorrencia</span>
-                  <span className="font-mono text-white">{turboPlan.estimate.concCeilingMps != null ? turboPlan.estimate.concCeilingMps.toFixed(2) : '-'} mps</span>
+                  <span className="text-[var(--ds-text-secondary)]">teto por concorrencia</span>
+                  <span className="font-mono text-[var(--ds-text-primary)]">{turboPlan.estimate.concCeilingMps != null ? turboPlan.estimate.concCeilingMps.toFixed(2) : '-'} mps</span>
                 </div>
                 <div className="flex justify-between gap-3">
-                  <span className="text-slate-400">mps inicial (com startMps)</span>
-                  <span className="font-mono text-white">{turboPlan.estimate.estimatedMpsInitial.toFixed(2)} mps</span>
+                  <span className="text-[var(--ds-text-secondary)]">mps inicial (com startMps)</span>
+                  <span className="font-mono text-[var(--ds-text-primary)]">{turboPlan.estimate.estimatedMpsInitial.toFixed(2)} mps</span>
                 </div>
                 <div className="flex justify-between gap-3">
-                  <span className="text-slate-400">tempo estimado</span>
-                  <span className="font-mono text-white">{turboPlan.estimate.estimatedSeconds != null ? `${Math.ceil(turboPlan.estimate.estimatedSeconds)}s` : '-'}</span>
+                  <span className="text-[var(--ds-text-secondary)]">tempo estimado</span>
+                  <span className="font-mono text-[var(--ds-text-primary)]">{turboPlan.estimate.estimatedSeconds != null ? `${Math.ceil(turboPlan.estimate.estimatedSeconds)}s` : '-'}</span>
                 </div>
               </div>
 
@@ -289,7 +289,7 @@ export function TurboPlannerSection({
                 </div>
               )}
 
-              <div className="mt-3 text-[11px] text-slate-500">
+              <div className="mt-3 text-[11px] text-[var(--ds-text-muted)]">
                 Nota: mesmo com config perfeita, o Meta pode aplicar limites e devolver <span className="font-mono">130429</span>. O Turbo existe pra achar o teto seguro.
               </div>
             </div>

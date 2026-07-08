@@ -22,7 +22,7 @@ export const ContactStats: React.FC<ContactStatsProps> = ({ stats }) => {
           <p className="text-primary-200 text-sm font-bold uppercase tracking-widest mb-2">
             Total de Contatos
           </p>
-          <h3 className="text-4xl font-extrabold text-white font-[var(--ds-font-display)] mb-4">
+          <h3 className="text-4xl font-extrabold text-[var(--ds-text-primary)] font-[var(--ds-font-display)] mb-4">
             {total.toLocaleString()}
           </h3>
           <div className="flex items-center gap-2 text-primary-200 font-bold text-sm">
@@ -58,7 +58,7 @@ export const ContactStats: React.FC<ContactStatsProps> = ({ stats }) => {
       {/* Stat — Inativos / Opt-out */}
       <div className="ds-stat-card p-6 flex flex-col justify-between">
         <div>
-          <div className="w-10 h-10 bg-slate-500/10 text-slate-400 rounded-lg flex items-center justify-center mb-4">
+          <div className="w-10 h-10 bg-slate-500/10 text-[var(--ds-text-secondary)] rounded-lg flex items-center justify-center mb-4">
             <UserX size={20} />
           </div>
           <p className="text-[var(--ds-text-muted)] text-xs font-semibold mb-1">Inativos / Opt-out</p>

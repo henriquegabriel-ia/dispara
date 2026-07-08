@@ -31,18 +31,18 @@ import { TRIGGER_SELECTION_ID, useFlowBuilderStore } from "./store";
 
 function Label({ children }: { children: React.ReactNode }) {
   return (
-    <label className="mb-1 block text-[11px] font-semibold tracking-wide text-slate-400 uppercase">
+    <label className="mb-1 block text-[11px] font-semibold tracking-wide text-[var(--ds-text-secondary)] uppercase">
       {children}
     </label>
   );
 }
 
 function Hint({ children }: { children: React.ReactNode }) {
-  return <p className="mt-1 text-[11px] leading-snug text-slate-500">{children}</p>;
+  return <p className="mt-1 text-[11px] leading-snug text-[var(--ds-text-muted)]">{children}</p>;
 }
 
 const inputCls =
-  "w-full rounded-lg border border-border bg-slate-900/60 px-2.5 py-1.5 text-[13px] text-slate-200 outline-none placeholder:text-slate-600 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 disabled:cursor-not-allowed disabled:opacity-50";
+  "w-full rounded-lg border border-border bg-[var(--ds-bg-surface)]/60 px-2.5 py-1.5 text-[13px] text-[var(--ds-text-primary)] outline-none placeholder:text-[var(--ds-text-muted)] focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 disabled:cursor-not-allowed disabled:opacity-50";
 
 const MAX_BUTTONS = 3;
 const MAX_BUTTON_CHARS = 20;
@@ -98,16 +98,16 @@ function TriggerPanelBody({ flow }: { flow: Flow }) {
             <Zap size={17} />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="px-1 text-[14px] font-semibold text-slate-100">
+            <p className="px-1 text-[14px] font-semibold text-[var(--ds-text-primary)]">
               {flow.trigger.label}
             </p>
-            <p className="px-1 text-[11px] text-slate-500">
+            <p className="px-1 text-[11px] text-[var(--ds-text-muted)]">
               Inicia o fluxo quando uma palavra-chave chega
             </p>
           </div>
           <button
             type="button"
-            className="rounded p-1 text-slate-500 hover:bg-slate-800 hover:text-slate-300"
+            className="rounded p-1 text-[var(--ds-text-muted)] hover:bg-[var(--ds-bg-hover)] hover:text-[var(--ds-text-secondary)]"
             onClick={() => useFlowBuilderStore.getState().select(null)}
             aria-label="Fechar painel"
           >
@@ -138,7 +138,7 @@ function TriggerPanelBody({ flow }: { flow: Flow }) {
         <div className="flex-1" />
         <button
           type="button"
-          className="rounded-lg border border-border px-3 py-1.5 text-[13px] text-slate-300 hover:bg-slate-800"
+          className="rounded-lg border border-border px-3 py-1.5 text-[13px] text-[var(--ds-text-secondary)] hover:bg-[var(--ds-bg-hover)]"
           onClick={cancel}
         >
           Cancelar
@@ -235,17 +235,17 @@ function PanelBody({ step }: { step: Step }) {
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full rounded border border-transparent bg-transparent px-1 py-0.5 text-[14px] font-semibold text-slate-100 outline-none hover:border-border focus:border-primary-500"
+              className="w-full rounded border border-transparent bg-transparent px-1 py-0.5 text-[14px] font-semibold text-[var(--ds-text-primary)] outline-none hover:border-border focus:border-primary-500"
               aria-label="Nome da ação"
               disabled={comingSoon}
             />
-            <p className="px-1 text-[11px] text-slate-500">
+            <p className="px-1 text-[11px] text-[var(--ds-text-muted)]">
               {step.type === "interactive" ? "Perguntar (aguardar resposta)" : meta.desc}
             </p>
           </div>
           <button
             type="button"
-            className="rounded p-1 text-slate-500 hover:bg-slate-800 hover:text-slate-300"
+            className="rounded p-1 text-[var(--ds-text-muted)] hover:bg-[var(--ds-bg-hover)] hover:text-[var(--ds-text-secondary)]"
             onClick={() => useFlowBuilderStore.getState().select(null)}
             aria-label="Fechar painel"
           >
@@ -275,7 +275,7 @@ function PanelBody({ step }: { step: Step }) {
                 />
               )}
               {step.type === "end" && (
-                <p className="text-[13px] text-slate-400">
+                <p className="text-[13px] text-[var(--ds-text-secondary)]">
                   Este passo encerra o fluxo para o contato. Sem configurações.
                 </p>
               )}
@@ -296,7 +296,7 @@ function PanelBody({ step }: { step: Step }) {
         <div className="flex-1" />
         <button
           type="button"
-          className="rounded-lg border border-border px-3 py-1.5 text-[13px] text-slate-300 hover:bg-slate-800 disabled:opacity-50"
+          className="rounded-lg border border-border px-3 py-1.5 text-[13px] text-[var(--ds-text-secondary)] hover:bg-[var(--ds-bg-hover)] disabled:opacity-50"
           onClick={cancel}
           disabled={comingSoon}
         >
@@ -340,12 +340,12 @@ interface FormProps {
 
 function ComingSoonForm({ label }: { label: string }) {
   return (
-    <div className="rounded-lg border border-dashed border-border bg-slate-900/40 p-4 text-center">
-      <span className="inline-block rounded-full border border-slate-600 bg-slate-800 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
+    <div className="rounded-lg border border-dashed border-border bg-[var(--ds-bg-surface)]/40 p-4 text-center">
+      <span className="inline-block rounded-full border border-[var(--ds-border-default)] bg-[var(--ds-bg-surface)] px-2 py-0.5 text-[10px] font-semibold tracking-wide text-[var(--ds-text-secondary)] uppercase">
         Em breve
       </span>
-      <p className="mt-2 text-[13px] text-slate-400">
-        O passo <span className="font-medium text-slate-200">{label}</span> ainda
+      <p className="mt-2 text-[13px] text-[var(--ds-text-secondary)]">
+        O passo <span className="font-medium text-[var(--ds-text-primary)]">{label}</span> ainda
         não está disponível nesta versão do builder.
       </p>
     </div>
@@ -431,7 +431,7 @@ function WhatsappForm({ config, set }: FormProps) {
           placeholder="Digite a mensagem a ser enviada..."
         />
         {message && (
-          <div className="mt-2 rounded-lg border border-border bg-slate-900/50 p-2.5 text-[12px] leading-relaxed whitespace-pre-wrap text-slate-300">
+          <div className="mt-2 rounded-lg border border-border bg-[var(--ds-bg-surface)]/50 p-2.5 text-[12px] leading-relaxed whitespace-pre-wrap text-[var(--ds-text-secondary)]">
             {highlightVars(message)}
           </div>
         )}
@@ -542,7 +542,7 @@ function ConditionForm({ branches, setBranches }: BranchesFormProps) {
                 />
                 <button
                   type="button"
-                  className="shrink-0 rounded p-1 text-slate-600 hover:bg-red-500/10 hover:text-red-400 disabled:invisible"
+                  className="shrink-0 rounded p-1 text-[var(--ds-text-muted)] hover:bg-red-500/10 hover:text-red-400 disabled:invisible"
                   disabled={buttonCount <= 1}
                   onClick={() => removeBranch(b)}
                   aria-label="Remover branch"
@@ -572,8 +572,8 @@ function ConditionForm({ branches, setBranches }: BranchesFormProps) {
               />
             </div>
           ))}
-        <div className="rounded-lg border border-dashed border-border bg-slate-900/40 p-3 text-[12px] text-slate-500">
-          <span className="font-medium text-slate-400">None</span> — quando nenhuma
+        <div className="rounded-lg border border-dashed border-border bg-[var(--ds-bg-surface)]/40 p-3 text-[12px] text-[var(--ds-text-muted)]">
+          <span className="font-medium text-[var(--ds-text-secondary)]">None</span> — quando nenhuma
           condição for atendida (fixa, não removível)
         </div>
       </div>
@@ -650,13 +650,13 @@ function InteractiveForm({
                   maxLength={MAX_BUTTON_CHARS}
                   onChange={(e) => editBranch(b.id, { label: e.target.value })}
                 />
-                <span className="pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-[10px] text-slate-600">
+                <span className="pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-[10px] text-[var(--ds-text-muted)]">
                   {b.label.length}/{MAX_BUTTON_CHARS}
                 </span>
               </div>
               <button
                 type="button"
-                className="shrink-0 rounded p-1 text-slate-600 hover:bg-red-500/10 hover:text-red-400 disabled:invisible"
+                className="shrink-0 rounded p-1 text-[var(--ds-text-muted)] hover:bg-red-500/10 hover:text-red-400 disabled:invisible"
                 disabled={buttonCount <= 1}
                 onClick={() => removeBranch(b)}
                 aria-label="Remover botão"
@@ -675,8 +675,8 @@ function InteractiveForm({
           <Plus size={13} /> Adicionar botão{" "}
           {buttonCount >= MAX_BUTTONS && `(máx. ${MAX_BUTTONS})`}
         </button>
-        <div className="mt-3 rounded-lg border border-dashed border-border bg-slate-900/40 p-3 text-[12px] text-slate-500">
-          O fluxo reconhece a resposta pelo <span className="font-medium text-slate-400">texto</span>{" "}
+        <div className="mt-3 rounded-lg border border-dashed border-border bg-[var(--ds-bg-surface)]/40 p-3 text-[12px] text-[var(--ds-text-muted)]">
+          O fluxo reconhece a resposta pelo <span className="font-medium text-[var(--ds-text-secondary)]">texto</span>{" "}
           do botão — respostas fora dos botões seguem pela continuação do fluxo.
         </div>
       </div>

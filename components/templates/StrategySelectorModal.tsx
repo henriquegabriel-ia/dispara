@@ -76,10 +76,10 @@ export function StrategySelectorModal({ isOpen, onSelect, onClose }: StrategySel
 
     return (
         <Dialog open={isOpen} onOpenChange={(open) => !open && onClose?.()}>
-            <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto bg-slate-900/80 border border-[var(--ds-border-subtle)] text-white rounded-2xl shadow-[0_30px_80px_rgba(0,0,0,0.55)]">
+            <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto bg-[var(--ds-bg-elevated)] border border-[var(--ds-border-subtle)] text-[var(--ds-text-primary)] rounded-2xl shadow-[0_30px_80px_rgba(0,0,0,0.55)]">
                 <DialogHeader>
                     <DialogTitle className="text-2xl text-center">Como você deseja criar seus templates?</DialogTitle>
-                    <DialogDescription className="text-center text-slate-400">
+                    <DialogDescription className="text-center text-[var(--ds-text-secondary)]">
                         Escolha a "personalidade" da IA para este projeto.
                     </DialogDescription>
                 </DialogHeader>
@@ -110,14 +110,14 @@ export function StrategySelectorModal({ isOpen, onSelect, onClose }: StrategySel
                                 </div>
 
                                 <div>
-                                    <h3 className="font-bold text-lg text-white">{strategy.title}</h3>
-                                    <p className="text-xs text-slate-400 font-medium">{strategy.subtitle}</p>
-                                    <p className="text-sm text-slate-300 mt-2">{strategy.description}</p>
+                                    <h3 className="font-bold text-lg text-[var(--ds-text-primary)]">{strategy.title}</h3>
+                                    <p className="text-xs text-[var(--ds-text-secondary)] font-medium">{strategy.subtitle}</p>
+                                    <p className="text-sm text-[var(--ds-text-secondary)] mt-2">{strategy.description}</p>
                                 </div>
 
                                 <ul className="text-sm text-left w-full space-y-2 mt-2 bg-[var(--ds-bg-surface)]/30 p-3 rounded-lg border border-[var(--ds-border-subtle)]">
                                     {strategy.features.map((feat, i) => (
-                                        <li key={i} className="flex items-center gap-2 text-slate-300">
+                                        <li key={i} className="flex items-center gap-2 text-[var(--ds-text-secondary)]">
                                             <CheckCircle2 className={`w-4 h-4 shrink-0 ${strategy.checkStyle}`} />
                                             {feat}
                                         </li>

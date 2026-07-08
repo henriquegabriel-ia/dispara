@@ -63,16 +63,16 @@ export const AIGeneratorModal = ({
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-      <div className="bg-slate-900/80 border border-[var(--ds-border-subtle)] rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col shadow-[0_30px_80px_rgba(0,0,0,0.55)]">
+      <div className="bg-[var(--ds-bg-elevated)] border border-[var(--ds-border-subtle)] rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col shadow-[0_30px_80px_rgba(0,0,0,0.55)]">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--ds-border-subtle)] bg-[var(--ds-bg-surface)]/30">
           <div className="flex items-center gap-2">
             <Sparkles className="h-5 w-5 text-primary-300" />
-            <h2 className="text-lg font-medium text-white">{title}</h2>
+            <h2 className="text-lg font-medium text-[var(--ds-text-primary)]">{title}</h2>
           </div>
           <button
             onClick={onClose}
-            className="p-2 hover:bg-[var(--ds-bg-hover)] rounded-lg transition-colors text-slate-400 hover:text-white"
+            className="p-2 hover:bg-[var(--ds-bg-hover)] rounded-lg transition-colors text-[var(--ds-text-secondary)] hover:text-[var(--ds-text-primary)]"
           >
             <X className="h-5 w-5" />
           </button>
@@ -83,29 +83,29 @@ export const AIGeneratorModal = ({
           {/* Input Form - Always visible */}
           <div className="space-y-4">
             <div>
-              <label className="block text-sm text-slate-400 mb-2">
+              <label className="block text-sm text-[var(--ds-text-secondary)] mb-2">
                 O que você precisa? Seja específico para melhores resultados
               </label>
               <textarea
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
                 placeholder="Ex: Sou dono de uma pizzaria delivery e preciso de templates para confirmar pedidos, avisar sobre tempo de entrega, e informar quando o motoboy saiu..."
-                className="w-full h-32 px-4 py-3 bg-[var(--ds-bg-surface)]/30 rounded-xl border border-[var(--ds-border-subtle)] focus:border-primary-500/50 focus:outline-none resize-none text-sm text-white placeholder:text-slate-600"
+                className="w-full h-32 px-4 py-3 bg-[var(--ds-bg-surface)]/30 rounded-xl border border-[var(--ds-border-subtle)] focus:border-primary-500/50 focus:outline-none resize-none text-sm text-[var(--ds-text-primary)] placeholder:text-[var(--ds-text-muted)]"
               />
-              <p className="text-xs text-slate-500 mt-1">
+              <p className="text-xs text-[var(--ds-text-muted)] mt-1">
                 Mínimo 10 caracteres. Quanto mais detalhes, melhor a IA entende seu negócio.
               </p>
             </div>
 
             <div className="flex gap-4">
               <div className="flex-1">
-                <label className="block text-sm text-slate-400 mb-2">
+                <label className="block text-sm text-[var(--ds-text-secondary)] mb-2">
                   Quantidade
                 </label>
                 <select
                   value={quantity}
                   onChange={(e) => setQuantity(Number(e.target.value))}
-                  className="w-full h-11 px-4 bg-[var(--ds-bg-surface)]/30 rounded-xl border border-[var(--ds-border-subtle)] focus:border-primary-500/50 focus:outline-none text-white"
+                  className="w-full h-11 px-4 bg-[var(--ds-bg-surface)]/30 rounded-xl border border-[var(--ds-border-subtle)] focus:border-primary-500/50 focus:outline-none text-[var(--ds-text-primary)]"
                 >
                   <option value={3}>3 templates</option>
                   <option value={5}>5 templates</option>
@@ -114,13 +114,13 @@ export const AIGeneratorModal = ({
                 </select>
               </div>
               <div className="flex-1">
-                <label className="block text-sm text-slate-400 mb-2">
+                <label className="block text-sm text-[var(--ds-text-secondary)] mb-2">
                   Idioma
                 </label>
                 <select
                   value={language}
                   onChange={(e) => setLanguage(e.target.value)}
-                  className="w-full h-11 px-4 bg-[var(--ds-bg-surface)]/30 rounded-xl border border-[var(--ds-border-subtle)] focus:border-primary-500/50 focus:outline-none text-white"
+                  className="w-full h-11 px-4 bg-[var(--ds-bg-surface)]/30 rounded-xl border border-[var(--ds-border-subtle)] focus:border-primary-500/50 focus:outline-none text-[var(--ds-text-primary)]"
                 >
                   <option value="pt_BR">Português (BR)</option>
                   <option value="en_US">English (US)</option>
@@ -152,7 +152,7 @@ export const AIGeneratorModal = ({
           {hasTemplates && (
             <div className="border-t border-[var(--ds-border-subtle)] pt-4 space-y-3">
               <div className="flex items-center justify-between">
-                <h3 className="text-sm font-medium text-slate-300">
+                <h3 className="text-sm font-medium text-[var(--ds-text-secondary)]">
                   Templates Gerados ({generatedTemplates.length})
                 </h3>
                 <button
@@ -190,7 +190,7 @@ export const AIGeneratorModal = ({
                       </button>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between mb-1">
-                          <span className="text-sm font-medium text-white">
+                          <span className="text-sm font-medium text-[var(--ds-text-primary)]">
                             {template.name}
                           </span>
                           <button
@@ -198,10 +198,10 @@ export const AIGeneratorModal = ({
                             className="p-1 hover:bg-[var(--ds-bg-hover)] rounded transition-colors"
                             title="Copiar"
                           >
-                            <Copy className="h-4 w-4 text-slate-400" />
+                            <Copy className="h-4 w-4 text-[var(--ds-text-secondary)]" />
                           </button>
                         </div>
-                        <p className="text-sm text-slate-400 whitespace-pre-wrap">
+                        <p className="text-sm text-[var(--ds-text-secondary)] whitespace-pre-wrap">
                           {template.content}
                         </p>
                       </div>
@@ -216,7 +216,7 @@ export const AIGeneratorModal = ({
         {/* Footer - Only when templates exist */}
         {hasTemplates && (
           <div className="flex items-center justify-between px-6 py-4 border-t border-[var(--ds-border-subtle)] bg-[var(--ds-bg-surface)]/30">
-            <span className="text-sm text-slate-400">
+            <span className="text-sm text-[var(--ds-text-secondary)]">
               {selectedCount} de {generatedTemplates.length} selecionados
             </span>
             <button

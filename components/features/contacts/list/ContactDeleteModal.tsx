@@ -36,12 +36,12 @@ export const ContactDeleteModal: React.FC<ContactDeleteModalProps> = ({
           <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
             <AlertTriangle size={32} className="text-red-400" />
           </div>
-          <h2 className="text-xl font-bold text-white mb-2">Confirmar Exclusão</h2>
-          <p className="text-slate-400 mb-6">{message}</p>
+          <h2 className="text-xl font-bold text-[var(--ds-text-primary)] mb-2">Confirmar Exclusão</h2>
+          <p className="text-[var(--ds-text-secondary)] mb-6">{message}</p>
           <div className="flex gap-3">
             <button
               onClick={onCancel}
-              className="flex-1 bg-slate-800 text-white font-medium py-3 rounded-xl hover:bg-slate-700 transition-colors"
+              className="flex-1 bg-[var(--ds-bg-surface)] text-[var(--ds-text-primary)] font-medium py-3 rounded-xl hover:bg-[var(--ds-bg-hover)] transition-colors"
               disabled={isDeleting}
             >
               Cancelar

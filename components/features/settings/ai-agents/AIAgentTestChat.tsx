@@ -133,7 +133,7 @@ export function AIAgentTestChat({ agent, onClose }: AIAgentTestChatProps) {
           </CardDescription>
         </CardHeader>
         <CardContent className="flex items-center justify-center h-64">
-          <p className="text-sm text-slate-500">Nenhum agente selecionado</p>
+          <p className="text-sm text-[var(--ds-text-muted)]">Nenhum agente selecionado</p>
         </CardContent>
       </Card>
     )
@@ -164,11 +164,11 @@ export function AIAgentTestChat({ agent, onClose }: AIAgentTestChatProps) {
       <CardContent className="flex-1 overflow-y-auto space-y-4 min-h-[200px] max-h-[400px]">
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center py-8">
-            <Bot className="h-12 w-12 text-slate-600 mb-3" />
-            <p className="text-sm text-slate-400 mb-1">
+            <Bot className="h-12 w-12 text-[var(--ds-text-muted)] mb-3" />
+            <p className="text-sm text-[var(--ds-text-secondary)] mb-1">
               Envie uma mensagem para testar o agente
             </p>
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-[var(--ds-text-muted)]">
               O agente responderá usando o prompt e configurações definidas
             </p>
           </div>
@@ -190,7 +190,7 @@ export function AIAgentTestChat({ agent, onClose }: AIAgentTestChatProps) {
                       ? 'bg-primary-500/20'
                       : message.error
                       ? 'bg-red-500/20'
-                      : 'bg-slate-700'
+                      : 'bg-[var(--ds-bg-surface)]'
                   )}
                 >
                   {message.role === 'user' ? (
@@ -198,7 +198,7 @@ export function AIAgentTestChat({ agent, onClose }: AIAgentTestChatProps) {
                   ) : message.error ? (
                     <AlertCircle className="h-4 w-4 text-red-400" />
                   ) : (
-                    <Bot className="h-4 w-4 text-slate-400" />
+                    <Bot className="h-4 w-4 text-[var(--ds-text-secondary)]" />
                   )}
                 </div>
 
@@ -216,7 +216,7 @@ export function AIAgentTestChat({ agent, onClose }: AIAgentTestChatProps) {
                         ? 'bg-primary-500 text-white rounded-tr-sm'
                         : message.error
                         ? 'bg-red-500/10 text-red-300 border border-red-500/30 rounded-tl-sm'
-                        : 'bg-slate-800 text-slate-200 rounded-tl-sm'
+                        : 'bg-[var(--ds-bg-surface)] text-[var(--ds-text-primary)] rounded-tl-sm'
                     )}
                   >
                     <p className="whitespace-pre-wrap">{message.content}</p>
@@ -224,14 +224,14 @@ export function AIAgentTestChat({ agent, onClose }: AIAgentTestChatProps) {
 
                   {/* Metadata */}
                   <div className="flex items-center gap-2 mt-1 px-1">
-                    <span className="text-xs text-slate-500">
+                    <span className="text-xs text-[var(--ds-text-muted)]">
                       {message.timestamp.toLocaleTimeString('pt-BR', {
                         hour: '2-digit',
                         minute: '2-digit',
                       })}
                     </span>
                     {message.latencyMs !== undefined && (
-                      <span className="text-xs text-slate-600">
+                      <span className="text-xs text-[var(--ds-text-muted)]">
                         • {message.latencyMs}ms
                       </span>
                     )}
@@ -243,10 +243,10 @@ export function AIAgentTestChat({ agent, onClose }: AIAgentTestChatProps) {
             {/* Loading indicator */}
             {isLoading && (
               <div className="flex gap-3">
-                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center">
-                  <Loader2 className="h-4 w-4 text-slate-400 animate-spin" />
+                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-[var(--ds-bg-surface)] flex items-center justify-center">
+                  <Loader2 className="h-4 w-4 text-[var(--ds-text-secondary)] animate-spin" />
                 </div>
-                <div className="bg-slate-800 text-slate-400 px-4 py-2 rounded-2xl rounded-tl-sm text-sm">
+                <div className="bg-[var(--ds-bg-surface)] text-[var(--ds-text-secondary)] px-4 py-2 rounded-2xl rounded-tl-sm text-sm">
                   Pensando...
                 </div>
               </div>
@@ -258,7 +258,7 @@ export function AIAgentTestChat({ agent, onClose }: AIAgentTestChatProps) {
       </CardContent>
 
       {/* Input area */}
-      <div className="p-4 border-t border-slate-800">
+      <div className="p-4 border-t border-[var(--ds-border-default)]">
         <div className="flex gap-2">
           <Textarea
             ref={textareaRef}
@@ -281,7 +281,7 @@ export function AIAgentTestChat({ agent, onClose }: AIAgentTestChatProps) {
             )}
           </Button>
         </div>
-        <p className="text-xs text-slate-500 mt-2">
+        <p className="text-xs text-[var(--ds-text-muted)] mt-2">
           Pressione Enter para enviar, Shift+Enter para nova linha
         </p>
       </div>

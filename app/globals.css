@@ -37,92 +37,99 @@
   --ds-brand-secondary: #10b981;
   --ds-brand-secondary-hover: #059669;
   --ds-brand-secondary-muted: rgba(16, 185, 129, 0.1);
-  --ds-brand-secondary-text: #34d399;
+  --ds-brand-secondary-text: #047857;
 
   /* ================================
-     DARK-ONLY — Henrique Gabriel brand
-     (:root e .dark carregam os MESMOS valores dark;
-      light mode é anti-pattern da marca)
+     TEMA CLARO (:root) — Henrique Gabriel brand
+     O produto tem DOIS temas via next-themes (dark segue
+     sendo o default): o html recebe class="dark"|"light".
+     O :root carrega o tema LIGHT; o bloco .dark carrega
+     o tema dark completo.
      ================================ */
 
-  /* DS - Backgrounds (dark brand) */
-  --ds-bg-base: #030712;
-  --ds-bg-elevated: #0f172a;
-  --ds-bg-surface: #1e293b;
-  --ds-bg-overlay: rgba(3, 7, 18, 0.85);
-  --ds-bg-glass: rgba(15, 23, 42, 0.7);
-  --ds-bg-hover: rgba(255, 255, 255, 0.05);
-  --ds-bg-glass-header: rgba(3, 7, 18, 0.8);
+  /* DS - Backgrounds (light) */
+  --ds-bg-base: #f8fafc;
+  --ds-bg-elevated: #ffffff;
+  --ds-bg-surface: #f1f5f9;
+  --ds-bg-overlay: rgba(15, 23, 42, 0.5);
+  --ds-bg-glass: rgba(255, 255, 255, 0.7);
+  --ds-bg-hover: rgba(15, 23, 42, 0.04);
+  --ds-bg-glass-header: rgba(255, 255, 255, 0.8);
 
-  /* DS - Text colors (dark brand) */
-  --ds-text-primary: #f8fafc;
-  --ds-text-secondary: #94a3b8;
+  /* DS - Text colors (light) */
+  --ds-text-primary: #0f172a;
+  --ds-text-secondary: #475569;
   --ds-text-muted: #64748b;
-  --ds-text-brand: #34d399;
-  --ds-text-disabled: #475569;
+  --ds-text-brand: #047857;
+  --ds-text-disabled: #94a3b8;
 
-  /* DS - Border colors (dark brand) */
-  --ds-border-subtle: rgba(255, 255, 255, 0.05);
-  --ds-border-default: #1e293b;
-  --ds-border-strong: #334155;
+  /* DS - Border colors (light) */
+  --ds-border-subtle: rgba(15, 23, 42, 0.06);
+  --ds-border-default: #e2e8f0;
+  --ds-border-strong: #cbd5e1;
   --ds-border-focus: #10b981;
 
-  /* DS - Status colors (dark brand) */
-  --ds-status-success: #10b981;
-  --ds-status-success-text: #34d399;
+  /* DS - Theme extras (light) */
+  --ds-focus-outline: #059669;
+  --ds-selection-bg: rgba(16, 185, 129, 0.2);
+  --ds-dot-grid: rgba(15, 23, 42, 0.06);
+
+  /* DS - Status colors (light — escurecidos p/ AA) */
+  --ds-status-success: #059669;
+  --ds-status-success-text: #047857;
   --ds-status-success-bg: rgba(16, 185, 129, 0.1);
-  --ds-status-error: #ef4444;
-  --ds-status-error-text: #f87171;
+  --ds-status-error: #dc2626;
+  --ds-status-error-text: #b91c1c;
   --ds-status-error-bg: rgba(239, 68, 68, 0.1);
-  --ds-status-warning: #f59e0b;
-  --ds-status-warning-text: #fbbf24;
+  --ds-status-warning: #d97706;
+  --ds-status-warning-text: #b45309;
   --ds-status-warning-bg: rgba(245, 158, 11, 0.1);
-  --ds-status-info: #3b82f6;
-  --ds-status-info-text: #60a5fa;
+  --ds-status-info: #2563eb;
+  --ds-status-info-text: #1d4ed8;
   --ds-status-info-bg: rgba(59, 130, 246, 0.1);
 
-  /* DS - Campaign status colors (dark brand) */
-  --ds-campaign-draft-text: #94a3b8;
-  --ds-campaign-draft-bg: rgba(148, 163, 184, 0.1);
-  --ds-campaign-scheduled-text: #818cf8;
-  --ds-campaign-scheduled-bg: rgba(99, 102, 241, 0.1);
-  --ds-campaign-sending-text: #60a5fa;
-  --ds-campaign-sending-bg: rgba(59, 130, 246, 0.1);
-  --ds-campaign-completed-text: #34d399;
-  --ds-campaign-completed-bg: rgba(16, 185, 129, 0.1);
-  --ds-campaign-paused-text: #fbbf24;
-  --ds-campaign-paused-bg: rgba(245, 158, 11, 0.1);
-  --ds-campaign-failed-text: #f87171;
-  --ds-campaign-failed-bg: rgba(239, 68, 68, 0.1);
+  /* DS - Campaign status colors (light — texts AA, bgs tint) */
+  --ds-campaign-draft-text: #475569;
+  --ds-campaign-draft-bg: rgba(100, 116, 139, 0.12);
+  --ds-campaign-scheduled-text: #4f46e5;
+  --ds-campaign-scheduled-bg: rgba(99, 102, 241, 0.12);
+  --ds-campaign-sending-text: #1d4ed8;
+  --ds-campaign-sending-bg: rgba(59, 130, 246, 0.12);
+  --ds-campaign-completed-text: #047857;
+  --ds-campaign-completed-bg: rgba(16, 185, 129, 0.12);
+  --ds-campaign-paused-text: #b45309;
+  --ds-campaign-paused-bg: rgba(245, 158, 11, 0.12);
+  --ds-campaign-failed-text: #b91c1c;
+  --ds-campaign-failed-bg: rgba(239, 68, 68, 0.12);
 
-  /* DS - Shadows (dark brand) */
-  --ds-shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.4);
-  --ds-shadow-sm: 0 2px 4px 0 rgba(0, 0, 0, 0.4);
-  --ds-shadow-md: 0 4px 8px -1px rgba(0, 0, 0, 0.5), 0 2px 4px -2px rgba(0, 0, 0, 0.3);
-  --ds-shadow-lg: 0 12px 28px -4px rgba(0, 0, 0, 0.6), 0 4px 10px -4px rgba(0, 0, 0, 0.4);
-  --ds-shadow-xl: 0 24px 48px -8px rgba(0, 0, 0, 0.7), 0 10px 20px -6px rgba(0, 0, 0, 0.5);
-  --ds-shadow-2xl: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  /* DS - Shadows (light) */
+  --ds-shadow-xs: 0 1px 2px 0 rgba(15, 23, 42, 0.05);
+  --ds-shadow-sm: 0 2px 4px 0 rgba(15, 23, 42, 0.06);
+  --ds-shadow-md: 0 4px 8px -1px rgba(15, 23, 42, 0.07), 0 2px 4px -2px rgba(15, 23, 42, 0.05);
+  --ds-shadow-lg: 0 12px 28px -4px rgba(15, 23, 42, 0.10), 0 4px 10px -4px rgba(15, 23, 42, 0.06);
+  --ds-shadow-xl: 0 24px 48px -8px rgba(15, 23, 42, 0.12), 0 10px 20px -6px rgba(15, 23, 42, 0.08);
+  --ds-shadow-2xl: 0 25px 50px -12px rgba(15, 23, 42, 0.12);
 
-  /* DS - Glow effects (assinatura da marca: glow emerald, sem lift) */
-  --glow-primary: 0 0 40px rgba(16, 185, 129, 0.30);
-  --glow-strong: 0 0 50px rgba(16, 185, 129, 0.40);
-  --ds-glow-brand-sm: 0 0 12px rgba(16, 185, 129, 0.2);
-  --ds-glow-brand-md: 0 0 24px rgba(16, 185, 129, 0.3);
-  --ds-glow-brand-ring: 0 0 0 3px rgba(16, 185, 129, 0.2);
-  --ds-glow-error-ring: 0 0 0 3px rgba(239, 68, 68, 0.2);
-  --ds-glow-secondary-sm: 0 0 12px rgba(16, 185, 129, 0.15);
-  --ds-glow-secondary-ring: 0 0 0 3px rgba(16, 185, 129, 0.2);
+  /* DS - Glow effects (assinatura emerald — reduzidos ~50% no claro) */
+  --glow-primary: 0 0 40px rgba(16, 185, 129, 0.15);
+  --glow-strong: 0 0 50px rgba(16, 185, 129, 0.22);
+  --ds-glow-brand-sm: 0 0 12px rgba(16, 185, 129, 0.12);
+  --ds-glow-brand-md: 0 0 24px rgba(16, 185, 129, 0.18);
+  --ds-glow-brand-ring: 0 0 0 3px rgba(16, 185, 129, 0.15);
+  --ds-glow-error-ring: 0 0 0 3px rgba(239, 68, 68, 0.15);
+  --ds-glow-secondary-sm: 0 0 12px rgba(16, 185, 129, 0.08);
+  --ds-glow-secondary-ring: 0 0 0 3px rgba(16, 185, 129, 0.15);
 
-  /* DS - Composite shadows (dark brand) */
-  --ds-shadow-card: 0 20px 40px -20px rgba(0, 0, 0, 0.5);
-  --ds-shadow-card-hover: 0 0 40px rgba(16, 185, 129, 0.30);
-  --ds-shadow-button: 0 1px 3px 0 rgba(0, 0, 0, 0.4), inset 0 1px 0 0 rgba(255, 255, 255, 0.08);
-  --ds-shadow-button-hover: 0 3px 6px 0 rgba(0, 0, 0, 0.5), inset 0 1px 0 0 rgba(255, 255, 255, 0.12);
-  --ds-shadow-button-primary: 0 2px 6px 0 rgba(0, 0, 0, 0.4), 0 0 12px rgba(16, 185, 129, 0.2);
-  --ds-shadow-button-primary-hover: 0 4px 12px -2px rgba(0, 0, 0, 0.4), 0 0 24px rgba(16, 185, 129, 0.3);
+  /* DS - Composite shadows (light — sem inset branco) */
+  --ds-shadow-card: 0 20px 40px -20px rgba(15, 23, 42, 0.10);
+  --ds-shadow-card-hover: 0 0 40px rgba(16, 185, 129, 0.15);
+  --ds-shadow-button: 0 1px 3px 0 rgba(15, 23, 42, 0.08);
+  --ds-shadow-button-hover: 0 3px 6px 0 rgba(15, 23, 42, 0.10);
+  --ds-shadow-button-primary: 0 2px 6px 0 rgba(15, 23, 42, 0.08), 0 0 12px rgba(16, 185, 129, 0.12);
+  --ds-shadow-button-primary-hover: 0 4px 12px -2px rgba(15, 23, 42, 0.10), 0 0 24px rgba(16, 185, 129, 0.18);
   --ds-shadow-input-focus: 0 0 0 3px rgba(16, 185, 129, 0.15);
-  --ds-shadow-modal: 0 24px 48px -8px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.05);
-  --ds-shadow-dropdown: 0 12px 28px -4px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  --ds-shadow-modal: 0 24px 48px -8px rgba(15, 23, 42, 0.12), 0 0 0 1px rgba(15, 23, 42, 0.05);
+  --ds-shadow-dropdown: 0 12px 28px -4px rgba(15, 23, 42, 0.10), 0 0 0 1px rgba(15, 23, 42, 0.05);
 
   /* DS - Motion (não muda com tema) */
   --ds-duration-fastest: 75ms;
@@ -174,102 +181,102 @@
      LANGFLOW COLOR SYSTEM
      ================================ */
 
-  /* Status Colors */
-  --status-red: #ef4444;
-  --status-yellow: #eab308;
-  --status-green: #4ade80;
+  /* Status Colors (light — escurecidos p/ contraste sobre branco) */
+  --status-red: #dc2626;
+  --status-yellow: #ca8a04;
+  --status-green: #16a34a;
   --status-blue: #2563eb;
   --status-gray: #6b7280;
 
-  /* Node Category Colors (datatype) */
+  /* Node Category Colors (datatype) — hues iguais nos dois temas; bgs em tint claro */
   --node-emerald: hsl(161.4, 93.5%, 30.4%);
   /* Messages */
-  --node-emerald-bg: hsl(164, 86%, 16%);
+  --node-emerald-bg: hsl(164, 86%, 94%);
   --node-violet: hsl(262.1, 83.3%, 57.8%);
-  /* AI/Agent */
-  --node-violet-bg: hsl(263, 70%, 24%);
+  /* AI/Agent (violeta é exceção semântica — hue fica) */
+  --node-violet-bg: hsl(263, 70%, 95%);
   --node-blue: hsl(221.2, 83.2%, 53.3%);
   /* Flow control */
-  --node-blue-bg: hsl(224, 64%, 20%);
+  --node-blue-bg: hsl(224, 64%, 95%);
   --node-orange: hsl(20.5, 90.2%, 48.2%);
   /* Triggers/Start */
-  --node-orange-bg: hsl(20, 80%, 18%);
+  --node-orange-bg: hsl(20, 80%, 94%);
   --node-pink: hsl(333.3, 71.4%, 50.6%);
   /* Media */
-  --node-pink-bg: hsl(326, 60%, 18%);
+  --node-pink-bg: hsl(326, 60%, 95%);
   --node-cyan: hsl(191.6, 91.4%, 36.5%);
   /* Data/Templates */
-  --node-cyan-bg: hsl(192, 80%, 14%);
+  --node-cyan-bg: hsl(192, 80%, 94%);
   --node-gray: hsl(215, 13.8%, 34.1%);
   /* Others */
-  --node-gray-bg: hsl(220, 14%, 12%);
+  --node-gray-bg: hsl(220, 14%, 94%);
 
   /* Gradient Animation Colors */
   --gradient-1: rgb(156, 138, 236);
   --gradient-2: rgb(255, 130, 184);
   --gradient-3: rgb(255, 165, 100);
 
-  /* Node Ring/Selected */
+  /* Node Ring/Selected (ring visível sobre fundo claro) */
   --node-selected: hsl(243, 75%, 59%);
-  --node-ring: hsl(240, 6%, 90%);
+  --node-ring: hsl(215, 16%, 65%);
 
   /* ================================
-     SHADCN/UI VARIABLES (dark-only — Henrique Gabriel brand)
+     SHADCN/UI VARIABLES (light)
      ================================ */
   --radius: 0.75rem;
-  --background: #030712;
-  --foreground: #f8fafc;
-  --card: #0f172a;
-  --card-foreground: #f8fafc;
-  --popover: #0f172a;
-  --popover-foreground: #f8fafc;
+  --background: #ffffff;
+  --foreground: #0f172a;
+  --card: #ffffff;
+  --card-foreground: #0f172a;
+  --popover: #ffffff;
+  --popover-foreground: #0f172a;
   --primary: #10b981;
   --primary-foreground: #030712;
-  --secondary: #1e293b;
-  --secondary-foreground: #f8fafc;
-  --muted: #1e293b;
-  --muted-foreground: #94a3b8;
-  --accent: #1e293b;
-  --accent-foreground: #f8fafc;
-  --destructive: #ef4444;
-  --border: #1e293b;
-  --input: #334155;
+  --secondary: #f1f5f9;
+  --secondary-foreground: #0f172a;
+  --muted: #f1f5f9;
+  --muted-foreground: #64748b;
+  --accent: #f1f5f9;
+  --accent-foreground: #0f172a;
+  --destructive: #dc2626;
+  --border: #e2e8f0;
+  --input: #e2e8f0;
   --ring: #10b981;
   --chart-1: #10b981;
   --chart-2: #3b82f6;
-  --chart-3: #f59e0b;
-  --chart-4: #34d399;
-  --chart-5: #60a5fa;
-  --sidebar: #020617;
-  --sidebar-foreground: #94a3b8;
+  --chart-3: #d97706;
+  --chart-4: #059669;
+  --chart-5: #6366f1;
+  --sidebar: #f8fafc;
+  --sidebar-foreground: #475569;
   --sidebar-primary: #10b981;
   --sidebar-primary-foreground: #030712;
-  --sidebar-accent: #0f172a;
-  --sidebar-accent-foreground: #f8fafc;
-  --sidebar-border: #1e293b;
+  --sidebar-accent: #f1f5f9;
+  --sidebar-accent-foreground: #0f172a;
+  --sidebar-border: #e2e8f0;
   --sidebar-ring: #10b981;
 
   /* ================================
-     INTERNATIONAL PHONE INPUT THEME (dark-only)
+     INTERNATIONAL PHONE INPUT THEME (light)
      ================================ */
   --react-international-phone-height: 48px;
-  --react-international-phone-background-color: #1e293b;
-  --react-international-phone-text-color: #f8fafc;
+  --react-international-phone-background-color: #ffffff;
+  --react-international-phone-text-color: #0f172a;
   --react-international-phone-font-size: 14px;
   --react-international-phone-border-radius: 0.75rem; /* rounded-xl */
-  --react-international-phone-border-color: #334155;
+  --react-international-phone-border-color: #e2e8f0;
 
-  --react-international-phone-country-selector-background-color: #1e293b;
-  --react-international-phone-country-selector-background-color-hover: #334155;
-  --react-international-phone-country-selector-border-color: #334155;
-  --react-international-phone-country-selector-arrow-color: #94a3b8;
+  --react-international-phone-country-selector-background-color: #ffffff;
+  --react-international-phone-country-selector-background-color-hover: #f1f5f9;
+  --react-international-phone-country-selector-border-color: #e2e8f0;
+  --react-international-phone-country-selector-arrow-color: #64748b;
 
-  --react-international-phone-dropdown-item-background-color: #0f172a;
-  --react-international-phone-dropdown-item-text-color: #f8fafc;
-  --react-international-phone-dropdown-shadow: 0 10px 30px rgba(0, 0, 0, .5);
-  --react-international-phone-dropdown-item-dial-code-color: #94a3b8;
-  --react-international-phone-selected-dropdown-item-background-color: #1e293b;
-  --react-international-phone-selected-dropdown-item-text-color: #f8fafc;
+  --react-international-phone-dropdown-item-background-color: #ffffff;
+  --react-international-phone-dropdown-item-text-color: #0f172a;
+  --react-international-phone-dropdown-shadow: 0 10px 30px rgba(15, 23, 42, .12);
+  --react-international-phone-dropdown-item-dial-code-color: #64748b;
+  --react-international-phone-selected-dropdown-item-background-color: #f1f5f9;
+  --react-international-phone-selected-dropdown-item-text-color: #0f172a;
 }
 
 /* Tailwind v4 theme customizations */
@@ -291,7 +298,7 @@
   --color-primary-950: var(--color-primary-950);
 }
 
-/* Base styles - dark-only brand */
+/* Base styles — theme-aware (dark é o default via next-themes) */
 body {
   font-family: var(--ds-font-body);
   background-color: var(--ds-bg-base);
@@ -331,7 +338,7 @@ body {
 /* Enhanced focus indicators for keyboard navigation */
 /* Excluindo inputs pois cada componente gerencia seu próprio focus */
 :focus-visible:not(input):not(textarea):not(select) {
-  outline: 2px solid var(--color-primary-400);
+  outline: 2px solid var(--ds-focus-outline);
   outline-offset: 2px;
 }
 
@@ -339,7 +346,7 @@ body {
 button:focus-visible,
 a:focus-visible,
 [role="button"]:focus-visible {
-  outline: 2px solid var(--color-primary-400);
+  outline: 2px solid var(--ds-focus-outline);
   outline-offset: 2px;
   box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.2);
 }
@@ -362,6 +369,11 @@ textarea:focus-visible {
   color: #64748b;
   /* slate-500 - 4.6:1 contrast ratio */
   opacity: 1;
+}
+
+/* Text selection — theme-aware (emerald tint, texto mantém a própria cor) */
+::selection {
+  background-color: var(--ds-selection-bg);
 }
 
 /* Reduced motion preference */
@@ -682,10 +694,14 @@ textarea:focus-visible {
 
 .dark {
   /* ================================
-     DARK-ONLY: .dark espelha os MESMOS valores do :root
-     (o app é dark-only; o bloco existe só pra nenhuma
-      referência a `.dark` quebrar e não haver flash light)
+     TEMA DARK (default do produto)
+     O app tem dois temas via next-themes: o :root carrega
+     o tema LIGHT e este bloco sobrescreve TODOS os tokens
+     temáticos com os valores dark da marca.
      ================================ */
+
+  /* DS - Brand secondary text (dark) */
+  --ds-brand-secondary-text: #34d399;
 
   /* DS - Backgrounds (dark brand) */
   --ds-bg-base: #030712;
@@ -709,19 +725,69 @@ textarea:focus-visible {
   --ds-border-strong: #334155;
   --ds-border-focus: #10b981;
 
+  /* DS - Theme extras (dark) */
+  --ds-focus-outline: #34d399;
+  --ds-selection-bg: rgba(16, 185, 129, 0.35);
+  --ds-dot-grid: rgba(255, 255, 255, 0.08);
+
   /* DS - Status colors (dark brand) */
+  --ds-status-success: #10b981;
   --ds-status-success-text: #34d399;
+  --ds-status-success-bg: rgba(16, 185, 129, 0.1);
+  --ds-status-error: #ef4444;
   --ds-status-error-text: #f87171;
+  --ds-status-error-bg: rgba(239, 68, 68, 0.1);
+  --ds-status-warning: #f59e0b;
   --ds-status-warning-text: #fbbf24;
+  --ds-status-warning-bg: rgba(245, 158, 11, 0.1);
+  --ds-status-info: #3b82f6;
   --ds-status-info-text: #60a5fa;
+  --ds-status-info-bg: rgba(59, 130, 246, 0.1);
 
   /* DS - Campaign status colors (dark brand) */
   --ds-campaign-draft-text: #94a3b8;
+  --ds-campaign-draft-bg: rgba(148, 163, 184, 0.1);
   --ds-campaign-scheduled-text: #818cf8;
+  --ds-campaign-scheduled-bg: rgba(99, 102, 241, 0.1);
   --ds-campaign-sending-text: #60a5fa;
+  --ds-campaign-sending-bg: rgba(59, 130, 246, 0.1);
   --ds-campaign-completed-text: #34d399;
+  --ds-campaign-completed-bg: rgba(16, 185, 129, 0.1);
   --ds-campaign-paused-text: #fbbf24;
+  --ds-campaign-paused-bg: rgba(245, 158, 11, 0.1);
   --ds-campaign-failed-text: #f87171;
+  --ds-campaign-failed-bg: rgba(239, 68, 68, 0.1);
+
+  /* ================================
+     LANGFLOW COLOR SYSTEM (dark)
+     ================================ */
+  --status-red: #ef4444;
+  --status-yellow: #eab308;
+  --status-green: #4ade80;
+  --status-blue: #2563eb;
+  --status-gray: #6b7280;
+
+  --node-emerald: hsl(161.4, 93.5%, 30.4%);
+  --node-emerald-bg: hsl(164, 86%, 16%);
+  --node-violet: hsl(262.1, 83.3%, 57.8%);
+  --node-violet-bg: hsl(263, 70%, 24%);
+  --node-blue: hsl(221.2, 83.2%, 53.3%);
+  --node-blue-bg: hsl(224, 64%, 20%);
+  --node-orange: hsl(20.5, 90.2%, 48.2%);
+  --node-orange-bg: hsl(20, 80%, 18%);
+  --node-pink: hsl(333.3, 71.4%, 50.6%);
+  --node-pink-bg: hsl(326, 60%, 18%);
+  --node-cyan: hsl(191.6, 91.4%, 36.5%);
+  --node-cyan-bg: hsl(192, 80%, 14%);
+  --node-gray: hsl(215, 13.8%, 34.1%);
+  --node-gray-bg: hsl(220, 14%, 12%);
+
+  --gradient-1: rgb(156, 138, 236);
+  --gradient-2: rgb(255, 130, 184);
+  --gradient-3: rgb(255, 165, 100);
+
+  --node-selected: hsl(243, 75%, 59%);
+  --node-ring: hsl(240, 6%, 90%);
 
   /* DS - Shadows (dark brand) */
   --ds-shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.4);
@@ -770,7 +836,7 @@ textarea:focus-visible {
   --react-international-phone-selected-dropdown-item-text-color: #f8fafc;
 
   /* ================================
-     SHADCN/UI VARIABLES (dark — mesmos valores do :root)
+     SHADCN/UI VARIABLES (dark)
      ================================ */
   --background: #030712;
   --foreground: #f8fafc;
@@ -814,7 +880,7 @@ textarea:focus-visible {
     @apply bg-background text-foreground;
     font-family: var(--ds-font-body);
     background-image: radial-gradient(
-      rgba(255, 255, 255, 0.08) 1px,
+      var(--ds-dot-grid) 1px,
       transparent 1px
     );
     background-size: 24px 24px;

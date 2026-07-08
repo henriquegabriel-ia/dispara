@@ -84,7 +84,7 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
       <EdgeLabelRenderer>
         {isBranch && (
           <div
-            className="pointer-events-none absolute rounded-full border border-slate-700 bg-slate-800 px-2.5 py-0.5 text-[11px] whitespace-nowrap text-slate-400"
+            className="pointer-events-none absolute rounded-full border border-[var(--ds-border-default)] bg-[var(--ds-bg-surface)] px-2.5 py-0.5 text-[11px] whitespace-nowrap text-[var(--ds-text-secondary)]"
             style={{
               transform: `translate(-50%,-50%) translate(${targetX}px,${pillY}px)`,
             }}
@@ -113,7 +113,7 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
           >
             <button
               type="button"
-              className="flex h-6 w-6 items-center justify-center rounded-full border border-slate-600 bg-card text-slate-400 shadow-sm transition-all duration-150 hover:scale-115 hover:border-primary-500 hover:bg-primary-500 hover:text-white"
+              className="flex h-6 w-6 items-center justify-center rounded-full border border-[var(--ds-border-default)] bg-card text-[var(--ds-text-secondary)] shadow-sm transition-all duration-150 hover:scale-115 hover:border-primary-500 hover:bg-primary-500 hover:text-white"
               onClick={openPicker}
               aria-label="Inserir ação aqui"
             >

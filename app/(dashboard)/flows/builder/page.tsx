@@ -22,7 +22,7 @@ export default function FlowBuilderHomePage() {
         </div>
         <PageActions>
           <Link href="/templates?tab=flows">
-            <Button variant="outline" className="border-[var(--ds-border-subtle)] bg-slate-900 hover:bg-[var(--ds-bg-hover)]">
+            <Button variant="outline" className="border-[var(--ds-border-subtle)] bg-[var(--ds-bg-surface)] hover:bg-[var(--ds-bg-hover)]">
               <ArrowLeft className="w-4 h-4" />
               Voltar
             </Button>

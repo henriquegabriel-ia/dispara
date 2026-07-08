@@ -43,7 +43,7 @@ export function ChecklistMiniBadge({ onClick, isOnboardingCompletedInDb }: Check
   return (
     <button
       onClick={handleClick}
-      className="relative p-2 rounded-lg transition-colors text-amber-400 hover:text-amber-300 hover:bg-slate-800"
+      className="relative p-2 rounded-lg transition-colors text-amber-400 hover:text-amber-300 hover:bg-[var(--ds-bg-hover)]"
       title="Expandir checklist de configuração"
     >
       <ClipboardList className="w-5 h-5" />

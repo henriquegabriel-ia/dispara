@@ -101,7 +101,7 @@ export const CampaignDetailsView: React.FC<CampaignDetailsViewProps> = ({
 
   // Loading state
   if (isLoading || !campaign) {
-    return <div className="p-10 text-center text-slate-500">Carregando...</div>;
+    return <div className="p-10 text-center text-[var(--ds-text-muted)]">Carregando...</div>;
   }
 
   // Temp campaign state (preparing)

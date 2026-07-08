@@ -141,7 +141,7 @@ export function SendFirstMessageStep({
   if (isLoadingContact) {
     return (
       <div className="flex items-center justify-center py-12">
-        <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
+        <Loader2 className="w-8 h-8 animate-spin text-[var(--ds-text-secondary)]" />
       </div>
     );
   }
@@ -181,20 +181,20 @@ export function SendFirstMessageStep({
 
       {/* Descrição */}
       <div className="text-center">
-        <p className="text-slate-300">
+        <p className="text-[var(--ds-text-secondary)]">
           Vamos enviar uma mensagem de teste para verificar se tudo está funcionando
         </p>
       </div>
 
       {/* Formulário de contato */}
       {sendStatus !== 'success' && (
-        <div className="space-y-4 p-4 rounded-xl bg-slate-800/50 border border-slate-700">
-          <h4 className="text-sm font-medium text-slate-300">Contato para teste:</h4>
+        <div className="space-y-4 p-4 rounded-xl bg-[var(--ds-bg-surface)] border border-[var(--ds-border-default)]">
+          <h4 className="text-sm font-medium text-[var(--ds-text-secondary)]">Contato para teste:</h4>
 
           <div className="space-y-3">
             {/* Nome (opcional) */}
             <div className="space-y-1">
-              <label className="text-xs text-slate-400 flex items-center gap-1">
+              <label className="text-xs text-[var(--ds-text-secondary)] flex items-center gap-1">
                 <User className="w-3 h-3" />
                 Nome (opcional)
               </label>
@@ -209,7 +209,7 @@ export function SendFirstMessageStep({
 
             {/* Telefone */}
             <div className="space-y-1">
-              <label className="text-xs text-slate-400 flex items-center gap-1">
+              <label className="text-xs text-[var(--ds-text-secondary)] flex items-center gap-1">
                 <Phone className="w-3 h-3" />
                 Número de WhatsApp *
               </label>
@@ -221,7 +221,7 @@ export function SendFirstMessageStep({
                 disabled={sendStatus === 'sending'}
                 className={sendStatus === 'error' && sendResult?.error?.includes('inválido') ? 'border-red-500' : ''}
               />
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-[var(--ds-text-muted)]">
                 Use seu próprio número para receber a mensagem de teste
               </p>
             </div>
@@ -242,8 +242,8 @@ export function SendFirstMessageStep({
             </div>
           </div>
 
-          <p className="text-sm text-slate-400">
-            Verifique seu WhatsApp em <strong className="text-white">{phoneInput}</strong> para confirmar o recebimento.
+          <p className="text-sm text-[var(--ds-text-secondary)]">
+            Verifique seu WhatsApp em <strong className="text-[var(--ds-text-primary)]">{phoneInput}</strong> para confirmar o recebimento.
           </p>
         </div>
       )}

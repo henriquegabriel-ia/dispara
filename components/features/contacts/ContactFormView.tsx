@@ -47,7 +47,7 @@ export const ContactFormView: React.FC<ContactFormViewProps> = ({
         <div className="relative">
           <User 
             size={18} 
-            className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" 
+            className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--ds-text-muted)]" 
           />
           <Input
             {...register('name')}
@@ -68,7 +68,7 @@ export const ContactFormView: React.FC<ContactFormViewProps> = ({
         <div className="relative">
           <Phone 
             size={18} 
-            className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" 
+            className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--ds-text-muted)]" 
           />
           <Input
             {...register('phone')}
@@ -89,7 +89,7 @@ export const ContactFormView: React.FC<ContactFormViewProps> = ({
         <div className="relative">
           <Mail 
             size={18} 
-            className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" 
+            className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--ds-text-muted)]" 
           />
           <Input
             {...register('email')}
@@ -107,7 +107,7 @@ export const ContactFormView: React.FC<ContactFormViewProps> = ({
           <button
             type="button"
             onClick={onCancel}
-            className="px-4 py-2 text-slate-400 hover:text-white transition-colors"
+            className="px-4 py-2 text-[var(--ds-text-secondary)] hover:text-[var(--ds-text-primary)] transition-colors"
           >
             Cancelar
           </button>

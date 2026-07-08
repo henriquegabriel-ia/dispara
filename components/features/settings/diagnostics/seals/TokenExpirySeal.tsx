@@ -44,15 +44,15 @@ export function TokenExpirySeal({ data, checks }: TokenExpirySealProps) {
     <Container variant="glass" padding="md">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <div className="text-xs text-slate-500">Token</div>
+          <div className="text-xs text-[var(--ds-text-muted)]">Token</div>
           <div className="mt-2 flex items-center gap-2">
             <StatusBadge status={badgeStatus} />
-            <div className="text-sm text-white font-medium">Expiracao</div>
+            <div className="text-sm text-[var(--ds-text-primary)] font-medium">Expiracao</div>
           </div>
-          <div className="mt-2 text-sm text-slate-300">{subtitle}</div>
-          {extra && <div className="mt-2 text-xs text-slate-500">{extra}</div>}
+          <div className="mt-2 text-sm text-[var(--ds-text-secondary)]">{subtitle}</div>
+          {extra && <div className="mt-2 text-xs text-[var(--ds-text-muted)]">{extra}</div>}
         </div>
-        <div className="shrink-0 text-slate-300">
+        <div className="shrink-0 text-[var(--ds-text-secondary)]">
           <Clock size={18} />
         </div>
       </div>

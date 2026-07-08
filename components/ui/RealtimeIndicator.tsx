@@ -77,7 +77,7 @@ export function RealtimeIndicator({
         : {
             icon: WifiOff,
             label: 'Offline',
-            colorClass: 'text-slate-500',
+            colorClass: 'text-[var(--ds-text-muted)]',
             dotClass: 'bg-slate-500',
         }
 
@@ -124,10 +124,10 @@ export function RealtimeIndicator({
             {error && !isConnected && (
                 <button
                     onClick={reconnect}
-                    className="p-1 hover:bg-slate-800 rounded transition-colors"
+                    className="p-1 hover:bg-[var(--ds-bg-hover)] rounded transition-colors"
                     title="Reconectar"
                 >
-                    <RefreshCw className={cn(iconSizes[size], 'text-slate-400 hover:text-white')} />
+                    <RefreshCw className={cn(iconSizes[size], 'text-[var(--ds-text-secondary)] hover:text-[var(--ds-text-primary)]')} />
                 </button>
             )}
         </div>

@@ -51,10 +51,10 @@ export const ContactFieldMappingSheet: React.FC<ContactFieldMappingSheetProps> =
 
   return (
     <Sheet open={isOpen} onOpenChange={handleOpenChange}>
-      <SheetContent className="w-100 sm:w-135 border-l border-[var(--ds-border-subtle)] bg-slate-950 p-0 flex flex-col z-60">
+      <SheetContent className="w-100 sm:w-135 border-l border-[var(--ds-border-subtle)] bg-[var(--ds-bg-elevated)] p-0 flex flex-col z-60">
         <SheetHeader className="p-6 border-b border-[var(--ds-border-subtle)]">
           <div className="flex items-center justify-between">
-            <SheetTitle className="text-white flex items-center gap-2">
+            <SheetTitle className="text-[var(--ds-text-primary)] flex items-center gap-2">
               <Settings2 className="text-primary-500" size={20} />
               {view === 'map' ? 'Mapear Campos' : 'Gerenciar Campos'}
             </SheetTitle>
@@ -70,14 +70,14 @@ export const ContactFieldMappingSheet: React.FC<ContactFieldMappingSheetProps> =
             ) : (
               <button
                 onClick={() => setView('map')}
-                className="text-xs flex items-center gap-1.5 text-white font-semibold bg-slate-800 hover:bg-slate-700 border border-[var(--ds-border-subtle)] px-4 py-2 rounded-lg transition-all hover:scale-105 shadow-lg shadow-black/20"
+                className="text-xs flex items-center gap-1.5 text-[var(--ds-text-primary)] font-semibold bg-[var(--ds-bg-surface)] hover:bg-[var(--ds-bg-hover)] border border-[var(--ds-border-subtle)] px-4 py-2 rounded-lg transition-all hover:scale-105 shadow-lg shadow-black/20"
               >
                 <ChevronLeft size={14} />
                 Voltar
               </button>
             )}
           </div>
-          <SheetDescription className="text-slate-400 mt-1">
+          <SheetDescription className="text-[var(--ds-text-secondary)] mt-1">
             {view === 'map'
               ? 'Vincule colunas do CSV aos campos do sistema.'
               : 'Crie ou remova campos personalizados.'}
@@ -107,18 +107,18 @@ export const ContactFieldMappingSheet: React.FC<ContactFieldMappingSheetProps> =
                       >
                         <div className="flex items-center justify-between mb-3">
                           <div className="flex items-center gap-2">
-                            <label className={`text-sm font-medium ${isMapped ? 'text-primary-400' : 'text-white'}`}>
+                            <label className={`text-sm font-medium ${isMapped ? 'text-primary-400' : 'text-[var(--ds-text-primary)]'}`}>
                               {field.label}
                             </label>
                             {isMapped && <Check size={14} className="text-primary-500" />}
                           </div>
-                          <span className="text-[10px] font-mono text-slate-500 bg-slate-900 px-2 py-1 rounded">
+                          <span className="text-[10px] font-mono text-[var(--ds-text-muted)] bg-[var(--ds-bg-surface)] px-2 py-1 rounded">
                             {`{{${field.key}}}`}
                           </span>
                         </div>
 
                         <select
-                          className={`w-full bg-slate-950 border rounded-lg px-3 py-2 text-white text-sm outline-none transition-colors ${isMapped
+                          className={`w-full bg-[var(--ds-bg-surface)] border rounded-lg px-3 py-2 text-[var(--ds-text-primary)] text-sm outline-none transition-colors ${isMapped
                             ? 'border-primary-500/30 focus:border-primary-500'
                             : 'border-[var(--ds-border-subtle)] focus:border-primary-500'
                             }`}
@@ -141,7 +141,7 @@ export const ContactFieldMappingSheet: React.FC<ContactFieldMappingSheetProps> =
                 </div>
               ) : (
                 <div className="text-center py-10">
-                  <p className="text-slate-500">Nenhum campo personalizado disponível.</p>
+                  <p className="text-[var(--ds-text-muted)]">Nenhum campo personalizado disponível.</p>
                   <button
                     onClick={() => setView('manage')}
                     className="mt-4 text-primary-400 hover:underline text-sm"

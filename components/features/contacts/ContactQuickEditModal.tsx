@@ -306,73 +306,73 @@ export const ContactQuickEditModal: React.FC<ContactQuickEditModalProps> = ({
 
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-60 flex items-center justify-center p-4">
-      <div className="bg-slate-950 border border-[var(--ds-border-subtle)] rounded-2xl w-full max-w-md p-6 shadow-2xl animate-in zoom-in duration-200">
+      <div className="bg-[var(--ds-bg-elevated)] border border-[var(--ds-border-subtle)] rounded-2xl w-full max-w-md p-6 shadow-2xl animate-in zoom-in duration-200">
         <div className="flex justify-between items-center mb-6">
           <div>
-            <h2 className="text-xl font-bold text-white">{title}</h2>
+            <h2 className="text-xl font-bold text-[var(--ds-text-primary)]">{title}</h2>
 
             {!!contactId && (
-              <p className="text-xs text-slate-400 mt-1">
-                <span className="text-slate-500">Contato:</span>{' '}
+              <p className="text-xs text-[var(--ds-text-secondary)] mt-1">
+                <span className="text-[var(--ds-text-muted)]">Contato:</span>{' '}
                 {contactQuery.isLoading ? (
                   <span className="inline-flex items-center gap-2">
                     <span className="inline-block h-3 w-36 rounded bg-[var(--ds-bg-hover)] animate-pulse" />
                   </span>
                 ) : contactHeaderText ? (
-                  <span className="text-slate-200 font-medium">{contactHeaderText}</span>
+                  <span className="text-[var(--ds-text-primary)] font-medium">{contactHeaderText}</span>
                 ) : (
-                  <span className="text-slate-500">—</span>
+                  <span className="text-[var(--ds-text-muted)]">—</span>
                 )}
               </p>
             )}
 
             {focusLabel && (
-              <p className="text-xs text-slate-500 mt-1">
-                Dica: complete <span className="text-white">{focusLabel}</span> para destravar o envio.
+              <p className="text-xs text-[var(--ds-text-muted)] mt-1">
+                Dica: complete <span className="text-[var(--ds-text-primary)]">{focusLabel}</span> para destravar o envio.
               </p>
             )}
           </div>
           <button onClick={onClose} aria-label="Fechar" className="p-1 rounded-lg hover:bg-[var(--ds-bg-hover)]">
-            <X className="text-slate-500 hover:text-white" />
+            <X className="text-[var(--ds-text-muted)] hover:text-[var(--ds-text-primary)]" />
           </button>
         </div>
 
         {!contactId ? (
-          <div className="flex flex-col items-center justify-center py-10 text-slate-400 text-center">
+          <div className="flex flex-col items-center justify-center py-10 text-[var(--ds-text-secondary)] text-center">
             <AlertTriangle className="w-5 h-5 text-amber-400 mb-2" />
-            <p className="text-sm text-slate-200 font-medium">Contato inválido</p>
-            <p className="text-xs text-slate-500 mt-1">Não foi possível abrir este contato. Feche e tente novamente.</p>
+            <p className="text-sm text-[var(--ds-text-primary)] font-medium">Contato inválido</p>
+            <p className="text-xs text-[var(--ds-text-muted)] mt-1">Não foi possível abrir este contato. Feche e tente novamente.</p>
             <div className="mt-4">
               <button
                 onClick={onClose}
-                className="px-4 py-2 rounded-lg bg-slate-800 border border-[var(--ds-border-subtle)] text-white hover:bg-slate-700 transition-colors"
+                className="px-4 py-2 rounded-lg bg-[var(--ds-bg-surface)] border border-[var(--ds-border-subtle)] text-[var(--ds-text-primary)] hover:bg-[var(--ds-bg-hover)] transition-colors"
               >
                 Fechar
               </button>
             </div>
           </div>
         ) : isLoading ? (
-          <div className="flex items-center justify-center py-10 text-slate-400">
+          <div className="flex items-center justify-center py-10 text-[var(--ds-text-secondary)]">
             <Loader2 className="w-5 h-5 animate-spin mr-2" />
             Carregando contato...
           </div>
         ) : isError ? (
-          <div className="flex flex-col items-center justify-center py-10 text-slate-400 text-center">
+          <div className="flex flex-col items-center justify-center py-10 text-[var(--ds-text-secondary)] text-center">
             <AlertTriangle className="w-5 h-5 text-amber-400 mb-2" />
-            <p className="text-sm text-slate-200 font-medium">Não foi possível carregar o contato</p>
-            <p className="text-xs text-slate-500 mt-1">
+            <p className="text-sm text-[var(--ds-text-primary)] font-medium">Não foi possível carregar o contato</p>
+            <p className="text-xs text-[var(--ds-text-muted)] mt-1">
               {errorMessage || 'O contato pode ter sido removido ou você não tem permissão para acessá-lo.'}
             </p>
             <div className="mt-4 flex items-center gap-2">
               <button
                 onClick={() => contactQuery.refetch()}
-                className="px-4 py-2 rounded-lg bg-[var(--ds-bg-hover)] border border-[var(--ds-border-subtle)] text-white hover:bg-white/15 transition-colors inline-flex items-center gap-2"
+                className="px-4 py-2 rounded-lg bg-[var(--ds-bg-surface)] border border-[var(--ds-border-subtle)] text-[var(--ds-text-primary)] hover:bg-[var(--ds-bg-hover)] transition-colors inline-flex items-center gap-2"
               >
                 <RefreshCw size={14} /> Tentar novamente
               </button>
               <button
                 onClick={onClose}
-                className="px-4 py-2 rounded-lg bg-slate-800 border border-[var(--ds-border-subtle)] text-white hover:bg-slate-700 transition-colors"
+                className="px-4 py-2 rounded-lg bg-[var(--ds-bg-surface)] border border-[var(--ds-border-subtle)] text-[var(--ds-text-primary)] hover:bg-[var(--ds-bg-hover)] transition-colors"
               >
                 Fechar
               </button>
@@ -382,13 +382,13 @@ export const ContactQuickEditModal: React.FC<ContactQuickEditModalProps> = ({
           <div className="space-y-4">
             {shouldShowName && (
               <div>
-                <label className="block text-sm text-slate-400 mb-1">Nome</label>
+                <label className="block text-sm text-[var(--ds-text-secondary)] mb-1">Nome</label>
                 {isFocusedMode && showNameWhenMissingInFocusedMode && isNameMissing && (
-                  <p className="text-xs text-slate-500 mb-2">Este contato está sem nome cadastrado. Vale a pena preencher.</p>
+                  <p className="text-xs text-[var(--ds-text-muted)] mb-2">Este contato está sem nome cadastrado. Vale a pena preencher.</p>
                 )}
                 <input
                   ref={nameRef}
-                  className="w-full bg-slate-900 border border-[var(--ds-border-subtle)] rounded-lg px-4 py-3 text-white focus:border-primary-500 outline-none transition-colors"
+                  className="w-full bg-[var(--ds-bg-surface)] border border-[var(--ds-border-subtle)] rounded-lg px-4 py-3 text-[var(--ds-text-primary)] focus:border-primary-500 outline-none transition-colors"
                   value={form.name}
                   onChange={(e) => setForm(prev => ({ ...prev, name: e.target.value }))}
                   placeholder="Ex: João Silva"
@@ -398,11 +398,11 @@ export const ContactQuickEditModal: React.FC<ContactQuickEditModalProps> = ({
 
             {shouldShowEmail && (
               <div>
-                <label className="block text-sm text-slate-400 mb-1">Email</label>
+                <label className="block text-sm text-[var(--ds-text-secondary)] mb-1">Email</label>
                 <input
                   ref={emailRef}
                   type="email"
-                  className="w-full bg-slate-900 border border-[var(--ds-border-subtle)] rounded-lg px-4 py-3 text-white focus:border-primary-500 outline-none transition-colors"
+                  className="w-full bg-[var(--ds-bg-surface)] border border-[var(--ds-border-subtle)] rounded-lg px-4 py-3 text-[var(--ds-text-primary)] focus:border-primary-500 outline-none transition-colors"
                   value={form.email}
                   onChange={(e) => setForm(prev => ({ ...prev, email: e.target.value }))}
                   placeholder="email@exemplo.com"
@@ -421,9 +421,9 @@ export const ContactQuickEditModal: React.FC<ContactQuickEditModalProps> = ({
                   if (type === 'select' && field?.options && field.options.length > 0) {
                     return (
                       <div key={key}>
-                        <label className="block text-sm text-slate-400 mb-1">{label}</label>
+                        <label className="block text-sm text-[var(--ds-text-secondary)] mb-1">{label}</label>
                         <select
-                          className="w-full bg-slate-900 border border-[var(--ds-border-subtle)] rounded-lg px-4 py-3 text-white focus:border-primary-500 outline-none transition-colors"
+                          className="w-full bg-[var(--ds-bg-surface)] border border-[var(--ds-border-subtle)] rounded-lg px-4 py-3 text-[var(--ds-text-primary)] focus:border-primary-500 outline-none transition-colors"
                           value={String(form.custom_fields?.[key] ?? '')}
                           onChange={(e) =>
                             setForm((prev) => ({
@@ -443,11 +443,11 @@ export const ContactQuickEditModal: React.FC<ContactQuickEditModalProps> = ({
 
                   return (
                     <div key={key}>
-                      <label className="block text-sm text-slate-400 mb-1">{label}</label>
+                      <label className="block text-sm text-[var(--ds-text-secondary)] mb-1">{label}</label>
                       <input
                         ref={(el) => { customRefs.current[key] = el; }}
                         type={type === 'number' ? 'number' : type === 'date' ? 'date' : 'text'}
-                        className="w-full bg-slate-900 border border-[var(--ds-border-subtle)] rounded-lg px-4 py-3 text-white focus:border-primary-500 outline-none transition-colors"
+                        className="w-full bg-[var(--ds-bg-surface)] border border-[var(--ds-border-subtle)] rounded-lg px-4 py-3 text-[var(--ds-text-primary)] focus:border-primary-500 outline-none transition-colors"
                         value={String(form.custom_fields?.[key] ?? '')}
                         onChange={(e) =>
                           setForm((prev) => ({
@@ -465,17 +465,17 @@ export const ContactQuickEditModal: React.FC<ContactQuickEditModalProps> = ({
 
             {shouldShowAllCustomFields && (
               <details className="pt-2 border-t border-[var(--ds-border-subtle)]">
-                <summary className="cursor-pointer text-sm text-slate-400">Campos personalizados</summary>
+                <summary className="cursor-pointer text-sm text-[var(--ds-text-secondary)]">Campos personalizados</summary>
                 <div className="mt-3 space-y-3">
                   {customFields.length === 0 ? (
-                    <p className="text-xs text-slate-600">Nenhum campo personalizado cadastrado.</p>
+                    <p className="text-xs text-[var(--ds-text-muted)]">Nenhum campo personalizado cadastrado.</p>
                   ) : (
                     customFields.map(field => (
                       <div key={field.id}>
-                        <label className="block text-xs text-slate-500 mb-1">{field.label}</label>
+                        <label className="block text-xs text-[var(--ds-text-muted)] mb-1">{field.label}</label>
                         {field.type === 'select' && field.options && field.options.length > 0 ? (
                           <select
-                            className="w-full bg-slate-900 border border-[var(--ds-border-subtle)] rounded-lg px-4 py-2.5 text-white focus:border-primary-500 outline-none transition-colors"
+                            className="w-full bg-[var(--ds-bg-surface)] border border-[var(--ds-border-subtle)] rounded-lg px-4 py-2.5 text-[var(--ds-text-primary)] focus:border-primary-500 outline-none transition-colors"
                             value={String(form.custom_fields?.[field.key] ?? '')}
                             onChange={(e) =>
                               setForm(prev => ({
@@ -492,7 +492,7 @@ export const ContactQuickEditModal: React.FC<ContactQuickEditModalProps> = ({
                         ) : (
                           <input
                             type={field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text'}
-                            className="w-full bg-slate-900 border border-[var(--ds-border-subtle)] rounded-lg px-4 py-2.5 text-white focus:border-primary-500 outline-none transition-colors"
+                            className="w-full bg-[var(--ds-bg-surface)] border border-[var(--ds-border-subtle)] rounded-lg px-4 py-2.5 text-[var(--ds-text-primary)] focus:border-primary-500 outline-none transition-colors"
                             value={String(form.custom_fields?.[field.key] ?? '')}
                             onChange={(e) =>
                               setForm(prev => ({
@@ -513,7 +513,7 @@ export const ContactQuickEditModal: React.FC<ContactQuickEditModalProps> = ({
             <div className="pt-4 flex gap-3">
               <button
                 onClick={onClose}
-                className="flex-1 bg-slate-800 text-white font-medium py-3 rounded-xl hover:bg-slate-700 transition-colors"
+                className="flex-1 bg-[var(--ds-bg-surface)] text-[var(--ds-text-primary)] font-medium py-3 rounded-xl hover:bg-[var(--ds-bg-hover)] transition-colors"
                 disabled={updateMutation.isPending}
               >
                 Cancelar

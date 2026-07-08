@@ -36,8 +36,8 @@ export const CampaignPerformancePanel: React.FC<CampaignPerformancePanelProps> =
           aria-label={isPerfOpen ? 'Recolher performance do disparo' : 'Expandir performance do disparo'}
         >
           <div>
-            <h3 className="text-white font-bold">Velocidade do disparo</h3>
-            <p className="text-xs text-slate-500">
+            <h3 className="text-[var(--ds-text-primary)] font-bold">Velocidade do disparo</h3>
+            <p className="text-xs text-[var(--ds-text-muted)]">
               Conta apenas o periodo do primeiro envio ate o ultimo envio (sent-only).
             </p>
           </div>
@@ -48,7 +48,7 @@ export const CampaignPerformancePanel: React.FC<CampaignPerformancePanelProps> =
             </span>
             <ChevronDown
               size={16}
-              className={`text-slate-500 transition-transform ${isPerfOpen ? 'rotate-180' : ''}`}
+              className={`text-[var(--ds-text-muted)] transition-transform ${isPerfOpen ? 'rotate-180' : ''}`}
             />
           </div>
         </button>
@@ -121,26 +121,26 @@ export const CampaignPerformancePanel: React.FC<CampaignPerformancePanelProps> =
                   aria-label={isPerfTechOpen ? 'Recolher detalhes técnicos' : 'Expandir detalhes técnicos'}
                 >
                   <div>
-                    <div className="text-sm text-slate-300 font-medium">Detalhes técnicos</div>
-                    <div className="text-xs text-slate-500">Config aplicada e identificadores (para diagnóstico)</div>
+                    <div className="text-sm text-[var(--ds-text-secondary)] font-medium">Detalhes técnicos</div>
+                    <div className="text-xs text-[var(--ds-text-muted)]">Config aplicada e identificadores (para diagnóstico)</div>
                   </div>
                   <ChevronDown
                     size={16}
-                    className={`text-slate-500 transition-transform ${isPerfTechOpen ? 'rotate-180' : ''}`}
+                    className={`text-[var(--ds-text-muted)] transition-transform ${isPerfTechOpen ? 'rotate-180' : ''}`}
                   />
                 </button>
               </CollapsibleTrigger>
 
               <CollapsibleContent className="mt-3">
-                <div className="text-xs text-slate-400 grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <div className="text-xs text-[var(--ds-text-secondary)] grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <Container variant="subtle" padding="sm">
-                    <div className="text-slate-500">Config efetiva</div>
+                    <div className="text-[var(--ds-text-muted)]">Config efetiva</div>
                     <div className="mt-1 font-mono">
                       conc={perf?.config?.effective?.concurrency ?? '—'} | batch={perf?.config?.effective?.configuredBatchSize ?? '—'}
                     </div>
                   </Container>
                   <Container variant="subtle" padding="sm">
-                    <div className="text-slate-500">Turbo (adaptive)</div>
+                    <div className="text-[var(--ds-text-muted)]">Turbo (adaptive)</div>
                     <div className="mt-1 font-mono">
                       {perf?.config?.adaptive
                         ? `enabled=${String(perf.config.adaptive.enabled)} maxMps=${perf.config.adaptive.maxMps}`
@@ -148,16 +148,16 @@ export const CampaignPerformancePanel: React.FC<CampaignPerformancePanelProps> =
                     </div>
                   </Container>
                   <Container variant="subtle" padding="sm">
-                    <div className="text-slate-500">Hash de config</div>
+                    <div className="text-[var(--ds-text-muted)]">Hash de config</div>
                     <div className="mt-1 font-mono">{perf?.config_hash ?? '—'}</div>
                   </Container>
                 </div>
 
-                <div className="mt-2 text-[11px] text-slate-500">
+                <div className="mt-2 text-[11px] text-[var(--ds-text-muted)]">
                   {perf?.trace_id ? (
-                    <span>ID da execução: <span className="font-mono text-slate-400">{perf.trace_id}</span></span>
+                    <span>ID da execução: <span className="font-mono text-[var(--ds-text-secondary)]">{perf.trace_id}</span></span>
                   ) : (
-                    <span>ID da execução: <span className="font-mono text-slate-400">—</span></span>
+                    <span>ID da execução: <span className="font-mono text-[var(--ds-text-secondary)]">—</span></span>
                   )}
                 </div>
               </CollapsibleContent>

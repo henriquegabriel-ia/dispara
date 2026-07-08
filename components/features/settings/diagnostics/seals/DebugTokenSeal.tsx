@@ -37,22 +37,22 @@ export function DebugTokenSeal({ data }: DebugTokenSealProps) {
     <Container variant="glass" padding="md">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <div className="text-xs text-slate-500">Selo</div>
+          <div className="text-xs text-[var(--ds-text-muted)]">Selo</div>
           <div className="mt-2 flex items-center gap-2">
             <StatusBadge status={status} />
-            <div className="text-sm text-white font-medium truncate">{title}</div>
+            <div className="text-sm text-[var(--ds-text-primary)] font-medium truncate">{title}</div>
           </div>
-          <div className="mt-2 text-sm text-slate-300">{subtitle}</div>
-          <div className="mt-2 text-xs text-slate-500">Fonte: {sourceLabel}</div>
+          <div className="mt-2 text-sm text-[var(--ds-text-secondary)]">{subtitle}</div>
+          <div className="mt-2 text-xs text-[var(--ds-text-muted)]">Fonte: {sourceLabel}</div>
         </div>
 
         <div className="text-right">
-          <div className="text-xs text-slate-500">App ID</div>
-          <div className="mt-2 text-sm text-white font-mono">{metaApp?.appId || '—'}</div>
+          <div className="text-xs text-[var(--ds-text-muted)]">App ID</div>
+          <div className="mt-2 text-sm text-[var(--ds-text-primary)] font-mono">{metaApp?.appId || '—'}</div>
           <div className="mt-2">
             <Link
               href="/settings"
-              className="text-xs text-slate-300 underline hover:text-white transition-colors"
+              className="text-xs text-[var(--ds-text-secondary)] underline hover:text-[var(--ds-text-primary)] transition-colors"
             >
               Configurar
             </Link>
@@ -61,7 +61,7 @@ export function DebugTokenSeal({ data }: DebugTokenSealProps) {
       </div>
 
       {enabled && dbg?.attempted && dbg?.ok === false && dbg?.error != null ? (
-        <div className="mt-4 text-xs text-slate-400">
+        <div className="mt-4 text-xs text-[var(--ds-text-secondary)]">
           Detalhe: {typeof dbg.error === 'string' ? dbg.error : 'Falha ao validar via /debug_token'}
         </div>
       ) : null}

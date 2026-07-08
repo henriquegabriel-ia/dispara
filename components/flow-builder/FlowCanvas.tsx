@@ -33,7 +33,7 @@ function ZoomIndicator() {
   return (
     <Panel
       position="bottom-left"
-      className="!ml-14 rounded-md border border-border bg-card px-2 py-1 text-[11px] font-medium text-slate-400 shadow-sm"
+      className="!ml-14 rounded-md border border-border bg-card px-2 py-1 text-[11px] font-medium text-[var(--ds-text-secondary)] shadow-sm"
     >
       {Math.round(zoom * 100)}%
     </Panel>
@@ -144,7 +144,7 @@ export default function FlowCanvas() {
         proOptions={PRO_OPTIONS}
         colorMode="dark"
       >
-        <Background variant={BackgroundVariant.Dots} gap={22} size={1.5} color="#1e293b" />
+        <Background variant={BackgroundVariant.Dots} gap={22} size={1.5} color="var(--ds-border-default)" />
         <Controls position="bottom-left" showInteractive={false} />
         <ZoomIndicator />
         <MiniMap position="bottom-right" pannable zoomable nodeColor={miniMapColor} />

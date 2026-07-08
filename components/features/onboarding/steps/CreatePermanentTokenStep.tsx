@@ -122,46 +122,46 @@ export function CreatePermanentTokenStep({
 
         {/* Instruções */}
         <div className="space-y-3">
-          <h4 className="text-sm font-medium text-slate-300 flex items-center gap-2">
+          <h4 className="text-sm font-medium text-[var(--ds-text-secondary)] flex items-center gap-2">
             <Shield className="w-4 h-4 text-primary-500" />
             No Meta Business:
           </h4>
 
-          <div className="flex items-start gap-3 p-3 rounded-lg bg-slate-800/50">
+          <div className="flex items-start gap-3 p-3 rounded-lg bg-[var(--ds-bg-surface)]">
             <span className="w-6 h-6 rounded-full bg-primary-500/20 text-primary-500 flex items-center justify-center text-sm font-medium flex-shrink-0">1</span>
-            <p className="text-slate-300">
-              Acesse <strong className="text-white">Configurações do negócio</strong> → <strong className="text-white">Usuários do sistema</strong>
+            <p className="text-[var(--ds-text-secondary)]">
+              Acesse <strong className="text-[var(--ds-text-primary)]">Configurações do negócio</strong> → <strong className="text-[var(--ds-text-primary)]">Usuários do sistema</strong>
             </p>
           </div>
 
-          <div className="flex items-start gap-3 p-3 rounded-lg bg-slate-800/50">
+          <div className="flex items-start gap-3 p-3 rounded-lg bg-[var(--ds-bg-surface)]">
             <span className="w-6 h-6 rounded-full bg-primary-500/20 text-primary-500 flex items-center justify-center text-sm font-medium flex-shrink-0">2</span>
-            <div className="text-slate-300">
-              <p>Clique em <strong className="text-white">"Adicionar"</strong></p>
-              <p className="text-slate-500 text-sm">Nome: "Dispara API" • Função: Admin</p>
+            <div className="text-[var(--ds-text-secondary)]">
+              <p>Clique em <strong className="text-[var(--ds-text-primary)]">"Adicionar"</strong></p>
+              <p className="text-[var(--ds-text-muted)] text-sm">Nome: "Dispara API" • Função: Admin</p>
             </div>
           </div>
 
-          <div className="flex items-start gap-3 p-3 rounded-lg bg-slate-800/50">
+          <div className="flex items-start gap-3 p-3 rounded-lg bg-[var(--ds-bg-surface)]">
             <span className="w-6 h-6 rounded-full bg-primary-500/20 text-primary-500 flex items-center justify-center text-sm font-medium flex-shrink-0">3</span>
-            <p className="text-slate-300">
-              Selecione o usuário e clique em <strong className="text-white">"Atribuir ativos"</strong>
+            <p className="text-[var(--ds-text-secondary)]">
+              Selecione o usuário e clique em <strong className="text-[var(--ds-text-primary)]">"Atribuir ativos"</strong>
             </p>
           </div>
 
-          <div className="flex items-start gap-3 p-3 rounded-lg bg-slate-800/50">
+          <div className="flex items-start gap-3 p-3 rounded-lg bg-[var(--ds-bg-surface)]">
             <span className="w-6 h-6 rounded-full bg-primary-500/20 text-primary-500 flex items-center justify-center text-sm font-medium flex-shrink-0">4</span>
-            <div className="text-slate-300">
-              <p>Atribua seu <strong className="text-white">App</strong></p>
-              <p className="text-slate-500 text-sm">Ative "Gerenciar aplicativo" em Controle total</p>
+            <div className="text-[var(--ds-text-secondary)]">
+              <p>Atribua seu <strong className="text-[var(--ds-text-primary)]">App</strong></p>
+              <p className="text-[var(--ds-text-muted)] text-sm">Ative "Gerenciar aplicativo" em Controle total</p>
             </div>
           </div>
 
-          <div className="flex items-start gap-3 p-3 rounded-lg bg-slate-800/50">
+          <div className="flex items-start gap-3 p-3 rounded-lg bg-[var(--ds-bg-surface)]">
             <span className="w-6 h-6 rounded-full bg-primary-500/20 text-primary-500 flex items-center justify-center text-sm font-medium flex-shrink-0">5</span>
-            <div className="text-slate-300">
-              <p>Atribua sua <strong className="text-white">Conta WhatsApp Business</strong></p>
-              <p className="text-slate-500 text-sm">Ative "Gerenciar conta do WhatsApp Business"</p>
+            <div className="text-[var(--ds-text-secondary)]">
+              <p>Atribua sua <strong className="text-[var(--ds-text-primary)]">Conta WhatsApp Business</strong></p>
+              <p className="text-[var(--ds-text-muted)] text-sm">Ative "Gerenciar conta do WhatsApp Business"</p>
             </div>
           </div>
         </div>
@@ -178,7 +178,7 @@ export function CreatePermanentTokenStep({
         </a>
 
         {/* Confirmação */}
-        <div className="flex items-start gap-3 p-3 rounded-lg bg-slate-800/50 border border-slate-700">
+        <div className="flex items-start gap-3 p-3 rounded-lg bg-[var(--ds-bg-surface)] border border-[var(--ds-border-default)]">
           <Checkbox
             id="confirm-user"
             checked={userCreated}
@@ -187,7 +187,7 @@ export function CreatePermanentTokenStep({
           />
           <label
             htmlFor="confirm-user"
-            className="text-sm text-slate-300 cursor-pointer select-none leading-relaxed"
+            className="text-sm text-[var(--ds-text-secondary)] cursor-pointer select-none leading-relaxed"
           >
             Criei o usuário do sistema e atribuí os ativos (App + Conta WhatsApp)
           </label>
@@ -211,7 +211,7 @@ export function CreatePermanentTokenStep({
         </div>
 
         {onSkip && (
-          <p className="text-xs text-slate-500 text-center">
+          <p className="text-xs text-[var(--ds-text-muted)] text-center">
             Você pode criar o token permanente depois em Configurações
           </p>
         )}
@@ -233,40 +233,40 @@ export function CreatePermanentTokenStep({
 
       {/* Instruções */}
       <div className="space-y-3">
-        <h4 className="text-sm font-medium text-slate-300">
+        <h4 className="text-sm font-medium text-[var(--ds-text-secondary)]">
           Ainda na página do usuário do sistema:
         </h4>
 
-        <div className="flex items-start gap-3 p-3 rounded-lg bg-slate-800/50">
+        <div className="flex items-start gap-3 p-3 rounded-lg bg-[var(--ds-bg-surface)]">
           <span className="w-6 h-6 rounded-full bg-primary-500/20 text-primary-500 flex items-center justify-center text-sm font-medium flex-shrink-0">1</span>
-          <p className="text-slate-300">
-            Clique em <strong className="text-white">"Gerar token"</strong>
+          <p className="text-[var(--ds-text-secondary)]">
+            Clique em <strong className="text-[var(--ds-text-primary)]">"Gerar token"</strong>
           </p>
         </div>
 
-        <div className="flex items-start gap-3 p-3 rounded-lg bg-slate-800/50">
+        <div className="flex items-start gap-3 p-3 rounded-lg bg-[var(--ds-bg-surface)]">
           <span className="w-6 h-6 rounded-full bg-primary-500/20 text-primary-500 flex items-center justify-center text-sm font-medium flex-shrink-0">2</span>
-          <p className="text-slate-300">
-            Selecione seu <strong className="text-white">App</strong> no dropdown
+          <p className="text-[var(--ds-text-secondary)]">
+            Selecione seu <strong className="text-[var(--ds-text-primary)]">App</strong> no dropdown
           </p>
         </div>
 
-        <div className="flex items-start gap-3 p-3 rounded-lg bg-slate-800/50">
+        <div className="flex items-start gap-3 p-3 rounded-lg bg-[var(--ds-bg-surface)]">
           <span className="w-6 h-6 rounded-full bg-primary-500/20 text-primary-500 flex items-center justify-center text-sm font-medium flex-shrink-0">3</span>
-          <p className="text-slate-300">
-            Adicione as <strong className="text-white">permissões</strong> abaixo:
+          <p className="text-[var(--ds-text-secondary)]">
+            Adicione as <strong className="text-[var(--ds-text-primary)]">permissões</strong> abaixo:
           </p>
         </div>
       </div>
 
       {/* Permissões */}
-      <div className="p-4 rounded-xl bg-slate-800/50 border border-slate-700 space-y-2">
-        <p className="text-xs text-slate-400 uppercase tracking-wide mb-3">Permissões necessárias:</p>
+      <div className="p-4 rounded-xl bg-[var(--ds-bg-surface)] border border-[var(--ds-border-default)] space-y-2">
+        <p className="text-xs text-[var(--ds-text-secondary)] uppercase tracking-wide mb-3">Permissões necessárias:</p>
         {permissions.map((perm) => (
           <div key={perm.name} className="flex items-center justify-between p-2 rounded-lg bg-[var(--ds-bg-elevated)]">
             <div>
               <code className="text-sm text-primary-400 font-mono">{perm.name}</code>
-              <p className="text-xs text-slate-500">{perm.description}</p>
+              <p className="text-xs text-[var(--ds-text-muted)]">{perm.description}</p>
             </div>
             <Button
               variant="ghost"
@@ -286,7 +286,7 @@ export function CreatePermanentTokenStep({
 
       {/* Input do token */}
       <div className="p-4 rounded-xl border border-primary-500/30 bg-primary-500/5 space-y-3">
-        <Label className="text-slate-300 flex items-center gap-2">
+        <Label className="text-[var(--ds-text-secondary)] flex items-center gap-2">
           <Key className="w-4 h-4 text-primary-500" />
           Cole seu Token Permanente
         </Label>
@@ -297,7 +297,7 @@ export function CreatePermanentTokenStep({
           onChange={(e) => setPermanentToken(e.target.value)}
           className="font-mono"
         />
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-[var(--ds-text-muted)]">
           O token começa com "EAA" e tem centenas de caracteres
         </p>
       </div>

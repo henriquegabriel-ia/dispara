@@ -138,9 +138,9 @@ export function getCardColorClasses(color: 'purple' | 'amber' | 'blue' | 'slate'
     },
     slate: {
       border: 'border-[var(--ds-border-subtle)]',
-      bg: 'bg-slate-800/50',
-      icon: 'bg-slate-700 text-slate-400',
-      text: 'text-slate-500',
+      bg: 'bg-[var(--ds-bg-surface)]',
+      icon: 'bg-[var(--ds-bg-surface)] text-[var(--ds-text-secondary)]',
+      text: 'text-[var(--ds-text-muted)]',
     },
   };
 
@@ -170,9 +170,9 @@ export function getFunnelLevelColorClasses(color: 'purple' | 'blue' | 'slate'): 
       ring: 'ring-blue-500/30',
     },
     slate: {
-      active: 'bg-slate-700 border-slate-600 text-slate-300',
-      inactive: 'bg-slate-800/50 border-[var(--ds-border-subtle)] text-slate-500',
-      arrow: 'text-slate-600',
+      active: 'bg-[var(--ds-bg-surface)] border-[var(--ds-border-default)] text-[var(--ds-text-secondary)]',
+      inactive: 'bg-[var(--ds-bg-surface)] border-[var(--ds-border-subtle)] text-[var(--ds-text-muted)]',
+      arrow: 'text-[var(--ds-text-muted)]',
       ring: 'ring-slate-500/30',
     },
   };

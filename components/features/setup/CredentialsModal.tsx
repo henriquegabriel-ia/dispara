@@ -147,7 +147,7 @@ export function CredentialsModal({
           <button
             type="button"
             onClick={onHelpClick}
-            className="flex items-center gap-2 text-sm text-slate-400 hover:text-primary-400 transition-colors w-full justify-center py-2"
+            className="flex items-center gap-2 text-sm text-[var(--ds-text-secondary)] hover:text-primary-400 transition-colors w-full justify-center py-2"
           >
             Não sabe onde encontrar? Ver tutorial passo-a-passo
           </button>

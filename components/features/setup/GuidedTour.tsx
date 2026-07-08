@@ -105,9 +105,9 @@ export function GuidedTour({ onComplete, onSkip }: GuidedTourProps) {
 
       {/* Card do Tour */}
       <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[201] w-full max-w-md px-4">
-        <div className="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden">
+        <div className="bg-[var(--ds-bg-elevated)] border border-[var(--ds-border-default)] rounded-2xl shadow-2xl overflow-hidden">
           {/* Progress bar */}
-          <div className="h-1 bg-slate-800">
+          <div className="h-1 bg-[var(--ds-bg-surface)]">
             <div
               className="h-full bg-primary-500 transition-all duration-500"
               style={{ width: `${progress}%` }}
@@ -115,16 +115,16 @@ export function GuidedTour({ onComplete, onSkip }: GuidedTourProps) {
           </div>
 
           {/* Header */}
-          <div className="flex items-center justify-between p-4 border-b border-slate-800">
+          <div className="flex items-center justify-between p-4 border-b border-[var(--ds-border-default)]">
             <div className="flex items-center gap-2">
               <Sparkles className="w-5 h-5 text-primary-400" />
-              <span className="text-sm font-medium text-slate-400">
+              <span className="text-sm font-medium text-[var(--ds-text-secondary)]">
                 Primeiros passos • {currentStep + 1}/{TOUR_STEPS.length}
               </span>
             </div>
             <button
               onClick={handleSkip}
-              className="p-1 text-slate-500 hover:text-white hover:bg-slate-800 rounded transition-colors"
+              className="p-1 text-[var(--ds-text-muted)] hover:text-[var(--ds-text-primary)] hover:bg-[var(--ds-bg-hover)] rounded transition-colors"
               title="Pular tour"
             >
               <X className="w-4 h-4" />
@@ -139,10 +139,10 @@ export function GuidedTour({ onComplete, onSkip }: GuidedTourProps) {
             </div>
 
             {/* Text */}
-            <h3 className="text-xl font-semibold text-white mb-2">
+            <h3 className="text-xl font-semibold text-[var(--ds-text-primary)] mb-2">
               {step.title}
             </h3>
-            <p className="text-slate-400 text-sm leading-relaxed mb-6">
+            <p className="text-[var(--ds-text-secondary)] text-sm leading-relaxed mb-6">
               {step.description}
             </p>
 
@@ -162,7 +162,7 @@ export function GuidedTour({ onComplete, onSkip }: GuidedTourProps) {
                 <Button
                   variant="ghost"
                   onClick={handleNext}
-                  className="text-slate-400 hover:text-white"
+                  className="text-[var(--ds-text-secondary)] hover:text-[var(--ds-text-primary)]"
                 >
                   Depois
                 </Button>
@@ -182,7 +182,7 @@ export function GuidedTour({ onComplete, onSkip }: GuidedTourProps) {
 
           {/* Footer hint */}
           <div className="px-6 pb-4">
-            <p className="text-xs text-slate-600 text-center">
+            <p className="text-xs text-[var(--ds-text-muted)] text-center">
               Pressione ESC ou clique fora para pular
             </p>
           </div>

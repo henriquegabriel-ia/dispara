@@ -149,7 +149,7 @@ describe('getCampaignStatusClass', () => {
 
   it('retorna classe correta para CANCELLED', () => {
     expect(getCampaignStatusClass(CampaignStatus.CANCELLED)).toBe(
-      'bg-slate-800 border-slate-700/70 text-slate-300'
+      'bg-[var(--ds-bg-surface)] border-[var(--ds-border-default)] text-[var(--ds-text-secondary)]'
     )
   })
 
@@ -173,13 +173,13 @@ describe('getCampaignStatusClass', () => {
 
   it('retorna classe padrao para DRAFT', () => {
     expect(getCampaignStatusClass(CampaignStatus.DRAFT)).toBe(
-      'bg-slate-800 border-slate-700 text-slate-400'
+      'bg-[var(--ds-bg-surface)] border-[var(--ds-border-default)] text-[var(--ds-text-secondary)]'
     )
   })
 
   it('retorna classe padrao para status desconhecido', () => {
     expect(getCampaignStatusClass('unknown' as CampaignStatus)).toBe(
-      'bg-slate-800 border-slate-700 text-slate-400'
+      'bg-[var(--ds-bg-surface)] border-[var(--ds-border-default)] text-[var(--ds-text-secondary)]'
     )
   })
 })
@@ -293,25 +293,25 @@ describe('computePerfSourceLabel', () => {
   it('retorna label padrao para undefined', () => {
     const result = computePerfSourceLabel(undefined)
     expect(result.label).toBe('Dados: —')
-    expect(result.tone).toBe('text-slate-500 bg-[var(--ds-bg-elevated)] border-[var(--ds-border-subtle)]')
+    expect(result.tone).toBe('text-[var(--ds-text-muted)] bg-[var(--ds-bg-elevated)] border-[var(--ds-border-subtle)]')
   })
 
   it('retorna label padrao para string vazia', () => {
     const result = computePerfSourceLabel('')
     expect(result.label).toBe('Dados: —')
-    expect(result.tone).toBe('text-slate-500 bg-[var(--ds-bg-elevated)] border-[var(--ds-border-subtle)]')
+    expect(result.tone).toBe('text-[var(--ds-text-muted)] bg-[var(--ds-bg-elevated)] border-[var(--ds-border-subtle)]')
   })
 
   it('retorna label padrao para string com espacos', () => {
     const result = computePerfSourceLabel('   ')
     expect(result.label).toBe('Dados: —')
-    expect(result.tone).toBe('text-slate-500 bg-[var(--ds-bg-elevated)] border-[var(--ds-border-subtle)]')
+    expect(result.tone).toBe('text-[var(--ds-text-muted)] bg-[var(--ds-bg-elevated)] border-[var(--ds-border-subtle)]')
   })
 
   it('retorna label customizado para source desconhecido', () => {
     const result = computePerfSourceLabel('custom_source')
     expect(result.label).toBe('Dados: custom_source')
-    expect(result.tone).toBe('text-slate-500 bg-[var(--ds-bg-elevated)] border-[var(--ds-border-subtle)]')
+    expect(result.tone).toBe('text-[var(--ds-text-muted)] bg-[var(--ds-bg-elevated)] border-[var(--ds-border-subtle)]')
   })
 
   it('faz trim em sources com espacos', () => {

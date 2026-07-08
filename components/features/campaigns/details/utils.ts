@@ -28,7 +28,7 @@ export const getCampaignStatusClass = (status: CampaignStatus): string => {
     case CampaignStatus.SENDING:
       return 'bg-blue-500/10 border-blue-500/20 text-blue-400';
     case CampaignStatus.CANCELLED:
-      return 'bg-slate-800 border-slate-700/70 text-slate-300';
+      return 'bg-[var(--ds-bg-surface)] border-[var(--ds-border-default)] text-[var(--ds-text-secondary)]';
     case CampaignStatus.PAUSED:
       return 'bg-amber-500/10 border-amber-500/20 text-amber-400';
     case CampaignStatus.SCHEDULED:
@@ -36,7 +36,7 @@ export const getCampaignStatusClass = (status: CampaignStatus): string => {
     case CampaignStatus.FAILED:
       return 'bg-red-500/10 border-red-500/20 text-red-400';
     default:
-      return 'bg-slate-800 border-slate-700 text-slate-400';
+      return 'bg-[var(--ds-bg-surface)] border-[var(--ds-border-default)] text-[var(--ds-text-secondary)]';
   }
 };
 
@@ -63,8 +63,8 @@ export const computePerfSourceLabel = (source: string | undefined): { label: str
   const s = String(source || '').trim();
   if (s === 'run_metrics') return { label: 'Dados: avançados', tone: 'text-primary-300 bg-primary-500/10 border-primary-500/20' };
   if (s === 'campaigns_fallback') return { label: 'Dados: básicos', tone: 'text-amber-200 bg-amber-500/10 border-amber-500/20' };
-  if (!s) return { label: 'Dados: —', tone: 'text-slate-500 bg-[var(--ds-bg-elevated)] border-[var(--ds-border-subtle)]' };
-  return { label: `Dados: ${s}`, tone: 'text-slate-500 bg-[var(--ds-bg-elevated)] border-[var(--ds-border-subtle)]' };
+  if (!s) return { label: 'Dados: —', tone: 'text-[var(--ds-text-muted)] bg-[var(--ds-bg-elevated)] border-[var(--ds-border-subtle)]' };
+  return { label: `Dados: ${s}`, tone: 'text-[var(--ds-text-muted)] bg-[var(--ds-bg-elevated)] border-[var(--ds-border-subtle)]' };
 };
 
 export const computeLimiterInfo = (

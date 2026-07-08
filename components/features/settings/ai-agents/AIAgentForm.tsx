@@ -399,7 +399,7 @@ export function AIAgentForm({
 
                       return (
                         <SelectGroup key={provider.id}>
-                          <SelectLabel className="flex items-center gap-2 text-xs font-semibold text-slate-400">
+                          <SelectLabel className="flex items-center gap-2 text-xs font-semibold text-[var(--ds-text-secondary)]">
                             <span>{provider.icon}</span>
                             <span>{provider.name}</span>
                           </SelectLabel>

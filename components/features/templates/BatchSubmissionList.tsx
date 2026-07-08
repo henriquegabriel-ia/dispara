@@ -38,10 +38,10 @@ export function BatchSubmissionList({
         return (
             <Container variant="default" padding="none" className="flex flex-col items-center justify-center py-16 px-4 border-dashed">
                 <div className="w-16 h-16 rounded-full bg-[var(--ds-bg-surface)]/30 border border-[var(--ds-border-subtle)] flex items-center justify-center mb-4">
-                    <Clock className="w-8 h-8 text-slate-500" />
+                    <Clock className="w-8 h-8 text-[var(--ds-text-muted)]" />
                 </div>
-                <h3 className="text-lg font-medium text-white mb-2">Nenhuma submissão ainda</h3>
-                <p className="text-slate-400 text-center max-w-md mb-6">
+                <h3 className="text-lg font-medium text-[var(--ds-text-primary)] mb-2">Nenhuma submissão ainda</h3>
+                <p className="text-[var(--ds-text-secondary)] text-center max-w-md mb-6">
                     Gere sua primeira levas de templates para começar a fábrica.
                 </p>
             </Container>
@@ -54,9 +54,9 @@ export function BatchSubmissionList({
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <Container variant="default" padding="md" className="flex items-center justify-between">
                     <div>
-                        <p className="text-slate-400 text-xs font-medium uppercase tracking-wider mb-1">Cota por Hora</p>
-                        <h3 className={`text-2xl font-bold ${hourlyCount >= 100 ? 'text-amber-300' : 'text-white'}`}>
-                            {hourlyCount}<span className="text-slate-600 text-base">/100</span>
+                        <p className="text-[var(--ds-text-secondary)] text-xs font-medium uppercase tracking-wider mb-1">Cota por Hora</p>
+                        <h3 className={`text-2xl font-bold ${hourlyCount >= 100 ? 'text-amber-300' : 'text-[var(--ds-text-primary)]'}`}>
+                            {hourlyCount}<span className="text-[var(--ds-text-muted)] text-base">/100</span>
                         </h3>
                     </div>
                     <div className="h-10 w-10 rounded-full bg-[var(--ds-bg-surface)]/30 border border-[var(--ds-border-subtle)] flex items-center justify-center">
@@ -70,13 +70,13 @@ export function BatchSubmissionList({
                     <table className="w-full text-left">
                         <thead>
                             <tr className="border-b border-[var(--ds-border-subtle)] bg-[var(--ds-bg-surface)]/30">
-                                <th className="px-6 py-4 text-xs font-semibold text-slate-400 uppercase tracking-widest">Nome</th>
-                                <th className="px-6 py-4 text-xs font-semibold text-slate-400 uppercase tracking-widest">Progresso</th>
-                                <th className="px-6 py-4 text-xs font-semibold text-slate-400 uppercase tracking-widest text-center">Gerados</th>
-                                <th className="px-6 py-4 text-xs font-semibold text-slate-400 uppercase tracking-widest text-center">Utility</th>
-                                <th className="px-6 py-4 text-xs font-semibold text-slate-400 uppercase tracking-widest text-center">Mkt</th>
-                                <th className="px-6 py-4 text-xs font-semibold text-slate-400 uppercase tracking-widest">Criado Em</th>
-                                <th className="px-6 py-4 text-xs font-semibold text-slate-400 uppercase tracking-widest text-right">Ações</th>
+                                <th className="px-6 py-4 text-xs font-semibold text-[var(--ds-text-secondary)] uppercase tracking-widest">Nome</th>
+                                <th className="px-6 py-4 text-xs font-semibold text-[var(--ds-text-secondary)] uppercase tracking-widest">Progresso</th>
+                                <th className="px-6 py-4 text-xs font-semibold text-[var(--ds-text-secondary)] uppercase tracking-widest text-center">Gerados</th>
+                                <th className="px-6 py-4 text-xs font-semibold text-[var(--ds-text-secondary)] uppercase tracking-widest text-center">Utility</th>
+                                <th className="px-6 py-4 text-xs font-semibold text-[var(--ds-text-secondary)] uppercase tracking-widest text-center">Mkt</th>
+                                <th className="px-6 py-4 text-xs font-semibold text-[var(--ds-text-secondary)] uppercase tracking-widest">Criado Em</th>
+                                <th className="px-6 py-4 text-xs font-semibold text-[var(--ds-text-secondary)] uppercase tracking-widest text-right">Ações</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-white/10">
@@ -99,10 +99,10 @@ export function BatchSubmissionList({
                                         <td className="px-6 py-4 max-w-[300px]">
                                             <div className="flex items-center gap-3">
                                                 <div className="min-w-0">
-                                                    <h3 className="font-medium text-white group-hover:text-primary-200 transition-colors truncate max-w-[280px]" title={submission.name}>
+                                                    <h3 className="font-medium text-[var(--ds-text-primary)] group-hover:text-primary-200 transition-colors truncate max-w-[280px]" title={submission.name}>
                                                         {submission.name}
                                                     </h3>
-                                                    <span className="text-xs text-slate-500">
+                                                    <span className="text-xs text-[var(--ds-text-muted)]">
                                                         {isProcessing ? 'Processando...' : 'Concluído'}
                                                     </span>
                                                 </div>
@@ -119,7 +119,7 @@ export function BatchSubmissionList({
                                         </td>
 
                                         <td className="px-6 py-4 text-center">
-                                            <span className="text-sm text-slate-300 font-medium">{submission.stats.total}</span>
+                                            <span className="text-sm text-[var(--ds-text-secondary)] font-medium">{submission.stats.total}</span>
                                         </td>
 
                                         <td className="px-6 py-4 text-center">
@@ -128,7 +128,7 @@ export function BatchSubmissionList({
                                                     {submission.stats.utility}
                                                 </span>
                                             ) : (
-                                                <span className="text-xs text-slate-500">-</span>
+                                                <span className="text-xs text-[var(--ds-text-muted)]">-</span>
                                             )}
                                         </td>
 
@@ -138,11 +138,11 @@ export function BatchSubmissionList({
                                                     {submission.stats.marketing}
                                                 </span>
                                             ) : (
-                                                <span className="text-xs text-slate-500">-</span>
+                                                <span className="text-xs text-[var(--ds-text-muted)]">-</span>
                                             )}
                                         </td>
 
-                                        <td className="px-6 py-4 text-sm text-slate-400 whitespace-nowrap">
+                                        <td className="px-6 py-4 text-sm text-[var(--ds-text-secondary)] whitespace-nowrap">
                                             {new Date(submission.createdAt).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
                                         </td>
 
@@ -152,7 +152,7 @@ export function BatchSubmissionList({
                                                     e.stopPropagation();
                                                     onDeleteSubmission(submission.id);
                                                 }}
-                                                className="p-2 text-slate-500 hover:text-amber-300 hover:bg-amber-500/10 rounded-lg transition-colors"
+                                                className="p-2 text-[var(--ds-text-muted)] hover:text-amber-300 hover:bg-amber-500/10 rounded-lg transition-colors"
                                                 title="Excluir submissão"
                                             >
                                                 <Trash2 className="w-4 h-4" />

@@ -20,7 +20,7 @@ const FlowCanvas = dynamic(() => import("@/components/flow-builder/FlowCanvas"),
 function CanvasLoading() {
   return (
     <div className="flex h-full w-full items-center justify-center">
-      <Loader2 className="size-6 animate-spin text-slate-500" />
+      <Loader2 className="size-6 animate-spin text-[var(--ds-text-muted)]" />
     </div>
   );
 }
@@ -48,10 +48,10 @@ export default function BuilderPage({ params }: BuilderPageProps) {
         ) : loadError ? (
           <div className="flex h-full w-full items-center justify-center">
             <div className="rounded-lg border border-border bg-card p-8 text-center shadow-lg">
-              <h1 className="mb-2 text-xl font-semibold text-slate-100">
+              <h1 className="mb-2 text-xl font-semibold text-[var(--ds-text-primary)]">
                 Não foi possível carregar o fluxo
               </h1>
-              <p className="text-sm text-slate-400">
+              <p className="text-sm text-[var(--ds-text-secondary)]">
                 Verifique a conexão e tente novamente.
               </p>
             </div>

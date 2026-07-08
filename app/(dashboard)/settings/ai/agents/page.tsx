@@ -87,9 +87,9 @@ export default function AIAgentsSettingsPage() {
 
               {/* Agent selector */}
               <div className="flex items-center gap-2">
-                <label className="text-sm text-slate-400">Agente:</label>
+                <label className="text-sm text-[var(--ds-text-secondary)]">Agente:</label>
                 <select
-                  className="px-3 py-2 rounded-md bg-slate-800 border border-slate-700 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-primary-500 min-w-[200px]"
+                  className="px-3 py-2 rounded-md bg-[var(--ds-bg-surface)] border border-[var(--ds-border-default)] text-sm text-[var(--ds-text-primary)] focus:outline-none focus:ring-2 focus:ring-primary-500 min-w-[200px]"
                   value={selectedAgent?.id ?? ''}
                   onChange={(e) => {
                     const agent = controller.agents.find((a) => a.id === e.target.value)

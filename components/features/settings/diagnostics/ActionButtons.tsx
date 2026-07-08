@@ -23,7 +23,7 @@ export function ActionButtons(props: ActionButtonsProps) {
             <Link
               key={a.id}
               href={a.href}
-              className="px-3 py-2 rounded-lg bg-[var(--ds-bg-hover)] text-white hover:bg-[var(--ds-bg-hover)] border border-[var(--ds-border-subtle)] hover:border-[var(--ds-border-default)] transition-all text-sm font-medium inline-flex items-center gap-2"
+              className="px-3 py-2 rounded-lg bg-[var(--ds-bg-hover)] text-[var(--ds-text-primary)] hover:bg-[var(--ds-bg-hover)] border border-[var(--ds-border-subtle)] hover:border-[var(--ds-border-default)] transition-all text-sm font-medium inline-flex items-center gap-2"
             >
               <ExternalLink size={14} />
               {a.label}

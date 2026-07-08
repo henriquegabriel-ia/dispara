@@ -157,20 +157,20 @@ interface InstallBannerProps {
 function InstallBanner({ onInstall, onDismiss }: InstallBannerProps) {
   return (
     <div className="fixed bottom-4 left-4 right-4 md:left-auto md:right-4 md:w-80 z-50 animate-in slide-in-from-bottom-4 duration-300">
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-2xl">
+      <div className="bg-[var(--ds-bg-elevated)] border border-[var(--ds-border-default)] rounded-xl p-4 shadow-2xl">
         <div className="flex items-start gap-3">
           <div className="w-10 h-10 rounded-lg bg-primary-500/10 flex items-center justify-center shrink-0">
             <Download className="w-5 h-5 text-primary-400" />
           </div>
           <div className="flex-1 min-w-0">
-            <h3 className="text-sm font-semibold text-slate-100">Instalar Dispara</h3>
-            <p className="text-xs text-slate-400 mt-0.5">
+            <h3 className="text-sm font-semibold text-[var(--ds-text-primary)]">Instalar Dispara</h3>
+            <p className="text-xs text-[var(--ds-text-secondary)] mt-0.5">
               Acesse mais rápido direto da sua tela inicial
             </p>
           </div>
           <button
             onClick={onDismiss}
-            className="text-slate-500 hover:text-slate-300 transition-colors"
+            className="text-[var(--ds-text-muted)] hover:text-[var(--ds-text-secondary)] transition-colors"
           >
             <X className="w-4 h-4" />
           </button>
@@ -179,7 +179,7 @@ function InstallBanner({ onInstall, onDismiss }: InstallBannerProps) {
         <div className="flex gap-2 mt-3">
           <button
             onClick={onDismiss}
-            className="flex-1 px-3 py-2 text-xs font-medium text-slate-400 hover:text-slate-200 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors"
+            className="flex-1 px-3 py-2 text-xs font-medium text-[var(--ds-text-secondary)] hover:text-[var(--ds-text-primary)] bg-[var(--ds-bg-surface)] hover:bg-[var(--ds-bg-hover)] rounded-lg transition-colors"
           >
             Depois
           </button>
@@ -271,7 +271,7 @@ export function PushToggleButton() {
     return (
       <button
         disabled
-        className="flex items-center gap-2 px-3 py-2 text-xs text-slate-500 bg-slate-800/50 rounded-lg cursor-not-allowed"
+        className="flex items-center gap-2 px-3 py-2 text-xs text-[var(--ds-text-muted)] bg-[var(--ds-bg-surface)] rounded-lg cursor-not-allowed"
       >
         <BellOff className="w-4 h-4" />
         Não suportado
@@ -300,7 +300,7 @@ export function PushToggleButton() {
         'flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-lg transition-colors',
         isPushEnabled
           ? 'text-primary-400 bg-primary-500/10 hover:bg-primary-500/20'
-          : 'text-slate-400 bg-slate-800 hover:bg-slate-700'
+          : 'text-[var(--ds-text-secondary)] bg-[var(--ds-bg-surface)] hover:bg-[var(--ds-bg-hover)]'
       )}
     >
       {isPushEnabled ? (

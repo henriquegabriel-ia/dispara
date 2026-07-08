@@ -12,8 +12,8 @@ export function NextSteps({ value }: NextStepsProps) {
 
   return (
     <div className="mt-3">
-      <div className="text-xs text-slate-400">Passo a passo sugerido</div>
-      <ul className="mt-2 list-disc pl-5 space-y-1 text-sm text-slate-200">
+      <div className="text-xs text-[var(--ds-text-secondary)]">Passo a passo sugerido</div>
+      <ul className="mt-2 list-disc pl-5 space-y-1 text-sm text-[var(--ds-text-primary)]">
         {steps.map((s, idx) => (
           <li key={idx}>{typeof s === 'string' ? s : formatJsonMaybe(s)}</li>
         ))}

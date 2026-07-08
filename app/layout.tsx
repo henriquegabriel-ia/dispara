@@ -70,7 +70,9 @@ export default async function RootLayout({
     brand.primaryColor.toLowerCase() !== DEFAULT_BRAND.primaryColor.toLowerCase()
 
   return (
-    <html lang="pt-BR" className={`${inter.variable} ${jetbrainsMono.variable} dark`} suppressHydrationWarning>
+    // Classe de tema (dark|light) é gerenciada pelo next-themes (Providers);
+    // dark é o default. suppressHydrationWarning cobre a troca no client.
+    <html lang="pt-BR" className={`${inter.variable} ${jetbrainsMono.variable}`} suppressHydrationWarning>
       <body className="font-sans antialiased">
         {hasCustomColor && (
           <style

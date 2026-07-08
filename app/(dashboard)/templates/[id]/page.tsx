@@ -403,7 +403,7 @@ export default function TemplateProjectDetailsPage() {
                 </div>
                 <button
                     onClick={() => router.push('/templates?tab=projects')}
-                    className="flex items-center gap-2 text-slate-400 hover:text-white"
+                    className="flex items-center gap-2 text-[var(--ds-text-secondary)] hover:text-[var(--ds-text-primary)]"
                 >
                     <ArrowLeft className="w-4 h-4" />
                     Voltar para lista
@@ -419,7 +419,7 @@ export default function TemplateProjectDetailsPage() {
                     <div className="flex items-center gap-3">
                         <button
                             onClick={() => router.push('/templates?tab=projects')}
-                            className="p-2 -ml-2 text-slate-400 hover:text-white hover:bg-[var(--ds-bg-hover)] rounded-lg transition-colors border border-[var(--ds-border-subtle)] bg-[var(--ds-bg-surface)]/30"
+                            className="p-2 -ml-2 text-[var(--ds-text-secondary)] hover:text-[var(--ds-text-primary)] hover:bg-[var(--ds-bg-hover)] rounded-lg transition-colors border border-[var(--ds-border-subtle)] bg-[var(--ds-bg-surface)]/30"
                             aria-label="Voltar para projetos"
                         >
                             <ArrowLeft className="w-5 h-5" />
@@ -438,7 +438,7 @@ export default function TemplateProjectDetailsPage() {
                                                 if (e.key === 'Escape') handleCancelEdit();
                                             }}
                                             autoFocus
-                                            className="text-2xl sm:text-3xl font-bold bg-transparent border-b-2 border-primary-500 outline-none text-white min-w-[200px]"
+                                            className="text-2xl sm:text-3xl font-bold bg-transparent border-b-2 border-primary-500 outline-none text-[var(--ds-text-primary)] min-w-[200px]"
                                         />
                                         <button
                                             onClick={handleSaveTitle}
@@ -450,7 +450,7 @@ export default function TemplateProjectDetailsPage() {
                                         </button>
                                         <button
                                             onClick={handleCancelEdit}
-                                            className="p-1.5 text-slate-400 hover:bg-[var(--ds-bg-hover)] rounded-lg transition-colors"
+                                            className="p-1.5 text-[var(--ds-text-secondary)] hover:bg-[var(--ds-bg-hover)] rounded-lg transition-colors"
                                             title="Cancelar"
                                         >
                                             <X className="w-5 h-5" />
@@ -461,14 +461,14 @@ export default function TemplateProjectDetailsPage() {
                                         <PageTitle className="text-2xl sm:text-3xl truncate">{project.title}</PageTitle>
                                         <button
                                             onClick={handleStartEdit}
-                                            className="p-1.5 text-slate-400 hover:text-white hover:bg-[var(--ds-bg-hover)] rounded-lg transition-colors"
+                                            className="p-1.5 text-[var(--ds-text-secondary)] hover:text-[var(--ds-text-primary)] hover:bg-[var(--ds-bg-hover)] rounded-lg transition-colors"
                                             title="Renomear projeto"
                                         >
                                             <Pencil className="w-4 h-4" />
                                         </button>
                                     </>
                                 )}
-                                <span className="px-2 py-0.5 text-xs rounded-full border bg-[var(--ds-bg-surface)]/30 border-[var(--ds-border-subtle)] text-slate-400 shrink-0">
+                                <span className="px-2 py-0.5 text-xs rounded-full border bg-[var(--ds-bg-surface)]/30 border-[var(--ds-border-subtle)] text-[var(--ds-text-secondary)] shrink-0">
                                     {groups.DRAFT.length === 0 && groups.PENDING.length === 0 ? 'Concluído' : 'Em Progresso'}
                                 </span>
                             </div>
@@ -483,7 +483,7 @@ export default function TemplateProjectDetailsPage() {
                     <button
                         onClick={() => syncProjectMutation.mutate()}
                         disabled={syncProjectMutation.isPending}
-                        className="px-3 py-2 bg-[var(--ds-bg-surface)]/30 border border-[var(--ds-border-subtle)] text-slate-200 rounded-lg hover:bg-[var(--ds-bg-hover)] transition-colors flex items-center gap-2 text-sm disabled:opacity-50"
+                        className="px-3 py-2 bg-[var(--ds-bg-surface)]/30 border border-[var(--ds-border-subtle)] text-[var(--ds-text-primary)] rounded-lg hover:bg-[var(--ds-bg-hover)] transition-colors flex items-center gap-2 text-sm disabled:opacity-50"
                     >
                         <RefreshCw className={cn("w-4 h-4", syncProjectMutation.isPending && "animate-spin")} />
                         {syncProjectMutation.isPending ? 'Sincronizando...' : 'Sincronizar Meta'}
@@ -492,7 +492,7 @@ export default function TemplateProjectDetailsPage() {
                     {groups.DRAFT.length > 0 && (
                         <button
                             onClick={toggleSelectAll}
-                            className="px-3 py-2 bg-[var(--ds-bg-surface)]/30 border border-[var(--ds-border-subtle)] text-slate-200 rounded-lg hover:bg-[var(--ds-bg-hover)] transition-colors flex items-center gap-2 text-sm"
+                            className="px-3 py-2 bg-[var(--ds-bg-surface)]/30 border border-[var(--ds-border-subtle)] text-[var(--ds-text-primary)] rounded-lg hover:bg-[var(--ds-bg-hover)] transition-colors flex items-center gap-2 text-sm"
                         >
                             {selectedItems.length === groups.DRAFT.length ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
                             Selecionar Tudo
@@ -568,14 +568,14 @@ export default function TemplateProjectDetailsPage() {
                                             'text-primary-300': section.color === 'purple',
                                             'text-red-300': section.color === 'red',
                                             'text-amber-300': section.color === 'yellow',
-                                            'text-slate-400': section.color === 'slate',
+                                            'text-[var(--ds-text-secondary)]': section.color === 'slate',
                                         })} />
-                                        <span className="font-medium text-white">{section.label}</span>
-                                        <span className="px-2 py-0.5 rounded-full bg-[var(--ds-bg-surface)]/30 border border-[var(--ds-border-subtle)] text-xs text-slate-400">
+                                        <span className="font-medium text-[var(--ds-text-primary)]">{section.label}</span>
+                                        <span className="px-2 py-0.5 rounded-full bg-[var(--ds-bg-surface)]/30 border border-[var(--ds-border-subtle)] text-xs text-[var(--ds-text-secondary)]">
                                             {section.count}
                                         </span>
                                     </div>
-                                    <ChevronDown className={cn("w-4 h-4 text-slate-400 transition-transform", { "rotate-180": isExpanded })} />
+                                    <ChevronDown className={cn("w-4 h-4 text-[var(--ds-text-secondary)] transition-transform", { "rotate-180": isExpanded })} />
                                 </button>
 
                                 {isExpanded && (
@@ -597,7 +597,7 @@ export default function TemplateProjectDetailsPage() {
                                                 )}>
                                                     <Check className="w-3.5 h-3.5" />
                                                 </div>
-                                                <span className="text-sm text-slate-400">
+                                                <span className="text-sm text-[var(--ds-text-secondary)]">
                                                     {selectedItems.length === groups.DRAFT.length && groups.DRAFT.length > 0
                                                         ? 'Desmarcar tudo'
                                                         : `Selecionar tudo (${groups.DRAFT.length})`}
@@ -641,7 +641,7 @@ export default function TemplateProjectDetailsPage() {
                                                                 {item.name}
                                                             </span>
                                                             <div className="flex items-center gap-2">
-                                                            <span className="text-xs text-slate-400 flex items-center gap-1 shrink-0">
+                                                            <span className="text-xs text-[var(--ds-text-secondary)] flex items-center gap-1 shrink-0">
                                                                 <Copy className="w-3 h-3" />
                                                                 {item.language}
                                                             </span>
@@ -653,7 +653,7 @@ export default function TemplateProjectDetailsPage() {
                                                                             editItemMutation.mutate(item);
                                                                         }}
                                                                         disabled={editItemMutation.isPending}
-                                                                        className="p-1 text-slate-400 hover:text-primary-300 hover:bg-primary-500/10 rounded transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-50"
+                                                                        className="p-1 text-[var(--ds-text-secondary)] hover:text-primary-300 hover:bg-primary-500/10 rounded transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-50"
                                                                         title="Editar template"
                                                                     >
                                                                         <Pencil className="w-3.5 h-3.5" />
@@ -665,7 +665,7 @@ export default function TemplateProjectDetailsPage() {
                                                                                 deleteItemMutation.mutate(item.id);
                                                                             }
                                                                         }}
-                                                                        className="p-1 text-slate-400 hover:text-amber-300 hover:bg-amber-500/10 rounded transition-colors opacity-0 group-hover:opacity-100"
+                                                                        className="p-1 text-[var(--ds-text-secondary)] hover:text-amber-300 hover:bg-amber-500/10 rounded transition-colors opacity-0 group-hover:opacity-100"
                                                                         title="Excluir rascunho"
                                                                     >
                                                                         <Trash2 className="w-3.5 h-3.5" />
@@ -674,7 +674,7 @@ export default function TemplateProjectDetailsPage() {
                                                                 )}
                                                             </div>
                                                         </div>
-                                                        <p className="text-xs text-slate-400 line-clamp-2">
+                                                        <p className="text-xs text-[var(--ds-text-secondary)] line-clamp-2">
                                                             {item.content}
                                                         </p>
                                                     </div>
@@ -693,7 +693,7 @@ export default function TemplateProjectDetailsPage() {
                 <div className="hidden lg:flex col-span-4 border-l border-[var(--ds-border-subtle)] pl-6 flex-col min-h-0">
                 {previewItem ? (
                     <div className="sticky top-6 w-full">
-                        <h3 className="text-sm font-medium text-slate-400 mb-4 text-center">
+                        <h3 className="text-sm font-medium text-[var(--ds-text-secondary)] mb-4 text-center">
                             Pré-visualização
                         </h3>
                         <WhatsAppPhonePreview
@@ -708,8 +708,8 @@ export default function TemplateProjectDetailsPage() {
                             size="md"
                         />
                         <div className="mt-6 p-4 bg-[var(--ds-bg-elevated)] border border-[var(--ds-border-subtle)] rounded-2xl shadow-[0_12px_30px_rgba(0,0,0,0.35)]">
-                            <h4 className="text-sm font-medium text-white mb-2">Detalhes Técnicos</h4>
-                            <div className="space-y-2 text-xs text-slate-400">
+                            <h4 className="text-sm font-medium text-[var(--ds-text-primary)] mb-2">Detalhes Técnicos</h4>
+                            <div className="space-y-2 text-xs text-[var(--ds-text-secondary)]">
                                 <div className="flex justify-between">
                                     <span>Status Meta:</span>
                                     <span className={cn(
@@ -727,7 +727,7 @@ export default function TemplateProjectDetailsPage() {
                         </div>
                     </div>
                 ) : (
-                    <div className="h-full flex flex-col items-center justify-center text-slate-400 border border-dashed border-[var(--ds-border-subtle)] rounded-2xl bg-[var(--ds-bg-elevated)] shadow-[0_12px_30px_rgba(0,0,0,0.35)] w-full">
+                    <div className="h-full flex flex-col items-center justify-center text-[var(--ds-text-secondary)] border border-dashed border-[var(--ds-border-subtle)] rounded-2xl bg-[var(--ds-bg-elevated)] shadow-[0_12px_30px_rgba(0,0,0,0.35)] w-full">
                         <Eye className="w-12 h-12 mb-4 opacity-50" />
                         <p className="text-sm">Selecione um template para visualizar</p>
                     </div>
@@ -745,7 +745,7 @@ function StatCard({ label, count, total, color, icon: Icon }: any) {
         purple: 'text-primary-300 bg-primary-500/10 border-primary-500/20',
         yellow: 'text-amber-300 bg-amber-500/10 border-amber-500/20',
         red: 'text-amber-200 bg-amber-500/10 border-amber-500/20',
-        slate: 'text-slate-400 bg-slate-500/10 border-[var(--ds-border-subtle)]',
+        slate: 'text-[var(--ds-text-secondary)] bg-slate-500/10 border-[var(--ds-border-subtle)]',
     };
 
     return (

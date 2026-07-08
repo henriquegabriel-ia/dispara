@@ -89,7 +89,7 @@ function CopyButton({ text, label }: { text: string; label: string }) {
   return (
     <button
       onClick={handleCopy}
-      className="p-1.5 rounded hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition-colors"
+      className="p-1.5 rounded hover:bg-[var(--ds-bg-hover)] text-[var(--ds-text-secondary)] hover:text-[var(--ds-text-primary)] transition-colors"
       title={`Copiar ${label}`}
     >
       <Copy size={14} />
@@ -125,20 +125,20 @@ function AttendantCard({
 
   return (
     <div className={`
-      bg-slate-900 border rounded-xl p-5
-      ${attendant.is_active ? 'border-slate-800' : 'border-red-900/30 opacity-60'}
+      bg-[var(--ds-bg-elevated)] border rounded-xl p-5
+      ${attendant.is_active ? 'border-[var(--ds-border-default)]' : 'border-red-900/30 opacity-60'}
     `}>
       <div className="flex items-start justify-between gap-4 mb-4">
         <div className="flex items-center gap-3">
           <div className={`
             w-10 h-10 rounded-lg flex items-center justify-center text-lg font-semibold
-            ${attendant.is_active ? 'bg-primary-500/10 text-primary-400' : 'bg-slate-700 text-slate-400'}
+            ${attendant.is_active ? 'bg-primary-500/10 text-primary-400' : 'bg-[var(--ds-bg-surface)] text-[var(--ds-text-secondary)]'}
           `}>
             {attendant.name.charAt(0).toUpperCase()}
           </div>
           <div>
-            <h4 className="font-medium text-slate-100">{attendant.name}</h4>
-            <p className="text-xs text-slate-500">
+            <h4 className="font-medium text-[var(--ds-text-primary)]">{attendant.name}</h4>
+            <p className="text-xs text-[var(--ds-text-muted)]">
               {attendant.access_count} acesso{attendant.access_count !== 1 ? 's' : ''}
               {attendant.last_used_at && ` • Último: ${formatDate(attendant.last_used_at)}`}
             </p>
@@ -209,7 +209,7 @@ function AttendantCard({
           inline-flex items-center gap-1 px-2 py-1 rounded text-xs
           ${attendant.permissions.canView
             ? 'bg-blue-500/10 text-blue-400'
-            : 'bg-slate-800 text-slate-500'
+            : 'bg-[var(--ds-bg-surface)] text-[var(--ds-text-muted)]'
           }
         `}>
           <Eye size={12} />
@@ -219,7 +219,7 @@ function AttendantCard({
           inline-flex items-center gap-1 px-2 py-1 rounded text-xs
           ${attendant.permissions.canReply
             ? 'bg-green-500/10 text-green-400'
-            : 'bg-slate-800 text-slate-500'
+            : 'bg-[var(--ds-bg-surface)] text-[var(--ds-text-muted)]'
           }
         `}>
           <Shield size={12} />
@@ -229,7 +229,7 @@ function AttendantCard({
           inline-flex items-center gap-1 px-2 py-1 rounded text-xs
           ${attendant.permissions.canHandoff
             ? 'bg-primary-500/10 text-primary-400'
-            : 'bg-slate-800 text-slate-500'
+            : 'bg-[var(--ds-bg-surface)] text-[var(--ds-text-muted)]'
           }
         `}>
           <Users size={12} />
@@ -238,13 +238,13 @@ function AttendantCard({
       </div>
 
       {/* URL de Acesso */}
-      <div className="bg-slate-800/50 rounded-lg p-3">
+      <div className="bg-[var(--ds-bg-surface)] rounded-lg p-3">
         <div className="flex items-center justify-between mb-1">
-          <span className="text-xs font-medium text-slate-400">Link de Acesso</span>
+          <span className="text-xs font-medium text-[var(--ds-text-secondary)]">Link de Acesso</span>
           <div className="flex items-center gap-1">
             <button
               onClick={() => setShowToken(!showToken)}
-              className="p-1 rounded hover:bg-slate-700 text-slate-400 hover:text-slate-200"
+              className="p-1 rounded hover:bg-[var(--ds-bg-hover)] text-[var(--ds-text-secondary)] hover:text-[var(--ds-text-primary)]"
             >
               {showToken ? <EyeOff size={12} /> : <Eye size={12} />}
             </button>
@@ -253,20 +253,20 @@ function AttendantCard({
               href={accessUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="p-1 rounded hover:bg-slate-700 text-slate-400 hover:text-slate-200"
+              className="p-1 rounded hover:bg-[var(--ds-bg-hover)] text-[var(--ds-text-secondary)] hover:text-[var(--ds-text-primary)]"
             >
               <ExternalLink size={12} />
             </a>
           </div>
         </div>
-        <p className="text-xs font-mono text-slate-300 truncate">
+        <p className="text-xs font-mono text-[var(--ds-text-secondary)] truncate">
           {showToken ? accessUrl : `${baseUrl}/atendimento?token=••••••••`}
         </p>
       </div>
 
       {/* Expiração */}
       {attendant.expires_at && (
-        <div className="flex items-center gap-1.5 mt-3 text-xs text-slate-500">
+        <div className="flex items-center gap-1.5 mt-3 text-xs text-[var(--ds-text-muted)]">
           <Clock size={12} />
           Expira em {formatDate(attendant.expires_at)}
         </div>
@@ -309,7 +309,7 @@ function CreateAttendantForm({ onSuccess }: { onSuccess: () => void }) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+    <form onSubmit={handleSubmit} className="bg-[var(--ds-bg-elevated)] border border-[var(--ds-border-default)] rounded-xl p-6">
       <h3 className="text-lg font-medium mb-4 flex items-center gap-2">
         <Plus size={18} className="text-primary-400" />
         Novo Atendente
@@ -326,7 +326,7 @@ function CreateAttendantForm({ onSuccess }: { onSuccess: () => void }) {
             onChange={(e) => setName(e.target.value)}
             className="max-w-sm"
           />
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-[var(--ds-text-muted)]">
             Use um nome que identifique o atendente
           </p>
         </div>
@@ -336,12 +336,12 @@ function CreateAttendantForm({ onSuccess }: { onSuccess: () => void }) {
           <Label>Permissões</Label>
 
           <div className="space-y-3">
-            <label className="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg cursor-pointer">
+            <label className="flex items-center justify-between p-3 bg-[var(--ds-bg-surface)] rounded-lg cursor-pointer">
               <div className="flex items-center gap-3">
                 <Eye size={16} className="text-blue-400" />
                 <div>
                   <p className="text-sm font-medium">Visualizar</p>
-                  <p className="text-xs text-slate-500">Ver conversas e mensagens</p>
+                  <p className="text-xs text-[var(--ds-text-muted)]">Ver conversas e mensagens</p>
                 </div>
               </div>
               <Switch
@@ -352,12 +352,12 @@ function CreateAttendantForm({ onSuccess }: { onSuccess: () => void }) {
               />
             </label>
 
-            <label className="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg cursor-pointer">
+            <label className="flex items-center justify-between p-3 bg-[var(--ds-bg-surface)] rounded-lg cursor-pointer">
               <div className="flex items-center gap-3">
                 <Shield size={16} className="text-green-400" />
                 <div>
                   <p className="text-sm font-medium">Responder</p>
-                  <p className="text-xs text-slate-500">Enviar mensagens aos clientes</p>
+                  <p className="text-xs text-[var(--ds-text-muted)]">Enviar mensagens aos clientes</p>
                 </div>
               </div>
               <Switch
@@ -368,12 +368,12 @@ function CreateAttendantForm({ onSuccess }: { onSuccess: () => void }) {
               />
             </label>
 
-            <label className="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg cursor-pointer">
+            <label className="flex items-center justify-between p-3 bg-[var(--ds-bg-surface)] rounded-lg cursor-pointer">
               <div className="flex items-center gap-3">
                 <Users size={16} className="text-primary-400" />
                 <div>
                   <p className="text-sm font-medium">Transferir</p>
-                  <p className="text-xs text-slate-500">Devolver conversas para a IA</p>
+                  <p className="text-xs text-[var(--ds-text-muted)]">Devolver conversas para a IA</p>
                 </div>
               </div>
               <Switch
@@ -465,7 +465,7 @@ export default function AttendantsPage() {
     return (
       <Page>
         <div className="flex items-center justify-center h-64">
-          <Loader2 className="w-8 h-8 animate-spin text-slate-500" />
+          <Loader2 className="w-8 h-8 animate-spin text-[var(--ds-text-muted)]" />
         </div>
       </Page>
     )
@@ -508,7 +508,7 @@ export default function AttendantsPage() {
               <h4 className="text-sm font-medium text-blue-300 mb-1">
                 Acesso sem conta
               </h4>
-              <p className="text-sm text-slate-400">
+              <p className="text-sm text-[var(--ds-text-secondary)]">
                 Cada atendente recebe um link único de acesso. Não é necessário criar conta
                 ou fazer login. Basta compartilhar o link e o atendente pode começar a usar.
               </p>
@@ -523,10 +523,10 @@ export default function AttendantsPage() {
 
         {/* Attendants list */}
         {attendants.length === 0 ? (
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-8 text-center">
-            <Users size={40} className="mx-auto text-slate-600 mb-3" />
+          <div className="bg-[var(--ds-bg-elevated)] border border-[var(--ds-border-default)] rounded-xl p-8 text-center">
+            <Users size={40} className="mx-auto text-[var(--ds-text-muted)] mb-3" />
             <h3 className="text-lg font-medium mb-1">Nenhum atendente</h3>
-            <p className="text-sm text-slate-500 mb-4">
+            <p className="text-sm text-[var(--ds-text-muted)] mb-4">
               Crie links de acesso para sua equipe
             </p>
             <Button onClick={() => setShowCreateForm(true)}>
@@ -537,7 +537,7 @@ export default function AttendantsPage() {
         ) : (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-medium text-slate-400">
+              <h3 className="text-sm font-medium text-[var(--ds-text-secondary)]">
                 {attendants.length} atendente{attendants.length !== 1 ? 's' : ''}
               </h3>
             </div>

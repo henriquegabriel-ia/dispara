@@ -26,7 +26,7 @@ export function InboxErrorFallback() {
             Tentar novamente
           </button>
         </div>
-        <p className="mt-6 text-xs text-slate-600">
+        <p className="mt-6 text-xs text-[var(--ds-text-muted)]">
           Se o problema persistir, verifique sua conexão ou entre em contato com o suporte.
         </p>
       </div>

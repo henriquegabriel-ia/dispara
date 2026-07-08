@@ -87,7 +87,7 @@ export function ConfirmDeleteModal({
           children
         ) : itemsToDelete && itemsToDelete.length > 0 ? (
           <>
-            <p className="text-sm text-slate-300 mb-3">
+            <p className="text-sm text-[var(--ds-text-secondary)] mb-3">
               Você está prestes a deletar{' '}
               <strong className="text-amber-300">{itemsToDelete.length} item(s)</strong>:
             </p>
@@ -95,7 +95,7 @@ export function ConfirmDeleteModal({
               {itemsToDelete.map((item) => (
                 <div
                   key={item}
-                  className="text-xs text-slate-400 font-mono bg-[var(--ds-bg-surface)]/30 px-2 py-1 rounded border border-[var(--ds-border-subtle)]"
+                  className="text-xs text-[var(--ds-text-secondary)] font-mono bg-[var(--ds-bg-surface)]/30 px-2 py-1 rounded border border-[var(--ds-border-subtle)]"
                 >
                   {item}
                 </div>
@@ -104,13 +104,13 @@ export function ConfirmDeleteModal({
           </>
         ) : itemName ? (
           <>
-            <p className="text-slate-300 text-sm mb-2">
+            <p className="text-[var(--ds-text-secondary)] text-sm mb-2">
               Você está prestes a deletar:
             </p>
-            <p className="text-white font-semibold">{itemName}</p>
+            <p className="text-[var(--ds-text-primary)] font-semibold">{itemName}</p>
           </>
         ) : (
-          <p className="text-slate-300 text-sm">
+          <p className="text-[var(--ds-text-secondary)] text-sm">
             Tem certeza que deseja continuar?
           </p>
         )}

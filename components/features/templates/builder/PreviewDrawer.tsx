@@ -54,10 +54,10 @@ export function PreviewDrawer({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="w-full sm:max-w-md bg-slate-900 border-l border-[var(--ds-border-subtle)] p-0 overflow-y-auto"
+        className="w-full sm:max-w-md bg-[var(--ds-bg-elevated)] border-l border-[var(--ds-border-subtle)] p-0 overflow-y-auto"
       >
         <SheetHeader className="px-6 py-4 border-b border-[var(--ds-border-subtle)]">
-          <SheetTitle className="text-white">Preview do Template</SheetTitle>
+          <SheetTitle className="text-[var(--ds-text-primary)]">Preview do Template</SheetTitle>
         </SheetHeader>
 
         <div className="p-4">

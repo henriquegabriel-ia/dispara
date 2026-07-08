@@ -24,29 +24,29 @@ export function RequirementsStep({ onNext, onBack, stepNumber, totalSteps }: Req
 
       <div className="space-y-4">
         {/* Requisito 1: Conta Facebook */}
-        <div className="flex items-start gap-3 p-3 rounded-lg bg-slate-800/50">
+        <div className="flex items-start gap-3 p-3 rounded-lg bg-[var(--ds-bg-surface)]">
           <CheckCircle2 className="w-5 h-5 text-primary-500 mt-0.5 flex-shrink-0" />
           <div>
-            <p className="font-medium text-white">Conta no Facebook</p>
-            <p className="text-sm text-slate-400">Pode criar uma nova se não tiver</p>
+            <p className="font-medium text-[var(--ds-text-primary)]">Conta no Facebook</p>
+            <p className="text-sm text-[var(--ds-text-secondary)]">Pode criar uma nova se não tiver</p>
           </div>
         </div>
 
         {/* Requisito 2: Número dedicado */}
-        <div className="flex items-start gap-3 p-3 rounded-lg bg-slate-800/50">
+        <div className="flex items-start gap-3 p-3 rounded-lg bg-[var(--ds-bg-surface)]">
           <CheckCircle2 className="w-5 h-5 text-primary-500 mt-0.5 flex-shrink-0" />
           <div>
-            <p className="font-medium text-white">Um número de telefone dedicado</p>
-            <p className="text-sm text-slate-400">Celular ou fixo, que possa receber SMS ou ligação</p>
+            <p className="font-medium text-[var(--ds-text-primary)]">Um número de telefone dedicado</p>
+            <p className="text-sm text-[var(--ds-text-secondary)]">Celular ou fixo, que possa receber SMS ou ligação</p>
           </div>
         </div>
 
         {/* Requisito 3: CNPJ e documentos */}
-        <div className="flex items-start gap-3 p-3 rounded-lg bg-slate-800/50">
+        <div className="flex items-start gap-3 p-3 rounded-lg bg-[var(--ds-bg-surface)]">
           <CheckCircle2 className="w-5 h-5 text-primary-500 mt-0.5 flex-shrink-0" />
           <div>
-            <p className="font-medium text-white">CNPJ e documentos da empresa</p>
-            <p className="text-sm text-slate-400">Necessários para a verificação da empresa na Meta</p>
+            <p className="font-medium text-[var(--ds-text-primary)]">CNPJ e documentos da empresa</p>
+            <p className="text-sm text-[var(--ds-text-secondary)]">Necessários para a verificação da empresa na Meta</p>
           </div>
         </div>
       </div>

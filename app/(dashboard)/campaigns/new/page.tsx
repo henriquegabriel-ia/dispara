@@ -1142,7 +1142,7 @@ export default function CampaignsNewRealPage() {
                                 }}
                                 className={`rounded-full border px-3 py-1 text-xs ${
                                   ctrl.isBrSelected
-                                    ? 'border-[var(--ds-border-default)] bg-[var(--ds-bg-elevated)] text-[var(--ds-text-secondary)] hover:border-white/30'
+                                    ? 'border-[var(--ds-border-default)] bg-[var(--ds-bg-elevated)] text-[var(--ds-text-secondary)] hover:border-[var(--ds-border-strong)]'
                                     : 'cursor-not-allowed border-[var(--ds-border-default)] bg-[var(--ds-bg-elevated)] text-[var(--ds-text-muted)]'
                                 }`}
                               >
@@ -1476,7 +1476,7 @@ export default function CampaignsNewRealPage() {
                         type="checkbox"
                         checked={ctrl.skipIgnored}
                         onChange={(e) => ctrl.setSkipIgnored(e.target.checked)}
-                        className="h-4 w-4 rounded border-slate-600 bg-slate-800 text-primary-500 focus:ring-primary-500 focus:ring-offset-0"
+                        className="h-4 w-4 rounded border-[var(--ds-border-default)] bg-[var(--ds-bg-surface)] text-primary-500 focus:ring-primary-500 focus:ring-offset-0"
                       />
                       <span className="text-sm text-[var(--ds-text-secondary)]">
                         Prosseguir apenas com os <strong className="text-[var(--ds-text-primary)]">{ctrl.precheckTotals?.valid ?? 0}</strong> contatos válidos

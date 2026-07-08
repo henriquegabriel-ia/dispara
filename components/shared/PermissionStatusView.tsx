@@ -32,10 +32,10 @@ export function PermissionStatusView({
 }: PermissionStatusViewProps) {
   if (isLoading) {
     return (
-      <div className={cn('p-4 rounded-xl bg-[var(--ds-bg-elevated)] border border-slate-800', className)}>
+      <div className={cn('p-4 rounded-xl bg-[var(--ds-bg-elevated)] border border-[var(--ds-border-default)]', className)}>
         <div className="flex items-center gap-3">
-          <Loader2 className="w-5 h-5 text-slate-400 animate-spin" />
-          <span className="text-sm text-slate-400">Validando permissões do token...</span>
+          <Loader2 className="w-5 h-5 text-[var(--ds-text-secondary)] animate-spin" />
+          <span className="text-sm text-[var(--ds-text-secondary)]">Validando permissões do token...</span>
         </div>
       </div>
     )
@@ -119,27 +119,27 @@ export function PermissionStatusView({
                     <span className="ml-2 text-xs text-red-400">(obrigatório)</span>
                   )}
                 </div>
-                <div className="text-xs text-slate-400">{scope.description}</div>
+                <div className="text-xs text-[var(--ds-text-secondary)]">{scope.description}</div>
               </div>
             </div>
           ))}
         </div>
 
         {/* Token Info Card */}
-        <div className="p-3 rounded-lg bg-[var(--ds-bg-elevated)] border border-slate-800 space-y-2">
+        <div className="p-3 rounded-lg bg-[var(--ds-bg-elevated)] border border-[var(--ds-border-default)] space-y-2">
           {/* Tipo do token */}
           <div className="flex items-center gap-2 text-sm">
-            <Smartphone className="w-4 h-4 text-slate-500" />
-            <span className="text-slate-400">Tipo:</span>
-            <span className={cn('font-mono', isSystemUser ? 'text-primary-300' : 'text-slate-200')}>
+            <Smartphone className="w-4 h-4 text-[var(--ds-text-muted)]" />
+            <span className="text-[var(--ds-text-secondary)]">Tipo:</span>
+            <span className={cn('font-mono', isSystemUser ? 'text-primary-300' : 'text-[var(--ds-text-primary)]')}>
               {tokenType}
             </span>
           </div>
 
           {/* Expiração */}
           <div className="flex items-center gap-2 text-sm">
-            <Clock className="w-4 h-4 text-slate-500" />
-            <span className="text-slate-400">Expiração:</span>
+            <Clock className="w-4 h-4 text-[var(--ds-text-muted)]" />
+            <span className="text-[var(--ds-text-secondary)]">Expiração:</span>
             {result.tokenInfo.isPermanent ? (
               <span className="text-primary-300 flex items-center gap-1">
                 <CheckCircle2 className="w-3 h-3" />
@@ -157,15 +157,15 @@ export function PermissionStatusView({
                 {result.tokenInfo.expiresAtFormatted && ` (${result.tokenInfo.expiresAtFormatted})`}
               </span>
             ) : (
-              <span className="text-slate-500">—</span>
+              <span className="text-[var(--ds-text-muted)]">—</span>
             )}
           </div>
 
           {/* App ID */}
           {result.tokenInfo.appId && (
             <div className="flex items-center gap-2 text-sm">
-              <span className="text-slate-400 ml-6">App ID:</span>
-              <span className="font-mono text-slate-300">{result.tokenInfo.appId}</span>
+              <span className="text-[var(--ds-text-secondary)] ml-6">App ID:</span>
+              <span className="font-mono text-[var(--ds-text-secondary)]">{result.tokenInfo.appId}</span>
             </div>
           )}
         </div>
@@ -181,13 +181,13 @@ export function PermissionStatusView({
         {/* Steps to fix (when missing permissions) */}
         {hasError && result.steps && result.steps.length > 0 && (
           <div className="space-y-2">
-            <p className="text-sm font-medium text-slate-300 flex items-center gap-2">
+            <p className="text-sm font-medium text-[var(--ds-text-secondary)] flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 text-amber-400" />
               Como resolver:
             </p>
             <ol className="space-y-1 ml-6 list-decimal list-outside">
               {result.steps.map((step, i) => (
-                <li key={i} className="text-sm text-slate-400 pl-1">
+                <li key={i} className="text-sm text-[var(--ds-text-secondary)] pl-1">
                   {step}
                 </li>
               ))}

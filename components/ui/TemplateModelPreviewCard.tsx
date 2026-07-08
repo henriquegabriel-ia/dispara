@@ -59,10 +59,10 @@ export function TemplateModelPreviewCard(props: TemplateModelPreviewCardProps) {
   return (
     <div className="rounded-2xl border border-[var(--ds-border-subtle)] bg-[var(--ds-bg-elevated)] shadow-[0_12px_30px_rgba(0,0,0,0.35)] overflow-hidden">
       <div className="px-6 py-4 flex items-center justify-between border-b border-[var(--ds-border-subtle)]">
-        <div className="text-sm font-semibold text-white">{title}</div>
+        <div className="text-sm font-semibold text-[var(--ds-text-primary)]">{title}</div>
         <button
           type="button"
-          className="h-8 w-8 inline-flex items-center justify-center rounded-md border border-[var(--ds-border-subtle)] bg-[var(--ds-bg-surface)]/30 hover:bg-[var(--ds-bg-hover)] text-slate-200"
+          className="h-8 w-8 inline-flex items-center justify-center rounded-md border border-[var(--ds-border-subtle)] bg-[var(--ds-bg-surface)]/30 hover:bg-[var(--ds-bg-hover)] text-[var(--ds-text-secondary)]"
           title="Visualizar"
         >
           <Play className="w-4 h-4" />

@@ -106,7 +106,7 @@ function SectionHeader({
             color === "warning" && "text-amber-400",
             color === "info" && "text-blue-400",
             color === "error" && "text-red-400",
-            color === "neutral" && "text-slate-400"
+            color === "neutral" && "text-[var(--ds-text-secondary)]"
           )}
         >
           <Icon size={20} />
@@ -116,11 +116,11 @@ function SectionHeader({
       {/* Content */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
-          <h3 className="text-heading-4 text-white">{title}</h3>
+          <h3 className="text-heading-4 text-[var(--ds-text-primary)]">{title}</h3>
           {badge}
         </div>
         {description && (
-          <p className="text-body-small text-slate-400 mt-1">{description}</p>
+          <p className="text-body-small text-[var(--ds-text-secondary)] mt-1">{description}</p>
         )}
       </div>
 

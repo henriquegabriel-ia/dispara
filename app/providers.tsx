@@ -26,10 +26,11 @@ export function Providers({ children }: { children: React.ReactNode }) {
   )
 
   return (
+    // Tema: dark é o default da marca; light disponível via toggle
+    // (next-themes gerencia a classe no <html>).
     <ThemeProvider
       attribute="class"
       defaultTheme="dark"
-      forcedTheme="dark"
       disableTransitionOnChange
     >
       <QueryClientProvider client={queryClient}>

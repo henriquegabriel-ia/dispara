@@ -62,7 +62,7 @@ const StepNode = memo(function StepNode({ data, selected }: NodeProps) {
           <input
             ref={inputRef}
             defaultValue={step.name}
-            className="nodrag w-full rounded border border-primary-500 bg-transparent px-1 py-0.5 text-[13px] font-medium text-slate-100 outline-none"
+            className="nodrag w-full rounded border border-primary-500 bg-transparent px-1 py-0.5 text-[13px] font-medium text-[var(--ds-text-primary)] outline-none"
             onClick={(e) => e.stopPropagation()}
             onBlur={commitRename}
             onKeyDown={(e) => {
@@ -71,17 +71,17 @@ const StepNode = memo(function StepNode({ data, selected }: NodeProps) {
             }}
           />
         ) : (
-          <div className="truncate text-[13px] font-medium text-slate-100">
+          <div className="truncate text-[13px] font-medium text-[var(--ds-text-primary)]">
             {step.name}
           </div>
         )}
         {subtitle && (
-          <div className="truncate text-[11px] text-slate-500">{subtitle}</div>
+          <div className="truncate text-[11px] text-[var(--ds-text-muted)]">{subtitle}</div>
         )}
       </div>
       <button
         type="button"
-        className="nodrag shrink-0 rounded p-1 text-slate-600 hover:bg-slate-800 hover:text-slate-300"
+        className="nodrag shrink-0 rounded p-1 text-[var(--ds-text-muted)] hover:bg-[var(--ds-bg-hover)] hover:text-[var(--ds-text-secondary)]"
         onClick={(e) => {
           e.stopPropagation();
           setMenuOpen((v) => !v);
@@ -97,7 +97,7 @@ const StepNode = memo(function StepNode({ data, selected }: NodeProps) {
         >
           <button
             type="button"
-            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-slate-300 hover:bg-slate-800"
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-[var(--ds-text-secondary)] hover:bg-[var(--ds-bg-hover)]"
             onClick={(e) => {
               e.stopPropagation();
               setMenuOpen(false);

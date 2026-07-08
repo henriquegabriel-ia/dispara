@@ -27,7 +27,7 @@ export const PreparingCampaignView: React.FC<PreparingCampaignViewProps> = ({
         <div className="min-w-0">
           <PrefetchLink
             href="/campaigns"
-            className="text-xs text-slate-500 hover:text-white mb-2 inline-flex items-center gap-1 transition-colors"
+            className="text-xs text-[var(--ds-text-muted)] hover:text-[var(--ds-text-primary)] mb-2 inline-flex items-center gap-1 transition-colors"
           >
             <ChevronLeft size={12} /> Voltar para Lista
           </PrefetchLink>
@@ -37,12 +37,12 @@ export const PreparingCampaignView: React.FC<PreparingCampaignViewProps> = ({
               <Loader2 size={18} className="animate-spin text-primary-400" />
               Preparando campanha...
             </PageTitle>
-            <span className="text-xs px-2 py-1 rounded border bg-slate-800 border-slate-700 text-slate-400">
+            <span className="text-xs px-2 py-1 rounded border bg-[var(--ds-bg-surface)] border-[var(--ds-border-default)] text-[var(--ds-text-secondary)]">
               {campaign.status}
             </span>
           </div>
 
-          <p className="text-slate-400 text-sm mt-1">
+          <p className="text-[var(--ds-text-secondary)] text-sm mt-1">
             {campaign.name} - {recipientsCount} destinatario(s)
             {campaign.templateName ? (
               <span className="ml-2">- Template: <span className="font-medium">{campaign.templateName}</span></span>
@@ -58,27 +58,27 @@ export const PreparingCampaignView: React.FC<PreparingCampaignViewProps> = ({
               <Loader2 size={18} className="animate-spin text-primary-400" />
             </div>
             <div className="min-w-0">
-              <h3 className="text-white font-semibold">Estamos preparando o envio</h3>
-              <p className="text-sm text-slate-400 mt-1">
+              <h3 className="text-[var(--ds-text-primary)] font-semibold">Estamos preparando o envio</h3>
+              <p className="text-sm text-[var(--ds-text-secondary)] mt-1">
                 Isso pode levar alguns segundos (principalmente com listas maiores). Assim que o pre-check terminar,
                 esta tela muda automaticamente para o envio ao vivo.
               </p>
 
               <div className="mt-5 grid gap-2 text-sm">
-                <div className="flex items-center gap-2 text-slate-300">
-                  <Clock size={14} className="text-slate-400" />
+                <div className="flex items-center gap-2 text-[var(--ds-text-secondary)]">
+                  <Clock size={14} className="text-[var(--ds-text-muted)]" />
                   Validando contatos e normalizando telefones
                 </div>
-                <div className="flex items-center gap-2 text-slate-300">
-                  <Ban size={14} className="text-slate-400" />
+                <div className="flex items-center gap-2 text-[var(--ds-text-secondary)]">
+                  <Ban size={14} className="text-[var(--ds-text-muted)]" />
                   Verificando opt-out e supressões
                 </div>
-                <div className="flex items-center gap-2 text-slate-300">
-                  <FileText size={14} className="text-slate-400" />
+                <div className="flex items-center gap-2 text-[var(--ds-text-secondary)]">
+                  <FileText size={14} className="text-[var(--ds-text-muted)]" />
                   Preparando registros para envio (campanha_contatos)
                 </div>
-                <div className="flex items-center gap-2 text-slate-300">
-                  <CheckCircle2 size={14} className="text-slate-400" />
+                <div className="flex items-center gap-2 text-[var(--ds-text-secondary)]">
+                  <CheckCircle2 size={14} className="text-[var(--ds-text-muted)]" />
                   Enfileirando o workflow de disparo
                 </div>
               </div>
@@ -88,24 +88,24 @@ export const PreparingCampaignView: React.FC<PreparingCampaignViewProps> = ({
 
         {Array.isArray(campaign.pendingContacts) && campaign.pendingContacts.length > 0 && (
           <Container variant="glass" padding="lg">
-            <h4 className="text-white font-semibold">Prévia dos destinatários</h4>
-            <p className="text-sm text-slate-400 mt-1">
+            <h4 className="text-[var(--ds-text-primary)] font-semibold">Prévia dos destinatários</h4>
+            <p className="text-sm text-[var(--ds-text-secondary)] mt-1">
               Lista carregada localmente (a ordem final pode mudar apos o pre-check).
             </p>
 
-            <div className="mt-4 divide-y divide-white/5">
+            <div className="mt-4 divide-y divide-[var(--ds-border-subtle)]">
               {campaign.pendingContacts.slice(0, 8).map((c, idx) => (
                 <div key={`${c.phone}_${idx}`} className="py-3 flex items-center justify-between gap-4">
                   <div className="min-w-0">
-                    <div className="text-sm text-white truncate">{c.name || 'Contato'}</div>
-                    <div className="text-xs text-slate-400 truncate">{formatPhoneNumberDisplay(c.phone, 'e164')}</div>
+                    <div className="text-sm text-[var(--ds-text-primary)] truncate">{c.name || 'Contato'}</div>
+                    <div className="text-xs text-[var(--ds-text-secondary)] truncate">{formatPhoneNumberDisplay(c.phone, 'e164')}</div>
                   </div>
                   <MessageStatusBadge status={MessageStatus.PENDING} />
                 </div>
               ))}
 
               {campaign.pendingContacts.length > 8 && (
-                <div className="pt-3 text-xs text-slate-500">
+                <div className="pt-3 text-xs text-[var(--ds-text-muted)]">
                   + {campaign.pendingContacts.length - 8} outro(s)...
                 </div>
               )}

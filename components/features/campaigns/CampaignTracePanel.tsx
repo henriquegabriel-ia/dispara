@@ -174,8 +174,8 @@ export function CampaignTracePanel({
           aria-label={open ? 'Recolher debug de execuções' : 'Expandir debug de execuções'}
         >
           <div>
-            <h3 className="text-white font-bold">Debug • Execuções (Trace)</h3>
-            <p className="text-xs text-slate-500">
+            <h3 className="text-[var(--ds-text-primary)] font-bold">Debug • Execuções (Trace)</h3>
+            <p className="text-xs text-[var(--ds-text-muted)]">
               Responde rápido "disparou?" e "travou onde?" via timeline por <span className="font-mono">trace_id</span>.
             </p>
           </div>
@@ -193,7 +193,7 @@ export function CampaignTracePanel({
 
             <ChevronDown
               size={16}
-              className={`text-slate-500 transition-transform ${open ? 'rotate-180' : ''}`}
+              className={`text-[var(--ds-text-muted)] transition-transform ${open ? 'rotate-180' : ''}`}
             />
           </div>
         </button>
@@ -203,13 +203,13 @@ export function CampaignTracePanel({
         <div className="flex flex-col gap-3">
           <div className="flex flex-col sm:flex-row sm:items-center gap-2">
             <div className="flex-1 flex items-center gap-2 bg-[var(--ds-bg-elevated)] border border-[var(--ds-border-subtle)] rounded-lg px-3 py-2 focus-within:border-primary-500/50 transition-all">
-              <Search size={14} className="text-slate-500" />
+              <Search size={14} className="text-[var(--ds-text-muted)]" />
               <input
                 type="text"
                 value={traceSearch}
                 onChange={(e) => setTraceSearch(e.target.value)}
                 placeholder="Buscar trace_id…"
-                className="bg-transparent border-none outline-none text-sm w-full text-white placeholder-[var(--ds-text-muted)]"
+                className="bg-transparent border-none outline-none text-sm w-full text-[var(--ds-text-primary)] placeholder-[var(--ds-text-muted)]"
               />
             </div>
 
@@ -217,7 +217,7 @@ export function CampaignTracePanel({
               <button
                 type="button"
                 onClick={() => setShowAllTraces((v) => !v)}
-                className="px-3 py-2 bg-slate-900 border border-[var(--ds-border-subtle)] rounded-lg text-slate-300 hover:text-white hover:bg-[var(--ds-bg-hover)] transition-colors flex items-center gap-2 text-xs font-medium"
+                className="px-3 py-2 bg-[var(--ds-bg-surface)] border border-[var(--ds-border-subtle)] rounded-lg text-[var(--ds-text-secondary)] hover:text-[var(--ds-text-primary)] hover:bg-[var(--ds-bg-hover)] transition-colors flex items-center gap-2 text-xs font-medium"
                 title={showAllTraces ? 'Ocultar lista de execuções' : 'Mostrar lista de execuções'}
               >
                 {showAllTraces ? 'Ocultar execuções' : 'Ver execuções'}
@@ -228,7 +228,7 @@ export function CampaignTracePanel({
               type="button"
               onClick={() => void loadTraces()}
               disabled={isLoadingTraces}
-              className="px-3 py-2 bg-slate-900 border border-[var(--ds-border-subtle)] rounded-lg text-slate-300 hover:text-white hover:bg-[var(--ds-bg-hover)] transition-colors flex items-center gap-2 text-xs font-medium disabled:opacity-50"
+              className="px-3 py-2 bg-[var(--ds-bg-surface)] border border-[var(--ds-border-subtle)] rounded-lg text-[var(--ds-text-secondary)] hover:text-[var(--ds-text-primary)] hover:bg-[var(--ds-bg-hover)] transition-colors flex items-center gap-2 text-xs font-medium disabled:opacity-50"
             >
               {isLoadingTraces ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
               Atualizar
@@ -244,18 +244,18 @@ export function CampaignTracePanel({
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
             {shouldShowTracesList ? (
               <Container variant="default" padding="none" className="lg:col-span-1 overflow-hidden">
-              <div className="px-3 py-2 border-b border-[var(--ds-border-subtle)] text-xs text-slate-400 flex items-center justify-between">
+              <div className="px-3 py-2 border-b border-[var(--ds-border-subtle)] text-xs text-[var(--ds-text-secondary)] flex items-center justify-between">
                 <span>Execuções</span>
                 <span className="font-mono">{filteredTraces.length}</span>
               </div>
 
               <div className="max-h-[320px] overflow-y-auto">
                 {isLoadingTraces ? (
-                  <div className="p-4 text-xs text-slate-500 flex items-center gap-2">
+                  <div className="p-4 text-xs text-[var(--ds-text-muted)] flex items-center gap-2">
                     <Loader2 size={14} className="animate-spin" /> Carregando…
                   </div>
                 ) : filteredTraces.length === 0 ? (
-                  <div className="p-4 text-xs text-slate-500">
+                  <div className="p-4 text-xs text-[var(--ds-text-muted)]">
                     Nenhuma execução encontrada. Se você acabou de disparar, aguarde alguns segundos.
                   </div>
                 ) : (
@@ -277,13 +277,13 @@ export function CampaignTracePanel({
                       >
                         <div className="flex items-center justify-between gap-2">
                           <div className="min-w-0">
-                            <div className="text-xs text-slate-200 font-mono truncate">{t.traceId}</div>
-                            <div className="text-[11px] text-slate-500 mt-0.5">
+                            <div className="text-xs text-[var(--ds-text-primary)] font-mono truncate">{t.traceId}</div>
+                            <div className="text-[11px] text-[var(--ds-text-muted)] mt-0.5">
                               {t.source === 'run_metrics' ? 'run_metrics' : 'contacts'} • last: {fmtIso(t.lastSeenAt || t.createdAt || null)}
                             </div>
                           </div>
                           {t.source === 'run_metrics' && (
-                            <div className="text-[10px] text-slate-500 text-right shrink-0">
+                            <div className="text-[10px] text-[var(--ds-text-muted)] text-right shrink-0">
                               <div className="font-mono">
                                 {typeof t.sentTotal === 'number' ? t.sentTotal : '—'} sent
                               </div>
@@ -303,14 +303,14 @@ export function CampaignTracePanel({
 
             <Container variant="default" padding="none" className={`${shouldShowTracesList ? 'lg:col-span-2' : 'lg:col-span-3'} overflow-hidden`}>
               <div className="px-3 py-2 border-b border-[var(--ds-border-subtle)] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                <div className="text-xs text-slate-400">
+                <div className="text-xs text-[var(--ds-text-secondary)]">
                   Timeline{' '}
                   {eventsTotal != null ? (
-                    <span className="ml-1 font-mono text-slate-300">
+                    <span className="ml-1 font-mono text-[var(--ds-text-secondary)]">
                       {events.length}/{eventsTotal}
                     </span>
                   ) : (
-                    <span className="ml-1 font-mono text-slate-500">{events.length}</span>
+                    <span className="ml-1 font-mono text-[var(--ds-text-muted)]">{events.length}</span>
                   )}
                 </div>
 
@@ -318,7 +318,7 @@ export function CampaignTracePanel({
                   <select
                     value={okFilter}
                     onChange={(e) => setOkFilter(e.target.value as any)}
-                    className="bg-[var(--ds-bg-elevated)] border border-[var(--ds-border-subtle)] rounded-md px-2 py-1 text-xs text-slate-200"
+                    className="bg-[var(--ds-bg-elevated)] border border-[var(--ds-border-subtle)] rounded-md px-2 py-1 text-xs text-[var(--ds-text-primary)]"
                     title="Filtro de sucesso/erro"
                   >
                     <option value="all">Todos</option>
@@ -330,7 +330,7 @@ export function CampaignTracePanel({
                     value={phaseFilter}
                     onChange={(e) => setPhaseFilter(e.target.value)}
                     placeholder="phase (ex: batch_end)"
-                    className="bg-[var(--ds-bg-elevated)] border border-[var(--ds-border-subtle)] rounded-md px-2 py-1 text-xs text-slate-200 placeholder-[var(--ds-text-muted)] w-[180px]"
+                    className="bg-[var(--ds-bg-elevated)] border border-[var(--ds-border-subtle)] rounded-md px-2 py-1 text-xs text-[var(--ds-text-primary)] placeholder-[var(--ds-text-muted)] w-[180px]"
                   />
 
                   <button
@@ -340,7 +340,7 @@ export function CampaignTracePanel({
                       void navigator.clipboard?.writeText(selectedTraceId)
                     }}
                     disabled={!selectedTraceId}
-                    className="px-2 py-1 bg-slate-900 border border-[var(--ds-border-subtle)] rounded-md text-slate-300 hover:text-white hover:bg-[var(--ds-bg-hover)] transition-colors flex items-center gap-2 text-xs disabled:opacity-50"
+                    className="px-2 py-1 bg-[var(--ds-bg-surface)] border border-[var(--ds-border-subtle)] rounded-md text-[var(--ds-text-secondary)] hover:text-[var(--ds-text-primary)] hover:bg-[var(--ds-bg-hover)] transition-colors flex items-center gap-2 text-xs disabled:opacity-50"
                     title="Copiar trace_id"
                   >
                     <Copy size={14} /> Copiar
@@ -350,7 +350,7 @@ export function CampaignTracePanel({
                     type="button"
                     onClick={() => void loadEvents({ reset: true })}
                     disabled={!selectedTraceId || isLoadingEvents}
-                    className="px-2 py-1 bg-slate-900 border border-[var(--ds-border-subtle)] rounded-md text-slate-300 hover:text-white hover:bg-[var(--ds-bg-hover)] transition-colors flex items-center gap-2 text-xs disabled:opacity-50"
+                    className="px-2 py-1 bg-[var(--ds-bg-surface)] border border-[var(--ds-border-subtle)] rounded-md text-[var(--ds-text-secondary)] hover:text-[var(--ds-text-primary)] hover:bg-[var(--ds-bg-hover)] transition-colors flex items-center gap-2 text-xs disabled:opacity-50"
                     title="Atualizar timeline"
                   >
                     {isLoadingEvents ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
@@ -359,15 +359,15 @@ export function CampaignTracePanel({
                 </div>
               </div>
 
-              <div className="max-h-[420px] overflow-y-auto divide-y divide-white/5">
+              <div className="max-h-[420px] overflow-y-auto divide-y divide-[var(--ds-border-subtle)]">
                 {!selectedTraceId ? (
-                  <div className="p-4 text-xs text-slate-500">Selecione uma execução para ver a timeline.</div>
+                  <div className="p-4 text-xs text-[var(--ds-text-muted)]">Selecione uma execução para ver a timeline.</div>
                 ) : isLoadingEvents && events.length === 0 ? (
-                  <div className="p-4 text-xs text-slate-500 flex items-center gap-2">
+                  <div className="p-4 text-xs text-[var(--ds-text-muted)] flex items-center gap-2">
                     <Loader2 size={14} className="animate-spin" /> Carregando timeline…
                   </div>
                 ) : events.length === 0 ? (
-                  <div className="p-4 text-xs text-slate-500">
+                  <div className="p-4 text-xs text-[var(--ds-text-muted)]">
                     Sem eventos. Se você acabou de habilitar a migration, aplique-a no Supabase e rode um novo envio.
                   </div>
                 ) : (
@@ -378,7 +378,7 @@ export function CampaignTracePanel({
                         ? 'text-red-300'
                         : ok === true
                           ? 'text-primary-200'
-                          : 'text-slate-300'
+                          : 'text-[var(--ds-text-secondary)]'
 
                     return (
                       <div key={ev.id} className="p-3">
@@ -386,15 +386,15 @@ export function CampaignTracePanel({
                           <div className="min-w-0">
                             <div className="text-xs">
                               <span className={`font-mono ${tone}`}>{ev.phase}</span>
-                              {ev.step ? <span className="text-slate-500"> • {ev.step}</span> : null}
+                              {ev.step ? <span className="text-[var(--ds-text-muted)]"> • {ev.step}</span> : null}
                               {typeof ev.batch_index === 'number' ? (
-                                <span className="text-slate-500"> • batch {ev.batch_index}</span>
+                                <span className="text-[var(--ds-text-muted)]"> • batch {ev.batch_index}</span>
                               ) : null}
                               {ev.contact_id ? (
-                                <span className="text-slate-500"> • contact {String(ev.contact_id).slice(0, 8)}…</span>
+                                <span className="text-[var(--ds-text-muted)]"> • contact {String(ev.contact_id).slice(0, 8)}…</span>
                               ) : null}
                             </div>
-                            <div className="text-[11px] text-slate-500 mt-0.5">
+                            <div className="text-[11px] text-[var(--ds-text-muted)] mt-0.5">
                               {fmtIso(ev.ts)} • {fmtMs(ev.ms)}
                               {ev.phone_masked ? <span> • {ev.phone_masked}</span> : null}
                             </div>
@@ -418,7 +418,7 @@ export function CampaignTracePanel({
                     type="button"
                     onClick={() => void loadEvents({ reset: false })}
                     disabled={isLoadingEvents}
-                    className="w-full px-3 py-2 bg-slate-900 border border-[var(--ds-border-subtle)] rounded-lg text-slate-300 hover:text-white hover:bg-[var(--ds-bg-hover)] transition-colors flex items-center justify-center gap-2 text-xs font-medium disabled:opacity-50"
+                    className="w-full px-3 py-2 bg-[var(--ds-bg-surface)] border border-[var(--ds-border-subtle)] rounded-lg text-[var(--ds-text-secondary)] hover:text-[var(--ds-text-primary)] hover:bg-[var(--ds-bg-hover)] transition-colors flex items-center justify-center gap-2 text-xs font-medium disabled:opacity-50"
                   >
                     {isLoadingEvents ? <Loader2 size={14} className="animate-spin" /> : null}
                     Carregar mais
@@ -427,12 +427,12 @@ export function CampaignTracePanel({
               )}
 
               {selected && (
-                <div className="px-3 py-2 border-t border-[var(--ds-border-subtle)] text-[11px] text-slate-500">
-                  Fonte: <span className="font-mono text-slate-400">{selected.source}</span>
+                <div className="px-3 py-2 border-t border-[var(--ds-border-subtle)] text-[11px] text-[var(--ds-text-muted)]">
+                  Fonte: <span className="font-mono text-[var(--ds-text-secondary)]">{selected.source}</span>
                   {selected.createdAt ? (
                     <span>
                       {' '}
-                      • created: <span className="font-mono text-slate-400">{fmtIso(selected.createdAt)}</span>
+                      • created: <span className="font-mono text-[var(--ds-text-secondary)]">{fmtIso(selected.createdAt)}</span>
                     </span>
                   ) : null}
                 </div>

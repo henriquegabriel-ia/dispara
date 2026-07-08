@@ -47,7 +47,7 @@ const buttonVariants = cva(
         ].join(" "),
         // Ghost destructive para ações destrutivas sutis (ex: botão de lixeira)
         "ghost-destructive": [
-          "text-slate-400 hover:text-red-400 hover:bg-red-500/10",
+          "text-[var(--ds-text-secondary)] hover:text-red-400 hover:bg-red-500/10",
           "[transition:var(--ds-transition-fast)]",
         ].join(" "),
         link: "text-primary underline-offset-4 hover:underline",

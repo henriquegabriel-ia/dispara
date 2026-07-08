@@ -52,9 +52,9 @@ export function TokenScopesCard({ data, checks }: TokenScopesCardProps) {
     <Container variant="glass" padding="md">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <div className="text-xs text-slate-500">Token</div>
-          <div className="mt-2 text-sm text-white font-medium">Permissoes (escopos) — checklist</div>
-          <div className="mt-2 text-sm text-slate-300">
+          <div className="text-xs text-[var(--ds-text-muted)]">Token</div>
+          <div className="mt-2 text-sm text-[var(--ds-text-primary)] font-medium">Permissoes (escopos) — checklist</div>
+          <div className="mt-2 text-sm text-[var(--ds-text-secondary)]">
             Aqui voce ve <b>o que conseguimos verificar</b> sobre escopos e o que e necessario para o Dispara funcionar.
           </div>
         </div>
@@ -64,7 +64,7 @@ export function TokenScopesCard({ data, checks }: TokenScopesCardProps) {
       </div>
 
       <div className="mt-4">
-        <div className="text-xs text-slate-400">Necessarias</div>
+        <div className="text-xs text-[var(--ds-text-secondary)]">Necessarias</div>
         <div className="mt-2 flex flex-wrap gap-2">
           {required.map((s) => {
             const ok = foundScopes.includes(s) || granted.includes(s)
@@ -74,7 +74,7 @@ export function TokenScopesCard({ data, checks }: TokenScopesCardProps) {
           })}
         </div>
         {verificationMode === 'unknown' && (
-          <div className="mt-3 text-xs text-slate-400">
+          <div className="mt-3 text-xs text-[var(--ds-text-secondary)]">
             Ainda nao conseguimos listar os escopos desse token. Isso acontece quando <span className="font-mono">/debug_token</span> nao esta habilitado e <span className="font-mono">/me/permissions</span> nao retorna dados para este tipo de token.
           </div>
         )}
@@ -82,27 +82,27 @@ export function TokenScopesCard({ data, checks }: TokenScopesCardProps) {
 
       {verificationMode !== 'unknown' && missing.length > 0 && (
         <div className="mt-4 bg-[var(--ds-bg-elevated)] border border-[var(--ds-border-subtle)] rounded-xl p-4">
-          <div className="text-sm text-white font-semibold">Faltando</div>
+          <div className="text-sm text-[var(--ds-text-primary)] font-semibold">Faltando</div>
           <div className="mt-2 flex flex-wrap gap-2">
             {missing.map((s) => (
               <Pill key={s} tone={missingCritical && s === 'whatsapp_business_messaging' ? 'fail' : 'warn'}>{s}</Pill>
             ))}
           </div>
-          <div className="mt-3 text-xs text-slate-400">
+          <div className="mt-3 text-xs text-[var(--ds-text-secondary)]">
             Dica: se voce gerou token de <b>System User</b>, confirme tambem se os ativos (WABA + Phone Number) foram atribuidos ao usuario do sistema.
           </div>
         </div>
       )}
 
-      <details className="mt-4 bg-slate-900/30 border border-[var(--ds-border-subtle)] rounded-xl p-4">
+      <details className="mt-4 bg-[var(--ds-bg-surface)] border border-[var(--ds-border-subtle)] rounded-xl p-4">
         <summary className="cursor-pointer list-none flex items-center justify-between gap-3">
-          <div className="text-sm text-white">Ver detalhes (para suporte)</div>
-          <ChevronDown size={16} className="text-slate-400" />
+          <div className="text-sm text-[var(--ds-text-primary)]">Ver detalhes (para suporte)</div>
+          <ChevronDown size={16} className="text-[var(--ds-text-secondary)]" />
         </summary>
         <div className="mt-3 space-y-3">
           <div>
-            <div className="text-xs text-slate-400">Fonte principal</div>
-            <div className="mt-1 text-sm text-slate-200">
+            <div className="text-xs text-[var(--ds-text-secondary)]">Fonte principal</div>
+            <div className="mt-1 text-sm text-[var(--ds-text-primary)]">
               {verificationMode === 'debug_token'
                 ? 'debug_token (recomendado)'
                 : verificationMode === 'me_permissions'
@@ -113,30 +113,30 @@ export function TokenScopesCard({ data, checks }: TokenScopesCardProps) {
             </div>
           </div>
           <div>
-            <div className="text-xs text-slate-400">Escopos encontrados</div>
+            <div className="text-xs text-[var(--ds-text-secondary)]">Escopos encontrados</div>
             {foundScopes.length ? (
               <div className="mt-2 flex flex-wrap gap-2">
                 {foundScopes.map((s) => (<Pill key={s} tone={required.includes(s) ? 'neutral' : 'neutral'}>{s}</Pill>))}
               </div>
             ) : (
-              <div className="mt-1 text-sm text-slate-400">—</div>
+              <div className="mt-1 text-sm text-[var(--ds-text-secondary)]">—</div>
             )}
           </div>
           <div>
-            <div className="text-xs text-slate-400">/me/permissions (quando disponivel)</div>
+            <div className="text-xs text-[var(--ds-text-secondary)]">/me/permissions (quando disponivel)</div>
             {granted.length ? (
               <div className="mt-2 flex flex-wrap gap-2">
                 {granted.map((s) => (<Pill key={s} tone={'neutral'}>{s}</Pill>))}
               </div>
             ) : (
-              <div className="mt-1 text-sm text-slate-400">—</div>
+              <div className="mt-1 text-sm text-[var(--ds-text-secondary)]">—</div>
             )}
           </div>
         </div>
       </details>
 
       {!dbgEnabled && (
-        <div className="mt-4 text-xs text-slate-400">
+        <div className="mt-4 text-xs text-[var(--ds-text-secondary)]">
           Para ver escopos com prova (recomendado), habilite <b>Meta App ID/Secret</b> em <Link href="/settings" className="underline">Ajustes</Link>.
         </div>
       )}

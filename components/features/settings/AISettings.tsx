@@ -353,7 +353,7 @@ export const AISettings: React.FC<AISettingsProps> = ({
                         <button
                             onClick={handleSave}
                             disabled={isSaving || (isEditing && !apiKey.trim() && !hasChanges)}
-                            className="px-6 py-2 bg-white text-black font-medium rounded-lg hover:bg-slate-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shadow-lg shadow-white/5"
+                            className="px-6 py-2 bg-primary-600 text-white dark:bg-white dark:text-black font-medium rounded-lg hover:bg-primary-500 dark:hover:bg-neutral-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shadow-lg shadow-white/5"
                         >
                             {isSaving ? (
                                 <>

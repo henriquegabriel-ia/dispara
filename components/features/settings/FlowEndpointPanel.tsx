@@ -93,7 +93,7 @@ export function FlowEndpointPanel({ devBaseUrl }: FlowEndpointPanelProps) {
           <div className="inline-flex p-4 bg-primary-500/10 rounded-2xl mb-4">
             <Key size={32} className="text-primary-400" />
           </div>
-          <p className="text-slate-400 mb-4">Gere as chaves para ativar o endpoint.</p>
+          <p className="text-[var(--ds-text-secondary)] mb-4">Gere as chaves para ativar o endpoint.</p>
           <button
             onClick={handleGenerate}
             disabled={generating}
@@ -116,7 +116,7 @@ export function FlowEndpointPanel({ devBaseUrl }: FlowEndpointPanelProps) {
           {/* Endpoint URL */}
           <div className="bg-[var(--ds-bg-elevated)] rounded-xl p-4">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-xs text-slate-400">URL do Endpoint</span>
+              <span className="text-xs text-[var(--ds-text-secondary)]">URL do Endpoint</span>
               <button
                 onClick={() => resolvedEndpointUrl && copyToClipboard(resolvedEndpointUrl, 'url')}
                 className="text-xs text-primary-300 hover:text-primary-200 flex items-center gap-1"
@@ -125,11 +125,11 @@ export function FlowEndpointPanel({ devBaseUrl }: FlowEndpointPanelProps) {
                 {copied === 'url' ? 'Copiado' : 'Copiar'}
               </button>
             </div>
-            <code className="text-sm text-white font-mono break-all">
+            <code className="text-sm text-[var(--ds-text-primary)] font-mono break-all">
               {resolvedEndpointUrl || 'URL não disponível'}
             </code>
             {!resolvedEndpointUrl ? (
-              <p className="mt-2 text-[11px] text-slate-500">
+              <p className="mt-2 text-[11px] text-[var(--ds-text-muted)]">
                 Dica: defina `NEXT_PUBLIC_APP_URL` no ambiente de produção ou gere as chaves no
                 próprio ambiente para registrar a URL correta.
               </p>
@@ -146,7 +146,7 @@ export function FlowEndpointPanel({ devBaseUrl }: FlowEndpointPanelProps) {
             <button
               onClick={handleGenerate}
               disabled={generating}
-              className="text-xs text-slate-400 hover:text-white flex items-center gap-1 transition-colors"
+              className="text-xs text-[var(--ds-text-secondary)] hover:text-[var(--ds-text-primary)] flex items-center gap-1 transition-colors"
             >
               <RefreshCw size={12} className={generating ? 'animate-spin' : ''} />
               Regenerar chaves

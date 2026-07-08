@@ -108,10 +108,10 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             </div>
             
             {/* Title */}
-            <h2 className="text-xl font-semibold text-white mb-2">
+            <h2 className="text-xl font-semibold text-[var(--ds-text-primary)] mb-2">
               Algo deu errado
             </h2>
-            <p className="text-slate-400 mb-6">
+            <p className="text-[var(--ds-text-secondary)] mb-6">
               Ocorreu um erro inesperado. Tente recarregar a página ou voltar ao início.
             </p>
             
@@ -119,14 +119,14 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             <div className="flex items-center justify-center gap-3">
               <button
                 onClick={this.handleReset}
-                className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-slate-300 rounded-lg hover:bg-slate-700 transition-colors"
+                className="flex items-center gap-2 px-4 py-2 bg-[var(--ds-bg-surface)] text-[var(--ds-text-secondary)] rounded-lg hover:bg-[var(--ds-bg-hover)] transition-colors"
               >
                 <RefreshCw className="w-4 h-4" />
                 Tentar novamente
               </button>
               <button
                 onClick={this.handleReload}
-                className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-slate-300 rounded-lg hover:bg-slate-700 transition-colors"
+                className="flex items-center gap-2 px-4 py-2 bg-[var(--ds-bg-surface)] text-[var(--ds-text-secondary)] rounded-lg hover:bg-[var(--ds-bg-hover)] transition-colors"
               >
                 <RefreshCw className="w-4 h-4" />
                 Recarregar
@@ -143,21 +143,21 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             {/* Error details (development only) */}
             {process.env.NODE_ENV === 'development' && this.state.error && (
               <details className="mt-8 text-left">
-                <summary className="text-sm text-slate-500 cursor-pointer hover:text-slate-400 flex items-center gap-2">
+                <summary className="text-sm text-[var(--ds-text-muted)] cursor-pointer hover:text-[var(--ds-text-secondary)] flex items-center gap-2">
                   <Bug className="w-4 h-4" />
                   Detalhes do erro (dev only)
                 </summary>
-                <div className="mt-4 p-4 bg-slate-900 rounded-lg overflow-auto">
+                <div className="mt-4 p-4 bg-[var(--ds-bg-surface)] rounded-lg overflow-auto">
                   <p className="text-sm font-mono text-red-400 mb-2">
                     {this.state.error.message}
                   </p>
                   {this.state.error.stack && (
-                    <pre className="text-xs text-slate-500 whitespace-pre-wrap">
+                    <pre className="text-xs text-[var(--ds-text-muted)] whitespace-pre-wrap">
                       {this.state.error.stack}
                     </pre>
                   )}
                   {this.state.errorInfo?.componentStack && (
-                    <pre className="text-xs text-slate-600 whitespace-pre-wrap mt-4 pt-4 border-t border-slate-800">
+                    <pre className="text-xs text-[var(--ds-text-muted)] whitespace-pre-wrap mt-4 pt-4 border-t border-[var(--ds-border-default)]">
                       {this.state.errorInfo.componentStack}
                     </pre>
                   )}

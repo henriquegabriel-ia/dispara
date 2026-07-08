@@ -40,7 +40,7 @@ export const CampaignHeader: React.FC<CampaignHeaderProps> = ({
       <div className="min-w-0">
         <PrefetchLink
           href="/campaigns"
-          className="text-xs text-slate-500 hover:text-white mb-2 inline-flex items-center gap-1 transition-colors"
+          className="text-xs text-[var(--ds-text-muted)] hover:text-[var(--ds-text-primary)] mb-2 inline-flex items-center gap-1 transition-colors"
         >
           <ChevronLeft size={12} /> Voltar para Lista
         </PrefetchLink>
@@ -62,7 +62,7 @@ export const CampaignHeader: React.FC<CampaignHeaderProps> = ({
           )}
         </div>
 
-        <p className="text-slate-400 text-sm mt-1">
+        <p className="text-[var(--ds-text-secondary)] text-sm mt-1">
           ID: {campaign.id} - Criado em{' '}
           {campaign.createdAt ? new Date(campaign.createdAt).toLocaleDateString('pt-BR') : 'agora'}
           {campaign.templateName && (
@@ -101,7 +101,7 @@ export const CampaignHeader: React.FC<CampaignHeaderProps> = ({
           <button
             onClick={onCancelSchedule}
             disabled={isCancelingSchedule}
-            className="px-4 py-2 bg-slate-900 border border-[var(--ds-border-subtle)] rounded-lg text-slate-300 hover:text-white hover:bg-[var(--ds-bg-hover)] transition-colors flex items-center gap-2 text-sm font-medium disabled:opacity-50"
+            className="px-4 py-2 bg-[var(--ds-bg-surface)] border border-[var(--ds-border-subtle)] rounded-lg text-[var(--ds-text-secondary)] hover:text-[var(--ds-text-primary)] hover:bg-[var(--ds-bg-hover)] transition-colors flex items-center gap-2 text-sm font-medium disabled:opacity-50"
             title="Cancela o agendamento e volta a campanha para Rascunho"
           >
             {isCancelingSchedule ? <Loader2 size={16} className="animate-spin" /> : <Ban size={16} />}
@@ -151,7 +151,7 @@ export const CampaignHeader: React.FC<CampaignHeaderProps> = ({
           <button
             onClick={refetch}
             disabled={isRefreshing}
-            className="px-4 py-2 bg-slate-900 border border-[var(--ds-border-subtle)] rounded-lg text-slate-300 hover:text-white hover:bg-[var(--ds-bg-hover)] transition-colors flex items-center gap-2 text-sm font-medium disabled:opacity-50"
+            className="px-4 py-2 bg-[var(--ds-bg-surface)] border border-[var(--ds-border-subtle)] rounded-lg text-[var(--ds-text-secondary)] hover:text-[var(--ds-text-primary)] hover:bg-[var(--ds-bg-hover)] transition-colors flex items-center gap-2 text-sm font-medium disabled:opacity-50"
           >
             {isRefreshing ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
             {isRefreshing ? 'Atualizando...' : 'Atualizar'}
@@ -176,7 +176,7 @@ export const CampaignHeader: React.FC<CampaignHeaderProps> = ({
         <a
           href={`/api/campaigns/${encodeURIComponent(campaign.id)}/report.csv`}
           download
-          className="px-4 py-2 bg-slate-900 border border-[var(--ds-border-subtle)] rounded-lg text-slate-300 hover:text-white hover:bg-[var(--ds-bg-hover)] transition-colors flex items-center gap-2 text-sm font-medium"
+          className="px-4 py-2 bg-[var(--ds-bg-surface)] border border-[var(--ds-border-subtle)] rounded-lg text-[var(--ds-text-secondary)] hover:text-[var(--ds-text-primary)] hover:bg-[var(--ds-bg-hover)] transition-colors flex items-center gap-2 text-sm font-medium"
           title="Baixar relatório em CSV"
         >
           <Download size={16} /> Relatório CSV

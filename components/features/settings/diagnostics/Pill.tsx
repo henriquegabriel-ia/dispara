@@ -35,7 +35,7 @@ export function Pill({ tone, children }: PillProps) {
   }
 
   return (
-    <span className={`${base} bg-[var(--ds-bg-hover)] border-[var(--ds-border-subtle)] text-slate-200`}>
+    <span className={`${base} bg-[var(--ds-bg-hover)] border-[var(--ds-border-subtle)] text-[var(--ds-text-primary)]`}>
       {children}
     </span>
   )

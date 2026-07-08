@@ -59,7 +59,7 @@ const alertVariants = cva(
         default: [
           "bg-[var(--ds-bg-elevated)]",
           "[border:1px_solid_var(--ds-border-default)]",
-          "text-slate-300",
+          "text-[var(--ds-text-secondary)]",
         ].join(" "),
       },
     },

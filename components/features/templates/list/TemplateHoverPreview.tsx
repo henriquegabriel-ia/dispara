@@ -26,7 +26,7 @@ export const TemplateHoverPreview: React.FC<TemplateHoverPreviewProps> = ({
         parameterFormat={template.parameterFormat || 'positional'}
         variables={variables}
         headerMediaPreviewUrl={template.headerMediaPreviewUrl || null}
-        className="!bg-slate-950 !backdrop-blur-none shadow-2xl shadow-black/50 ring-1 ring-white/10"
+        className="!bg-[var(--ds-bg-elevated)] !backdrop-blur-none shadow-2xl shadow-black/50 ring-1 ring-[var(--ds-border-subtle)]"
       />
     </div>
   );

@@ -61,9 +61,9 @@ export function LimitWarning({
           </p>
           <p className="text-sm text-red-200/70">
             Você selecionou{' '}
-            <span className="font-bold text-white">{recipientCount}</span> contatos,
+            <span className="font-bold text-[var(--ds-text-primary)]">{recipientCount}</span> contatos,
             mas seu limite é{' '}
-            <span className="font-bold text-white">{currentLimit}</span>/dia.
+            <span className="font-bold text-[var(--ds-text-primary)]">{currentLimit}</span>/dia.
           </p>
           {onGoBack && (
             <button
@@ -86,8 +86,8 @@ export function LimitWarning({
         <div className="flex-1">
           <p className="font-bold text-red-400 text-base mb-1">Limite Excedido</p>
           <p className="text-sm text-red-200/80">
-            Você selecionou <span className="font-bold text-white">{recipientCount}</span> contatos,
-            mas seu limite atual é de <span className="font-bold text-white">{currentLimit}</span> mensagens/dia.
+            Você selecionou <span className="font-bold text-[var(--ds-text-primary)]">{recipientCount}</span> contatos,
+            mas seu limite atual é de <span className="font-bold text-[var(--ds-text-primary)]">{currentLimit}</span> mensagens/dia.
           </p>
         </div>
       </div>
@@ -95,39 +95,39 @@ export function LimitWarning({
       {/* Stats */}
       <div className="grid grid-cols-3 gap-3 bg-black/20 rounded-lg p-3">
         <div className="text-center">
-          <p className="text-lg font-bold text-white">{recipientCount}</p>
-          <p className="text-[10px] text-slate-500 uppercase">Selecionados</p>
+          <p className="text-lg font-bold text-[var(--ds-text-primary)]">{recipientCount}</p>
+          <p className="text-[10px] text-[var(--ds-text-muted)] uppercase">Selecionados</p>
         </div>
         <div className="text-center border-x border-[var(--ds-border-subtle)]">
           <p className="text-lg font-bold text-primary-400">{currentLimit}</p>
-          <p className="text-[10px] text-slate-500 uppercase">Seu Limite</p>
+          <p className="text-[10px] text-[var(--ds-text-muted)] uppercase">Seu Limite</p>
         </div>
         <div className="text-center">
           <p className="text-lg font-bold text-red-400">+{exceeded}</p>
-          <p className="text-[10px] text-slate-500 uppercase">Excedente</p>
+          <p className="text-[10px] text-[var(--ds-text-muted)] uppercase">Excedente</p>
         </div>
       </div>
 
       {/* Solutions */}
       <div className="space-y-2">
-        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+        <p className="text-xs font-bold text-[var(--ds-text-secondary)] uppercase tracking-wider">
           O que você pode fazer:
         </p>
-        <div className="flex items-center gap-2 text-sm text-slate-300">
-          <span className="w-5 h-5 rounded-full bg-slate-800 flex items-center justify-center text-xs">
+        <div className="flex items-center gap-2 text-sm text-[var(--ds-text-secondary)]">
+          <span className="w-5 h-5 rounded-full bg-[var(--ds-bg-surface)] flex items-center justify-center text-xs">
             1
           </span>
           Reduza a seleção para no máximo{' '}
           <span className="font-bold text-primary-400">{currentLimit}</span> contatos
         </div>
-        <div className="flex items-center gap-2 text-sm text-slate-300">
-          <span className="w-5 h-5 rounded-full bg-slate-800 flex items-center justify-center text-xs">
+        <div className="flex items-center gap-2 text-sm text-[var(--ds-text-secondary)]">
+          <span className="w-5 h-5 rounded-full bg-[var(--ds-bg-surface)] flex items-center justify-center text-xs">
             2
           </span>
           Divida em {campaignsNeeded} campanhas menores
         </div>
         {onShowUpgradeModal && (
-          <div className="flex items-center gap-2 text-sm text-slate-300">
+          <div className="flex items-center gap-2 text-sm text-[var(--ds-text-secondary)]">
             <span className="w-5 h-5 rounded-full bg-primary-500/30 flex items-center justify-center text-xs text-primary-400">
               *
             </span>

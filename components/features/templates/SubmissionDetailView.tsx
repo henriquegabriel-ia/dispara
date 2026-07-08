@@ -46,7 +46,7 @@ export function SubmissionDetailView({
         purple: 'text-primary-300',
         yellow: 'text-amber-300',
         red: 'text-amber-300',
-        slate: 'text-slate-400',
+        slate: 'text-[var(--ds-text-secondary)]',
     };
 
     return (
@@ -59,21 +59,21 @@ export function SubmissionDetailView({
                     <div className="flex items-center gap-4">
                         <button
                             onClick={onBack}
-                            className="p-2 -ml-2 text-slate-400 hover:text-white hover:bg-[var(--ds-bg-hover)] rounded-lg transition-colors border border-[var(--ds-border-subtle)] bg-[var(--ds-bg-surface)]/30"
+                            className="p-2 -ml-2 text-[var(--ds-text-secondary)] hover:text-[var(--ds-text-primary)] hover:bg-[var(--ds-bg-hover)] rounded-lg transition-colors border border-[var(--ds-border-subtle)] bg-[var(--ds-bg-surface)]/30"
                         >
                             <ArrowLeft className="w-5 h-5" />
                         </button>
                         <div>
-                            <h1 className="text-xl font-bold text-white flex items-center gap-2">
+                            <h1 className="text-xl font-bold text-[var(--ds-text-primary)] flex items-center gap-2">
                                 {submission.name}
                                 <span className={`px-2 py-0.5 text-xs rounded-full border ${submission.status === 'processing'
                                     ? 'bg-primary-500/10 text-primary-200 border-primary-500/20'
-                                    : 'bg-[var(--ds-bg-surface)]/30 text-slate-400 border-[var(--ds-border-subtle)]'
+                                    : 'bg-[var(--ds-bg-surface)]/30 text-[var(--ds-text-secondary)] border-[var(--ds-border-subtle)]'
                                     }`}>
                                     {submission.status === 'processing' ? 'Processando' : 'Concluído'}
                                 </span>
                             </h1>
-                            <p className="text-xs text-slate-400 mt-1">
+                            <p className="text-xs text-[var(--ds-text-secondary)] mt-1">
                                 Criado em {new Date(submission.createdAt).toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', hour: '2-digit', minute: '2-digit' })}
                             </p>
                         </div>
@@ -83,7 +83,7 @@ export function SubmissionDetailView({
                         <button
                             onClick={onRefresh}
                             disabled={isLoading}
-                            className="px-3 py-2 bg-[var(--ds-bg-surface)]/30 border border-[var(--ds-border-subtle)] text-slate-200 rounded-lg hover:bg-[var(--ds-bg-hover)] hover:text-white transition-colors flex items-center gap-2 disabled:opacity-50"
+                            className="px-3 py-2 bg-[var(--ds-bg-surface)]/30 border border-[var(--ds-border-subtle)] text-[var(--ds-text-primary)] rounded-lg hover:bg-[var(--ds-bg-hover)] hover:text-[var(--ds-text-primary)] transition-colors flex items-center gap-2 disabled:opacity-50"
                         >
                             <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
                             Atualizar Status
@@ -141,12 +141,12 @@ export function SubmissionDetailView({
                                 >
                                     <div className="flex items-center gap-3">
                                         <section.icon className={`w-5 h-5 ${sectionIconTone[section.color]}`} />
-                                        <span className="font-medium text-white">{section.label}</span>
-                                        <span className="px-2 py-0.5 rounded-full bg-[var(--ds-bg-surface)]/30 text-xs text-slate-400 border border-[var(--ds-border-subtle)]">
+                                        <span className="font-medium text-[var(--ds-text-primary)]">{section.label}</span>
+                                        <span className="px-2 py-0.5 rounded-full bg-[var(--ds-bg-surface)]/30 text-xs text-[var(--ds-text-secondary)] border border-[var(--ds-border-subtle)]">
                                             {section.count}
                                         </span>
                                     </div>
-                                    <ChevronDown className={`w-4 h-4 text-slate-500 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                                    <ChevronDown className={`w-4 h-4 text-[var(--ds-text-muted)] transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
                                 </button>
 
                                 {isExpanded && (
@@ -161,7 +161,7 @@ export function SubmissionDetailView({
                                                     }`}
                                             >
                                                 <div className="flex justify-between items-start mb-2">
-                                                    <span className="text-sm font-medium text-white flex items-center gap-2">
+                                                    <span className="text-sm font-medium text-[var(--ds-text-primary)] flex items-center gap-2">
                                                         {template.name}
                                                         {template.category !== template.originalCategory && (
                                                             <span className="text-[10px] text-amber-300 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">
@@ -169,12 +169,12 @@ export function SubmissionDetailView({
                                                             </span>
                                                         )}
                                                     </span>
-                                                    <span className="text-xs text-slate-500 flex items-center gap-1">
+                                                    <span className="text-xs text-[var(--ds-text-muted)] flex items-center gap-1">
                                                         <Copy className="w-3 h-3" />
                                                         {template.language}
                                                     </span>
                                                 </div>
-                                                <p className="text-xs text-slate-400 line-clamp-2">
+                                                <p className="text-xs text-[var(--ds-text-secondary)] line-clamp-2">
                                                     {template.content}
                                                 </p>
                                                 {template.rejectionReason && (
@@ -196,7 +196,7 @@ export function SubmissionDetailView({
             <div className="w-[380px] shrink-0 border-l border-[var(--ds-border-subtle)] pl-6 flex flex-col justify-center">
                 {selectedTemplate ? (
                     <div className="sticky top-6">
-                        <h3 className="text-sm font-medium text-slate-400 mb-4 text-center">
+                        <h3 className="text-sm font-medium text-[var(--ds-text-secondary)] mb-4 text-center">
                             Pré-visualização
                         </h3>
                         <WhatsAppPhonePreview
@@ -211,8 +211,8 @@ export function SubmissionDetailView({
                             size="md"
                         />
                         <Container variant="default" padding="md" className="mt-6">
-                            <h4 className="text-sm font-medium text-white mb-2">Detalhes Técnicos</h4>
-                            <div className="space-y-2 text-xs text-slate-400">
+                            <h4 className="text-sm font-medium text-[var(--ds-text-primary)] mb-2">Detalhes Técnicos</h4>
+                            <div className="space-y-2 text-xs text-[var(--ds-text-secondary)]">
                                 <div className="flex justify-between">
                                     <span>Categoria:</span>
                                     <span className={selectedTemplate.category === 'UTILITY' ? 'text-primary-300' : 'text-amber-300'}>
@@ -231,7 +231,7 @@ export function SubmissionDetailView({
                         </Container>
                     </div>
                 ) : (
-                    <Container variant="default" padding="none" className="h-full flex flex-col items-center justify-center text-slate-500 border-dashed">
+                    <Container variant="default" padding="none" className="h-full flex flex-col items-center justify-center text-[var(--ds-text-muted)] border-dashed">
                         <Eye className="w-12 h-12 mb-4 opacity-50" />
                         <p className="text-sm">Selecione um template para visualizar</p>
                     </Container>
@@ -261,7 +261,7 @@ function StatCard({ label, count, total, color, icon: Icon }: StatCardProps) {
         purple: 'text-primary-300 bg-primary-500/10 border-primary-500/20',
         yellow: 'text-amber-300 bg-amber-500/10 border-amber-500/20',
         red: 'text-amber-200 bg-amber-500/10 border-amber-500/20',
-        slate: 'text-slate-400 bg-slate-500/10 border-[var(--ds-border-subtle)]',
+        slate: 'text-[var(--ds-text-secondary)] bg-slate-500/10 border-[var(--ds-border-subtle)]',
     };
 
     return (

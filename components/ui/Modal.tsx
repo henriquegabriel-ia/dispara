@@ -103,7 +103,7 @@ export function Modal({
     >
       <div
         className={`
-          bg-slate-900/95 border rounded-2xl w-full p-6
+          bg-[var(--ds-bg-elevated)]/95 border rounded-2xl w-full p-6
           shadow-[0_30px_80px_rgba(0,0,0,0.55)]
           animate-in zoom-in-95 fade-in duration-200
           ${maxWidthClasses[maxWidth]}
@@ -114,14 +114,14 @@ export function Modal({
         {(title || showCloseButton) && (
           <div className="flex items-center justify-between mb-4">
             {title && (
-              <h2 id="modal-title" className="text-xl font-semibold text-white">
+              <h2 id="modal-title" className="text-xl font-semibold text-[var(--ds-text-primary)]">
                 {title}
               </h2>
             )}
             {showCloseButton && onClose && (
               <button
                 onClick={onClose}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-[var(--ds-bg-hover)] transition-colors"
+                className="p-1.5 rounded-lg text-[var(--ds-text-secondary)] hover:text-[var(--ds-text-primary)] hover:bg-[var(--ds-bg-hover)] transition-colors"
                 aria-label="Fechar"
               >
                 <X size={20} />
@@ -155,9 +155,9 @@ export function ModalHeader({
         {icon}
       </div>
       <div>
-        <h3 className="text-lg font-bold text-white">{title}</h3>
+        <h3 className="text-lg font-bold text-[var(--ds-text-primary)]">{title}</h3>
         {description && (
-          <p className="text-sm text-slate-400">{description}</p>
+          <p className="text-sm text-[var(--ds-text-secondary)]">{description}</p>
         )}
       </div>
     </div>
@@ -197,7 +197,7 @@ export function ModalCancelButton({
     <button
       onClick={onClick}
       disabled={disabled}
-      className="flex-1 px-4 py-3 bg-[var(--ds-bg-surface)]/30 text-slate-300 border border-[var(--ds-border-subtle)] rounded-lg font-medium hover:bg-[var(--ds-bg-hover)] transition-colors disabled:opacity-50"
+      className="flex-1 px-4 py-3 bg-[var(--ds-bg-surface)]/30 text-[var(--ds-text-secondary)] border border-[var(--ds-border-subtle)] rounded-lg font-medium hover:bg-[var(--ds-bg-hover)] transition-colors disabled:opacity-50"
     >
       {children}
     </button>

@@ -387,7 +387,7 @@ export function WhatsAppCredentialsForm({
             Identificação do número de telefone (Phone Number ID)
             <span className="text-red-400">*</span>
             <span title="Encontrado em: App Dashboard → WhatsApp → API Setup">
-              <HelpCircle className="w-4 h-4 text-slate-500 cursor-help" />
+              <HelpCircle className="w-4 h-4 text-[var(--ds-text-muted)] cursor-help" />
             </span>
           </Label>
           <Input
@@ -399,7 +399,7 @@ export function WhatsAppCredentialsForm({
             className="font-mono"
           />
           {variant !== 'minimal' && (
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-[var(--ds-text-muted)]">
               Encontrado em: App Dashboard → WhatsApp → API Setup
             </p>
           )}
@@ -420,7 +420,7 @@ export function WhatsAppCredentialsForm({
             className="font-mono"
           />
           {variant !== 'minimal' && (
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-[var(--ds-text-muted)]">
               Encontrado em: App Dashboard → WhatsApp → API Setup
             </p>
           )}
@@ -445,14 +445,14 @@ export function WhatsAppCredentialsForm({
             <button
               type="button"
               onClick={() => setShowToken(!showToken)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--ds-text-muted)] hover:text-[var(--ds-text-secondary)] transition-colors"
               tabIndex={-1}
             >
               {showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
             </button>
           </div>
           {variant !== 'minimal' && (
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-[var(--ds-text-muted)]">
               💡 Use um System User Token para não expirar
             </p>
           )}
@@ -464,7 +464,7 @@ export function WhatsAppCredentialsForm({
             <Label htmlFor="metaAppId" className="flex items-center gap-2">
               ID do Aplicativo (Meta App ID)
               <span title="Encontrado em: developers.facebook.com → Seu App → Configurações → Básico">
-                <HelpCircle className="w-4 h-4 text-slate-500 cursor-help" />
+                <HelpCircle className="w-4 h-4 text-[var(--ds-text-muted)] cursor-help" />
               </span>
             </Label>
             <Input
@@ -476,7 +476,7 @@ export function WhatsAppCredentialsForm({
               className="font-mono"
             />
             {variant !== 'minimal' && (
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-[var(--ds-text-muted)]">
                 Necessário para templates com imagem/vídeo e validação de permissões
               </p>
             )}
@@ -506,14 +506,14 @@ export function WhatsAppCredentialsForm({
               <button
                 type="button"
                 onClick={() => setShowSecret(!showSecret)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--ds-text-muted)] hover:text-[var(--ds-text-secondary)] transition-colors"
                 tabIndex={-1}
               >
                 {showSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
             {variant !== 'minimal' && (
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-[var(--ds-text-muted)]">
                 Necessário para validação de permissões. Encontre em: developers.facebook.com → Seu App → Configurações → Básico
               </p>
             )}
@@ -567,7 +567,7 @@ export function WhatsAppCredentialsForm({
           href="https://developers.facebook.com/apps/"
           target="_blank"
           rel="noopener noreferrer"
-          className="flex items-center gap-2 text-sm text-slate-400 hover:text-slate-200 transition-colors"
+          className="flex items-center gap-2 text-sm text-[var(--ds-text-secondary)] hover:text-[var(--ds-text-primary)] transition-colors"
         >
           <ExternalLink className="w-4 h-4" />
           Abrir Meta for Developers

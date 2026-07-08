@@ -21,14 +21,14 @@ export const ApiDocsPanel: React.FC = () => {
   };
 
   return (
-    <Card className="border-slate-800 bg-[var(--ds-bg-elevated)]">
+    <Card className="border-[var(--ds-border-default)] bg-[var(--ds-bg-elevated)]">
       <CardHeader>
         <div className="flex items-center gap-3">
           <div className="p-2 rounded-lg bg-blue-500/10">
             <BookOpen className="h-5 w-5 text-blue-400" />
           </div>
           <div>
-            <CardTitle className="text-lg text-slate-100">Documentação da API</CardTitle>
+            <CardTitle className="text-lg text-[var(--ds-text-primary)]">Documentação da API</CardTitle>
             <CardDescription>
               Integre o Dispara com seus sistemas via REST API
             </CardDescription>
@@ -36,20 +36,20 @@ export const ApiDocsPanel: React.FC = () => {
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        <p className="text-sm text-slate-400">
+        <p className="text-sm text-[var(--ds-text-secondary)]">
           Acesse a documentação interativa (Swagger UI) para explorar todos os endpoints disponíveis,
           testar requisições e ver exemplos de uso.
         </p>
 
         {/* Exemplo de uso */}
-        <div className="bg-slate-950 rounded-lg p-4 border border-slate-800">
+        <div className="bg-[var(--ds-bg-surface)] rounded-lg p-4 border border-[var(--ds-border-default)]">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs text-slate-500 uppercase tracking-wider">Exemplo</span>
+            <span className="text-xs text-[var(--ds-text-muted)] uppercase tracking-wider">Exemplo</span>
             <Button
               variant="ghost"
               size="sm"
               onClick={copyExample}
-              className="h-6 px-2 text-slate-500 hover:text-slate-300"
+              className="h-6 px-2 text-[var(--ds-text-muted)] hover:text-[var(--ds-text-secondary)]"
             >
               {copied ? (
                 <Check className="h-3 w-3 text-green-400" />
@@ -58,7 +58,7 @@ export const ApiDocsPanel: React.FC = () => {
               )}
             </Button>
           </div>
-          <pre className="text-xs text-slate-300 overflow-x-auto">
+          <pre className="text-xs text-[var(--ds-text-secondary)] overflow-x-auto">
             <code>{`curl -X GET "/api/campaigns" \\
   -H "Authorization: Bearer <API_KEY>"`}</code>
           </pre>

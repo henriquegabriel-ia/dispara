@@ -88,15 +88,15 @@ export function TokenValidityCard({ data, checks }: TokenValidityCardProps) {
     <Container variant="glass" padding="md">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <div className="text-xs text-slate-500">Token</div>
-          <div className="mt-2 text-sm text-white font-medium">{title}</div>
-          <div className="mt-2 text-sm text-slate-300">{subtitle}</div>
+          <div className="text-xs text-[var(--ds-text-muted)]">Token</div>
+          <div className="mt-2 text-sm text-[var(--ds-text-primary)] font-medium">{title}</div>
+          <div className="mt-2 text-sm text-[var(--ds-text-secondary)]">{subtitle}</div>
           {dbgEnabled ? (
-            <div className="mt-2 text-xs text-slate-500">
+            <div className="mt-2 text-xs text-[var(--ds-text-muted)]">
               Fonte: <span className="font-mono">/debug_token</span> (quando disponivel) + <span className="font-mono">/me</span>
             </div>
           ) : (
-            <div className="mt-2 text-xs text-slate-500">
+            <div className="mt-2 text-xs text-[var(--ds-text-muted)]">
               Fonte: <span className="font-mono">/me</span> (best-effort). Para prova de escopos/expiracao, habilite <span className="font-mono">/debug_token</span>.
             </div>
           )}
@@ -108,14 +108,14 @@ export function TokenValidityCard({ data, checks }: TokenValidityCardProps) {
 
       {nextSteps.length > 0 && (
         <div className="mt-4 bg-[var(--ds-bg-elevated)] border border-[var(--ds-border-subtle)] rounded-xl p-4">
-          <div className="text-sm text-white font-semibold">O que fazer</div>
-          <ul className="mt-2 list-disc pl-5 space-y-1 text-sm text-slate-200">
+          <div className="text-sm text-[var(--ds-text-primary)] font-semibold">O que fazer</div>
+          <ul className="mt-2 list-disc pl-5 space-y-1 text-sm text-[var(--ds-text-primary)]">
             {nextSteps.map((s, i) => (
               <li key={i}>{s}</li>
             ))}
           </ul>
           {!dbgEnabled && (
-            <div className="mt-3 text-xs text-slate-400">
+            <div className="mt-3 text-xs text-[var(--ds-text-secondary)]">
               Ir para <Link href="/settings" className="underline">Ajustes</Link> para configurar Meta App.
             </div>
           )}
@@ -124,10 +124,10 @@ export function TokenValidityCard({ data, checks }: TokenValidityCardProps) {
 
       {(dbgCheck?.details || meCheck?.details) && (
         <details className="mt-4">
-          <summary className="cursor-pointer text-xs text-slate-400 hover:text-white transition-colors">
+          <summary className="cursor-pointer text-xs text-[var(--ds-text-secondary)] hover:text-[var(--ds-text-primary)] transition-colors">
             Ver detalhes tecnicos
           </summary>
-          <pre className="mt-3 text-xs bg-[var(--ds-bg-surface)]/30 border border-[var(--ds-border-subtle)] rounded-xl p-4 overflow-auto text-slate-200">
+          <pre className="mt-3 text-xs bg-[var(--ds-bg-surface)]/30 border border-[var(--ds-border-subtle)] rounded-xl p-4 overflow-auto text-[var(--ds-text-primary)]">
             {formatJsonMaybe({
               debug_token: dbgCheck?.details || null,
               me: meCheck?.details || null,

@@ -144,7 +144,7 @@ export function WebhookAlertBanner() {
           <div className="flex items-center gap-2 shrink-0">
             <Link
               href="/settings#webhooks"
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-red-500/20 hover:bg-red-500/30 rounded-lg transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-[var(--ds-text-primary)] bg-red-500/20 hover:bg-red-500/30 rounded-lg transition-colors"
             >
               <Settings size={14} />
               Configurar

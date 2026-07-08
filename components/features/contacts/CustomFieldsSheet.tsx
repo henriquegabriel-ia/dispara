@@ -38,15 +38,15 @@ export function CustomFieldsSheet({
     return (
         <Sheet open={open} onOpenChange={setOpen}>
             {children && <SheetTrigger asChild>{children}</SheetTrigger>}
-            <SheetContent className="sm:max-w-md w-full overflow-y-auto bg-slate-950 border-l border-[var(--ds-border-subtle)] p-0 flex flex-col sm:w-135">
+            <SheetContent className="sm:max-w-md w-full overflow-y-auto bg-[var(--ds-bg-elevated)] border-l border-[var(--ds-border-subtle)] p-0 flex flex-col sm:w-135">
                 <SheetHeader className="p-6 border-b border-[var(--ds-border-subtle)]">
-                    <SheetTitle className="text-white flex items-center gap-2">
+                    <SheetTitle className="text-[var(--ds-text-primary)] flex items-center gap-2">
                         <div className="p-2 bg-primary-500/10 rounded-lg text-primary-500">
                             <Type size={18} />
                         </div>
                         Gerenciar Campos
                     </SheetTitle>
-                    <SheetDescription className="text-slate-400">
+                    <SheetDescription className="text-[var(--ds-text-secondary)]">
                         Crie campos para armazenar dados específicos dos seus contatos.
                     </SheetDescription>
                 </SheetHeader>

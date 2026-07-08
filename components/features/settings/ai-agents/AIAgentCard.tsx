@@ -89,7 +89,7 @@ export function AIAgentCard({
       )}
     >
       {/* Status bar no topo */}
-      <div className="flex items-center justify-between px-4 py-2 bg-[var(--ds-bg-elevated)] border-b border-slate-800">
+      <div className="flex items-center justify-between px-4 py-2 bg-[var(--ds-bg-elevated)] border-b border-[var(--ds-border-default)]">
         <div className="flex items-center gap-2">
           {/* Indicador de status clicável */}
           <Tooltip>
@@ -102,7 +102,7 @@ export function AIAgentCard({
                   'disabled:cursor-not-allowed',
                   agent.is_active
                     ? 'bg-primary-400 shadow-[0_0_8px] shadow-primary-400/50'
-                    : 'bg-slate-600 hover:bg-slate-500'
+                    : 'bg-[var(--ds-text-muted)] hover:bg-[var(--ds-text-secondary)]'
                 )}
                 aria-label={agent.is_active ? 'Desativar agente' : 'Ativar agente'}
               />
@@ -112,7 +112,7 @@ export function AIAgentCard({
             </TooltipContent>
           </Tooltip>
 
-          <span className="text-[10px] uppercase tracking-wider text-slate-500">
+          <span className="text-[10px] uppercase tracking-wider text-[var(--ds-text-muted)]">
             {agent.is_active ? 'Ativo' : 'Inativo'}
           </span>
         </div>
@@ -137,7 +137,7 @@ export function AIAgentCard({
               'flex items-center justify-center w-10 h-10 rounded-xl text-sm font-semibold transition-colors flex-shrink-0',
               agent.is_active
                 ? 'bg-gradient-to-br from-primary-500/20 to-primary-600/10 text-primary-400'
-                : 'bg-slate-800 text-slate-500'
+                : 'bg-[var(--ds-bg-surface)] text-[var(--ds-text-muted)]'
             )}
           >
             {getInitials(agent.name)}
@@ -145,8 +145,8 @@ export function AIAgentCard({
 
           {/* Info */}
           <div className="flex-1 min-w-0">
-            <h3 className="font-medium text-white truncate">{agent.name}</h3>
-            <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">
+            <h3 className="font-medium text-[var(--ds-text-primary)] truncate">{agent.name}</h3>
+            <p className="text-xs text-[var(--ds-text-muted)] mt-0.5 line-clamp-2">
               {getAgentDescription(agent.system_prompt)}
             </p>
           </div>
@@ -156,8 +156,8 @@ export function AIAgentCard({
       {/* Ações sempre visíveis no footer */}
       <div
         className={cn(
-          'flex items-center justify-end gap-1 px-4 py-2 border-t border-slate-800/50',
-          'bg-slate-900/30'
+          'flex items-center justify-end gap-1 px-4 py-2 border-t border-[var(--ds-border-subtle)]',
+          'bg-[var(--ds-bg-surface)]'
         )}
       >
         {!agent.is_default && (
@@ -168,7 +168,7 @@ export function AIAgentCard({
                 size="sm"
                 onClick={() => onSetDefault(agent)}
                 disabled={isUpdating || disabled}
-                className="h-7 text-xs text-slate-400 hover:text-primary-400"
+                className="h-7 text-xs text-[var(--ds-text-secondary)] hover:text-primary-400"
               >
                 <Star className="h-3 w-3 mr-1" />
                 Tornar padrão
@@ -187,7 +187,7 @@ export function AIAgentCard({
               size="icon"
               onClick={() => onEdit(agent)}
               disabled={isUpdating || disabled}
-              className="h-7 w-7 text-slate-400 hover:text-white"
+              className="h-7 w-7 text-[var(--ds-text-secondary)] hover:text-[var(--ds-text-primary)]"
             >
               <Pencil className="h-3.5 w-3.5" />
             </Button>
@@ -203,7 +203,7 @@ export function AIAgentCard({
                 size="icon"
                 onClick={() => onDelete(agent)}
                 disabled={isUpdating || disabled}
-                className="h-7 w-7 text-slate-400 hover:text-red-400"
+                className="h-7 w-7 text-[var(--ds-text-secondary)] hover:text-red-400"
               >
                 <Trash2 className="h-3.5 w-3.5" />
               </Button>

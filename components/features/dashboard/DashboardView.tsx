@@ -230,9 +230,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ stats, recentCampa
                       tick={{fill: '#64748b', fontSize: 12}}
                     />
                     <Tooltip
-                      contentStyle={{backgroundColor: '#0f172a', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)', color: '#fff'}}
+                      contentStyle={{backgroundColor: 'var(--ds-bg-elevated)', borderRadius: '12px', border: '1px solid var(--ds-border-subtle)', color: 'var(--ds-text-primary)'}}
                       itemStyle={{color: '#34d399'}}
-                      labelStyle={{color: '#94a3b8'}}
+                      labelStyle={{color: 'var(--ds-text-secondary)'}}
                       formatter={(value) => [value, 'Enviadas']}
                     />
                     <Area

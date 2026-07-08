@@ -43,49 +43,49 @@ export const ContactAddModal: React.FC<ContactAddModalProps> = ({
 
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-slate-950 border border-[var(--ds-border-subtle)] rounded-2xl w-full max-w-md p-6 shadow-2xl animate-in zoom-in duration-200">
+      <div className="bg-[var(--ds-bg-elevated)] border border-[var(--ds-border-subtle)] rounded-2xl w-full max-w-md p-6 shadow-2xl animate-in zoom-in duration-200">
         <div className="flex justify-between items-center mb-6">
-          <h2 className="text-xl font-bold text-white">Novo Contato</h2>
+          <h2 className="text-xl font-bold text-[var(--ds-text-primary)]">Novo Contato</h2>
           <button
             type="button"
             aria-label="Fechar formulário de novo contato"
             onClick={onClose}
           >
-            <X className="text-slate-500 hover:text-white" />
+            <X className="text-[var(--ds-text-muted)] hover:text-[var(--ds-text-primary)]" />
           </button>
         </div>
         <div className="space-y-4">
           <div>
-            <label className="block text-sm text-slate-400 mb-1">Nome Completo</label>
+            <label className="block text-sm text-[var(--ds-text-secondary)] mb-1">Nome Completo</label>
             <input
-              className="w-full bg-slate-900 border border-[var(--ds-border-subtle)] rounded-lg px-4 py-3 text-white focus:border-primary-500 outline-none transition-colors"
+              className="w-full bg-[var(--ds-bg-surface)] border border-[var(--ds-border-subtle)] rounded-lg px-4 py-3 text-[var(--ds-text-primary)] focus:border-primary-500 outline-none transition-colors"
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
               placeholder="Ex: João Silva"
             />
           </div>
           <div>
-            <label className="block text-sm text-slate-400 mb-1">Telefone (WhatsApp) *</label>
+            <label className="block text-sm text-[var(--ds-text-secondary)] mb-1">Telefone (WhatsApp) *</label>
             <input
-              className="w-full bg-slate-900 border border-[var(--ds-border-subtle)] rounded-lg px-4 py-3 text-white focus:border-primary-500 outline-none transition-colors"
+              className="w-full bg-[var(--ds-bg-surface)] border border-[var(--ds-border-subtle)] rounded-lg px-4 py-3 text-[var(--ds-text-primary)] focus:border-primary-500 outline-none transition-colors"
               placeholder="+55 11 99999-9999"
               value={form.phone}
               onChange={(e) => setForm({ ...form, phone: e.target.value })}
             />
           </div>
           <div>
-            <label className="block text-sm text-slate-400 mb-1">E-mail</label>
+            <label className="block text-sm text-[var(--ds-text-secondary)] mb-1">E-mail</label>
             <input
-              className="w-full bg-slate-900 border border-[var(--ds-border-subtle)] rounded-lg px-4 py-3 text-white focus:border-primary-500 outline-none transition-colors"
+              className="w-full bg-[var(--ds-bg-surface)] border border-[var(--ds-border-subtle)] rounded-lg px-4 py-3 text-[var(--ds-text-primary)] focus:border-primary-500 outline-none transition-colors"
               placeholder="email@exemplo.com"
               value={form.email}
               onChange={(e) => setForm({ ...form, email: e.target.value })}
             />
           </div>
           <div>
-            <label className="block text-sm text-slate-400 mb-1">Tags (separadas por vírgula)</label>
+            <label className="block text-sm text-[var(--ds-text-secondary)] mb-1">Tags (separadas por vírgula)</label>
             <input
-              className="w-full bg-slate-900 border border-[var(--ds-border-subtle)] rounded-lg px-4 py-3 text-white focus:border-primary-500 outline-none transition-colors"
+              className="w-full bg-[var(--ds-bg-surface)] border border-[var(--ds-border-subtle)] rounded-lg px-4 py-3 text-[var(--ds-text-primary)] focus:border-primary-500 outline-none transition-colors"
               placeholder="VIP, Lead, Cliente"
               value={form.tags}
               onChange={(e) => setForm({ ...form, tags: e.target.value })}
@@ -95,7 +95,7 @@ export const ContactAddModal: React.FC<ContactAddModalProps> = ({
           {/* Custom Fields */}
           {customFields.length > 0 && (
             <div className="pt-2 border-t border-[var(--ds-border-subtle)] mt-2">
-              <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
+              <h3 className="text-xs font-semibold text-[var(--ds-text-muted)] uppercase tracking-wider mb-3">
                 Campos Personalizados
               </h3>
               <div className="space-y-3">
@@ -133,10 +133,10 @@ interface CustomFieldInputProps {
 const CustomFieldInput: React.FC<CustomFieldInputProps> = ({ field, value, onChange }) => {
   return (
     <div>
-      <label className="block text-sm text-slate-400 mb-1">{field.label}</label>
+      <label className="block text-sm text-[var(--ds-text-secondary)] mb-1">{field.label}</label>
       {field.type === 'select' ? (
         <select
-          className="w-full bg-slate-900 border border-[var(--ds-border-subtle)] rounded-lg px-4 py-3 text-white focus:border-primary-500 outline-none transition-colors appearance-none"
+          className="w-full bg-[var(--ds-bg-surface)] border border-[var(--ds-border-subtle)] rounded-lg px-4 py-3 text-[var(--ds-text-primary)] focus:border-primary-500 outline-none transition-colors appearance-none"
           value={value}
           onChange={(e) => onChange(e.target.value)}
         >
@@ -148,7 +148,7 @@ const CustomFieldInput: React.FC<CustomFieldInputProps> = ({ field, value, onCha
       ) : (
         <input
           type={field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text'}
-          className="w-full bg-slate-900 border border-[var(--ds-border-subtle)] rounded-lg px-4 py-3 text-white focus:border-primary-500 outline-none transition-colors"
+          className="w-full bg-[var(--ds-bg-surface)] border border-[var(--ds-border-subtle)] rounded-lg px-4 py-3 text-[var(--ds-text-primary)] focus:border-primary-500 outline-none transition-colors"
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={field.type === 'date' ? '' : `Digite ${field.label}...`}

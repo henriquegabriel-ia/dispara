@@ -141,7 +141,7 @@ function Progress({
     return (
       <div className="space-y-1.5">
         <div className="flex justify-between text-xs">
-          <span className="text-slate-400">Progresso</span>
+          <span className="text-[var(--ds-text-secondary)]">Progresso</span>
           <span
             className={cn(
               "font-medium",
@@ -149,7 +149,7 @@ function Progress({
               resolvedColor === "info" && "text-blue-400",
               resolvedColor === "warning" && "text-amber-400",
               resolvedColor === "error" && "text-red-400",
-              resolvedColor === "neutral" && "text-slate-400"
+              resolvedColor === "neutral" && "text-[var(--ds-text-secondary)]"
             )}
           >
             {label}
@@ -171,7 +171,7 @@ function Progress({
           resolvedColor === "info" && "text-blue-400",
           resolvedColor === "warning" && "text-amber-400",
           resolvedColor === "error" && "text-red-400",
-          resolvedColor === "neutral" && "text-slate-400"
+          resolvedColor === "neutral" && "text-[var(--ds-text-secondary)]"
         )}
       >
         {label}
@@ -213,10 +213,10 @@ function ProgressWithLimits({
     <div className={cn("space-y-2", className)}>
       {label && (
         <div className="flex justify-between text-sm">
-          <span className="text-slate-400">{label}</span>
-          <span className="text-slate-300">
+          <span className="text-[var(--ds-text-secondary)]">{label}</span>
+          <span className="text-[var(--ds-text-secondary)]">
             {formatValue(current)}{" "}
-            <span className="text-slate-500">/ {formatValue(limit)}</span>
+            <span className="text-[var(--ds-text-muted)]">/ {formatValue(limit)}</span>
           </span>
         </div>
       )}

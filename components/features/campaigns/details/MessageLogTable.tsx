@@ -29,9 +29,9 @@ export const MessageLogTable: React.FC<MessageLogTableProps> = ({
   return (
     <Container variant="glass" padding="none" className="overflow-hidden">
       <div className="p-5 border-b border-[var(--ds-border-subtle)] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <h3 className="font-bold text-white flex items-center gap-2">
+        <h3 className="font-bold text-[var(--ds-text-primary)] flex items-center gap-2">
           Logs de Envio{' '}
-          <span className="text-xs font-normal text-slate-500 bg-slate-900 px-2 py-0.5 rounded-full">
+          <span className="text-xs font-normal text-[var(--ds-text-muted)] bg-[var(--ds-bg-surface)] px-2 py-0.5 rounded-full">
             {total.toLocaleString()}
           </span>
         </h3>
@@ -44,7 +44,7 @@ export const MessageLogTable: React.FC<MessageLogTableProps> = ({
               className={`px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors flex items-center gap-2 ${
                 includeReadInDelivered
                   ? 'bg-blue-500/10 border-blue-500/20 text-blue-300 hover:bg-blue-500/15'
-                  : 'bg-[var(--ds-bg-elevated)] border-[var(--ds-border-subtle)] text-slate-300 hover:text-white hover:bg-[var(--ds-bg-hover)]'
+                  : 'bg-[var(--ds-bg-elevated)] border-[var(--ds-border-subtle)] text-[var(--ds-text-secondary)] hover:text-[var(--ds-text-primary)] hover:bg-[var(--ds-bg-hover)]'
               }`}
               title={includeReadInDelivered
                 ? 'Mostrando entregues + lidas (cumulativo)'
@@ -65,10 +65,10 @@ export const MessageLogTable: React.FC<MessageLogTableProps> = ({
               onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
-          <button className="p-1.5 text-slate-400 hover:text-white hover:bg-[var(--ds-bg-hover)] rounded-lg border border-[var(--ds-border-subtle)] transition-colors">
+          <button className="p-1.5 text-[var(--ds-text-secondary)] hover:text-[var(--ds-text-primary)] hover:bg-[var(--ds-bg-hover)] rounded-lg border border-[var(--ds-border-subtle)] transition-colors">
             <Filter size={16} />
           </button>
-          <button className="p-1.5 text-slate-400 hover:text-white hover:bg-[var(--ds-bg-hover)] rounded-lg border border-[var(--ds-border-subtle)] transition-colors">
+          <button className="p-1.5 text-[var(--ds-text-secondary)] hover:text-[var(--ds-text-primary)] hover:bg-[var(--ds-bg-hover)] rounded-lg border border-[var(--ds-border-subtle)] transition-colors">
             <RefreshCw size={16} />
           </button>
         </div>
@@ -86,15 +86,15 @@ export const MessageLogTable: React.FC<MessageLogTableProps> = ({
               <th className="px-6 py-3 font-medium">Ações</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-white/5">
+          <tbody className="divide-y divide-[var(--ds-border-subtle)]">
             {messages.map((msg) => (
               <tr key={msg.id} className="hover:bg-[var(--ds-bg-hover)] transition-colors">
-                <td className="px-6 py-3 font-medium text-slate-200">{msg.contactName}</td>
-                <td className="px-6 py-3 font-mono text-xs text-slate-500">{msg.contactPhone}</td>
+                <td className="px-6 py-3 font-medium text-[var(--ds-text-primary)]">{msg.contactName}</td>
+                <td className="px-6 py-3 font-mono text-xs text-[var(--ds-text-muted)]">{msg.contactPhone}</td>
                 <td className="px-6 py-3">
                   <MessageStatusBadge status={msg.status} />
                 </td>
-                <td className="px-6 py-3 text-slate-500 text-xs">{msg.sentAt}</td>
+                <td className="px-6 py-3 text-[var(--ds-text-muted)] text-xs">{msg.sentAt}</td>
                 <td className="px-6 py-3">
                   {msg.error ? (
                     <span
@@ -113,7 +113,7 @@ export const MessageLogTable: React.FC<MessageLogTableProps> = ({
                       })()}
                     </span>
                   ) : (
-                    <span className="text-slate-600 text-xs">-</span>
+                    <span className="text-[var(--ds-text-muted)] text-xs">-</span>
                   )}
                 </td>
                 <td className="px-6 py-3">
@@ -129,14 +129,14 @@ export const MessageLogTable: React.FC<MessageLogTableProps> = ({
                       <Pencil size={12} /> Corrigir contato
                     </button>
                   ) : (
-                    <span className="text-slate-600 text-xs">-</span>
+                    <span className="text-[var(--ds-text-muted)] text-xs">-</span>
                   )}
                 </td>
               </tr>
             ))}
             {messages.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-6 py-8 text-center text-slate-500">Nenhum registro encontrado.</td>
+                <td colSpan={6} className="px-6 py-8 text-center text-[var(--ds-text-muted)]">Nenhum registro encontrado.</td>
               </tr>
             )}
           </tbody>
@@ -144,9 +144,9 @@ export const MessageLogTable: React.FC<MessageLogTableProps> = ({
 
         {showPagination && (
           <div className="p-4 border-t border-[var(--ds-border-subtle)] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <div className="text-xs text-slate-500">
-              Mostrando <span className="font-mono text-slate-300">{shown}</span> de{' '}
-              <span className="font-mono text-slate-300">{total}</span>
+            <div className="text-xs text-[var(--ds-text-muted)]">
+              Mostrando <span className="font-mono text-[var(--ds-text-secondary)]">{shown}</span> de{' '}
+              <span className="font-mono text-[var(--ds-text-secondary)]">{total}</span>
             </div>
 
             {showLoadMore ? (
@@ -154,13 +154,13 @@ export const MessageLogTable: React.FC<MessageLogTableProps> = ({
                 type="button"
                 onClick={onLoadMore}
                 disabled={!!isLoadingMore}
-                className="px-3 py-2 bg-slate-900 border border-[var(--ds-border-subtle)] rounded-lg text-slate-300 hover:text-white hover:bg-[var(--ds-bg-hover)] transition-colors flex items-center gap-2 text-xs font-medium disabled:opacity-50"
+                className="px-3 py-2 bg-[var(--ds-bg-surface)] border border-[var(--ds-border-subtle)] rounded-lg text-[var(--ds-text-secondary)] hover:text-[var(--ds-text-primary)] hover:bg-[var(--ds-bg-hover)] transition-colors flex items-center gap-2 text-xs font-medium disabled:opacity-50"
               >
                 {isLoadingMore ? <Loader2 size={14} className="animate-spin" /> : null}
                 {isLoadingMore ? 'Carregando...' : 'Carregar mais'}
               </button>
             ) : (
-              <div className="text-xs text-slate-600">(Esta tela carrega ate 100 por vez)</div>
+              <div className="text-xs text-[var(--ds-text-muted)]">(Esta tela carrega ate 100 por vez)</div>
             )}
           </div>
         )}

@@ -94,8 +94,8 @@ export function CredentialsStep({
         onBack={onBack}
       />
 
-      <p className="text-sm text-slate-400">
-        Na página <strong className="text-white">"API Setup"</strong> do seu app, copie os seguintes dados:
+      <p className="text-sm text-[var(--ds-text-secondary)]">
+        Na página <strong className="text-[var(--ds-text-primary)]">"API Setup"</strong> do seu app, copie os seguintes dados:
       </p>
 
       {/* Formulário centralizado */}
