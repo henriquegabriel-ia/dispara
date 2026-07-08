@@ -33,11 +33,11 @@
   --ds-brand-primary-hover: #059669;
   --ds-brand-primary-muted: rgba(16, 185, 129, 0.1);
 
-  /* DS - Brand secondary (Indigo - accent raro) */
-  --ds-brand-secondary: #6366f1;
-  --ds-brand-secondary-hover: #4f46e5;
-  --ds-brand-secondary-muted: rgba(99, 102, 241, 0.1);
-  --ds-brand-secondary-text: #818cf8;
+  /* DS - Brand secondary (alias do primary — indigo antigo aposentado) */
+  --ds-brand-secondary: #10b981;
+  --ds-brand-secondary-hover: #059669;
+  --ds-brand-secondary-muted: rgba(16, 185, 129, 0.1);
+  --ds-brand-secondary-text: #34d399;
 
   /* ================================
      DARK-ONLY — Henrique Gabriel brand
@@ -110,8 +110,8 @@
   --ds-glow-brand-md: 0 0 24px rgba(16, 185, 129, 0.3);
   --ds-glow-brand-ring: 0 0 0 3px rgba(16, 185, 129, 0.2);
   --ds-glow-error-ring: 0 0 0 3px rgba(239, 68, 68, 0.2);
-  --ds-glow-secondary-sm: 0 0 12px rgba(99, 102, 241, 0.15);
-  --ds-glow-secondary-ring: 0 0 0 3px rgba(99, 102, 241, 0.2);
+  --ds-glow-secondary-sm: 0 0 12px rgba(16, 185, 129, 0.15);
+  --ds-glow-secondary-ring: 0 0 0 3px rgba(16, 185, 129, 0.2);
 
   /* DS - Composite shadows (dark brand) */
   --ds-shadow-card: 0 20px 40px -20px rgba(0, 0, 0, 0.5);
@@ -236,10 +236,10 @@
   --input: #334155;
   --ring: #10b981;
   --chart-1: #10b981;
-  --chart-2: #6366f1;
+  --chart-2: #3b82f6;
   --chart-3: #f59e0b;
   --chart-4: #34d399;
-  --chart-5: #818cf8;
+  --chart-5: #60a5fa;
   --sidebar: #020617;
   --sidebar-foreground: #94a3b8;
   --sidebar-primary: #10b981;
@@ -738,8 +738,8 @@ textarea:focus-visible {
   --ds-glow-brand-md: 0 0 24px rgba(16, 185, 129, 0.3);
   --ds-glow-brand-ring: 0 0 0 3px rgba(16, 185, 129, 0.2);
   --ds-glow-error-ring: 0 0 0 3px rgba(239, 68, 68, 0.2);
-  --ds-glow-secondary-sm: 0 0 12px rgba(99, 102, 241, 0.15);
-  --ds-glow-secondary-ring: 0 0 0 3px rgba(99, 102, 241, 0.2);
+  --ds-glow-secondary-sm: 0 0 12px rgba(16, 185, 129, 0.15);
+  --ds-glow-secondary-ring: 0 0 0 3px rgba(16, 185, 129, 0.2);
 
   /* DS - Composite shadows (dark brand) */
   --ds-shadow-card: 0 20px 40px -20px rgba(0, 0, 0, 0.5);
@@ -791,10 +791,10 @@ textarea:focus-visible {
   --input: #334155;
   --ring: #10b981;
   --chart-1: #10b981;
-  --chart-2: #6366f1;
+  --chart-2: #3b82f6;
   --chart-3: #f59e0b;
   --chart-4: #34d399;
-  --chart-5: #818cf8;
+  --chart-5: #60a5fa;
   --sidebar: #020617;
   --sidebar-foreground: #94a3b8;
   --sidebar-primary: #10b981;
@@ -1003,18 +1003,6 @@ textarea:focus-visible {
 }
 
 /* Hero gradient card — indigo secondary variant (accent raro) */
-.ds-gradient-hero-gold {
-  background: linear-gradient(135deg,
-    #3730a3 0%,
-    #4f46e5 40%,
-    #312e81 100%
-  );
-  border: 1px solid rgba(99, 102, 241, 0.3);
-  border-radius: var(--ds-radius-2xl);
-  box-shadow: var(--ds-shadow-xl);
-  position: relative;
-  overflow: hidden;
-}
 
 /* Stat card premium */
 .ds-stat-card {

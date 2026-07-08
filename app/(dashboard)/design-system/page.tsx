@@ -540,9 +540,9 @@ function ShadowsSection() {
   ]
 
   const glows = [
-    { name: 'Brand SM', css: '--ds-glow-brand-sm', color: 'purple' },
-    { name: 'Brand MD', css: '--ds-glow-brand-md', color: 'purple' },
-    { name: 'Brand Ring', css: '--ds-glow-brand-ring', color: 'purple' },
+    { name: 'Brand SM', css: '--ds-glow-brand-sm', color: 'emerald' },
+    { name: 'Brand MD', css: '--ds-glow-brand-md', color: 'emerald' },
+    { name: 'Brand Ring', css: '--ds-glow-brand-ring', color: 'emerald' },
     { name: 'Error Ring', css: '--ds-glow-error-ring', color: 'red' },
   ]
 

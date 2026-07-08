@@ -8,7 +8,6 @@ import {
   CircleAlert,
   Loader2,
   Pencil,
-  Redo2,
   Rocket,
   Undo2,
 } from "lucide-react";
@@ -40,7 +39,7 @@ function SaveIndicator({ state }: { state: SaveState }) {
   }
   return (
     <span className="flex items-center gap-1 px-1 text-[12px] text-slate-500">
-      <Check size={13} className="text-emerald-500" /> Salvo
+      <Check size={13} className="text-primary-500" /> Salvo
     </span>
   );
 }
@@ -78,7 +77,7 @@ export default function BuilderHeader({
           ref={inputRef}
           defaultValue={name}
           autoFocus
-          className="w-[320px] rounded-lg border border-emerald-500 bg-transparent px-2 py-1 text-[13px] font-medium text-slate-100 outline-none"
+          className="w-[320px] rounded-lg border border-primary-500 bg-transparent px-2 py-1 text-[13px] font-medium text-slate-100 outline-none"
           onBlur={commit}
           onKeyDown={(e) => {
             if (e.key === "Enter") commit();
@@ -103,7 +102,7 @@ export default function BuilderHeader({
       )}
 
       {publishedVersion != null && (
-        <span className="shrink-0 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-400">
+        <span className="shrink-0 rounded-full border border-primary-500/30 bg-primary-500/10 px-2 py-0.5 text-[11px] font-medium text-primary-400">
           v{publishedVersion} publicada
         </span>
       )}
@@ -118,14 +117,8 @@ export default function BuilderHeader({
         >
           <Undo2 size={15} />
         </button>
-        <button
-          type="button"
-          className="rounded p-1.5 text-slate-400 disabled:opacity-30"
-          disabled
-          title="Refazer"
-        >
-          <Redo2 size={15} />
-        </button>
+        {/* Botão Refazer oculto até o store ter redo — um ícone permanentemente
+            desabilitado lê como quebrado. */}
 
         <SaveIndicator state={saveState} />
 
@@ -141,7 +134,7 @@ export default function BuilderHeader({
 
         <button
           type="button"
-          className="flex items-center gap-1.5 rounded-lg bg-emerald-500 px-3.5 py-1.5 text-[13px] font-medium text-white shadow-sm hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex items-center gap-1.5 rounded-lg bg-primary-500 px-3.5 py-1.5 text-[13px] font-medium text-white shadow-sm hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
           onClick={onPublish}
           disabled={publishing || !hasFlow}
         >

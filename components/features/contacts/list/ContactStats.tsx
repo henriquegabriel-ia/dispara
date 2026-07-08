@@ -25,7 +25,7 @@ export const ContactStats: React.FC<ContactStatsProps> = ({ stats }) => {
           <h3 className="text-4xl font-extrabold text-white font-[var(--ds-font-display)] mb-4">
             {total.toLocaleString()}
           </h3>
-          <div className="flex items-center gap-2 text-[var(--ds-brand-secondary)] font-bold text-sm">
+          <div className="flex items-center gap-2 text-primary-200 font-bold text-sm">
             <UserCheck size={16} />
             <span>{optInPct}% ativos (opt-in)</span>
           </div>

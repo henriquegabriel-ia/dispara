@@ -124,7 +124,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ stats, recentCampa
               <h3 className="text-4xl font-extrabold text-white font-[var(--ds-font-display)] mb-4">
                 {stats.sent24h}
               </h3>
-              <div className="flex items-center gap-2 text-[var(--ds-brand-secondary)] font-bold text-sm">
+              <div className="flex items-center gap-2 text-primary-200 font-bold text-sm">
                 <TrendingUp size={16} />
                 <span>Últimas 24 horas</span>
               </div>
@@ -161,7 +161,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ stats, recentCampa
         {isLoading ? <SmallStatSkeleton /> : (
           <div className="ds-stat-card p-6 flex flex-col justify-between">
             <div>
-              <div className="w-10 h-10 bg-[var(--ds-brand-secondary-muted)] text-[var(--ds-brand-secondary)] rounded-lg flex items-center justify-center mb-4">
+              <div className="w-10 h-10 bg-[var(--ds-brand-primary-muted)] text-[var(--ds-brand-primary)] rounded-lg flex items-center justify-center mb-4">
                 <Zap size={20} />
               </div>
               <p className="text-[var(--ds-text-muted)] text-xs font-semibold mb-1">Campanhas Ativas</p>
@@ -169,7 +169,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ stats, recentCampa
                 {stats.activeCampaigns}
               </h4>
             </div>
-            <p className="text-[10px] text-[var(--ds-brand-secondary)] font-bold mt-4 uppercase tracking-tight">
+            <p className="text-[10px] text-[var(--ds-text-brand)] font-bold mt-4 uppercase tracking-tight">
               Em andamento agora
             </p>
           </div>
@@ -212,8 +212,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ stats, recentCampa
                   <AreaChart data={chartData.slice(-rangeSize)} aria-hidden="true">
                     <defs>
                       <linearGradient id="colorSent" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#818cf8" stopOpacity={0.22}/>
-                        <stop offset="95%" stopColor="#818cf8" stopOpacity={0}/>
+                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.22}/>
+                        <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(148,163,184,0.08)" />
@@ -231,14 +231,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ stats, recentCampa
                     />
                     <Tooltip
                       contentStyle={{backgroundColor: '#0f172a', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)', color: '#fff'}}
-                      itemStyle={{color: '#818cf8'}}
+                      itemStyle={{color: '#34d399'}}
                       labelStyle={{color: '#94a3b8'}}
                       formatter={(value) => [value, 'Enviadas']}
                     />
                     <Area
                       type="monotone"
                       dataKey="sent"
-                      stroke="#818cf8"
+                      stroke="#10b981"
                       strokeWidth={2}
                       fillOpacity={1}
                       fill="url(#colorSent)"

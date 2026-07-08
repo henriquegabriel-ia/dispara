@@ -639,7 +639,7 @@ function VariablePicker({ customFields, onSelect, onManageFields }: VariablePick
             className="text-sm cursor-pointer hover:bg-[var(--ds-bg-hover)] focus:bg-[var(--ds-bg-hover)] px-2 py-1.5 rounded-sm flex items-center gap-2 outline-none"
             onClick={() => onSelect('{{nome}}')}
           >
-            <Users size={14} className="text-indigo-400" />
+            <Users size={14} className="text-primary-400" />
             <span>Nome</span>
           </DropdownMenuItem>
           <DropdownMenuItem

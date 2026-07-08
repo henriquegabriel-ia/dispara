@@ -25,7 +25,7 @@ function miniMapColor(n: Node): string {
     return "#334155";
   }
   if (n.type === "end") return "#64748b";
-  return "#10b981";
+  return "var(--ds-brand-primary)";
 }
 
 function ZoomIndicator() {

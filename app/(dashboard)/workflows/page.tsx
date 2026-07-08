@@ -154,7 +154,7 @@ export default function WorkflowsPage() {
     setRollingBackId(versionId);
     try {
       await api.workflow.rollback(selectedWorkflowId, versionId);
-      toast.success("Reversao aplicada");
+      toast.success("Reversão aplicada");
       await Promise.all([versionsQuery.refetch(), refetch()]);
     } catch (error) {
       console.error("Failed to rollback workflow:", error);
@@ -199,7 +199,7 @@ export default function WorkflowsPage() {
 
   const handleDelete = async (workflowId: string) => {
     const confirmed = window.confirm(
-      "Tem certeza que deseja excluir este fluxo? Essa acao nao pode ser desfeita."
+      "Tem certeza que deseja excluir este fluxo? Essa ação não pode ser desfeita."
     );
     if (!confirmed) return;
     try {
@@ -265,7 +265,7 @@ export default function WorkflowsPage() {
             onClick={handleCreate}
             className="bg-primary-500 text-black hover:bg-primary-400 transition-colors"
           >
-            <Plus className="h-4 w-4 text-primary-900" />
+            <Plus className="h-4 w-4" />
             Novo fluxo
           </Button>
         </PageActions>
@@ -302,17 +302,27 @@ export default function WorkflowsPage() {
 
           {!isLoading &&
             sortedWorkflows.map((workflow) => (
-              <button
+              // div com role="button" (não <button>): o card contém <Button>s internos
+              // (Publicar, menu ...) e button-dentro-de-button é HTML inválido —
+              // o parser fecha o botão externo no SSR e gera hydration mismatch.
+              <div
                 key={workflow.id}
+                role="button"
+                tabIndex={0}
                 className={cn(
-                  "group flex w-full items-center justify-between rounded-xl border border-[var(--ds-border-subtle)] bg-black/40 px-4 py-4 text-left transition hover:border-primary-500/40 hover:bg-black/60",
+                  "group flex w-full cursor-pointer items-center justify-between rounded-xl border border-[var(--ds-border-subtle)] bg-black/40 px-4 py-4 text-left transition hover:border-primary-500/40 hover:bg-black/60",
                   workflow.id === defaultWorkflowId &&
-                    "border-primary-500/30 bg-primary-500/5 shadow-[0_0_0_1px_rgba(16,185,129,0.15)]"
+                    "border-primary-500/30 bg-primary-500/5 ring-1 ring-primary-500/15"
                 )}
                 onClick={() =>
                   router.push(`/builder/${encodeURIComponent(workflow.id)}`)
                 }
-                type="button"
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    router.push(`/builder/${encodeURIComponent(workflow.id)}`);
+                  }
+                }}
               >
                 <div className="space-y-1">
                   <div className="flex items-center gap-3">
@@ -355,7 +365,7 @@ export default function WorkflowsPage() {
                 <div className="flex items-center gap-3">
                   <div className="hidden sm:flex items-center gap-2 text-xs text-slate-500">
                     <span>
-                      Execucoes:{" "}
+                      Execuções:{" "}
                       {metricsQuery.data?.byWorkflow?.[workflow.id]?.runs ?? 0}
                     </span>
                     <span>
@@ -418,7 +428,7 @@ export default function WorkflowsPage() {
                           router.push(`/workflows?workflowId=${encodeURIComponent(workflow.id)}`);
                         }}
                       >
-                        Versoes
+                        Versões
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         className="text-red-400 focus:text-red-400"
@@ -433,7 +443,7 @@ export default function WorkflowsPage() {
                   </DropdownMenu>
                   <ChevronRight className="h-4 w-4 text-slate-500 transition group-hover:text-white" />
                 </div>
-              </button>
+              </div>
             ))}
         </div>
 
@@ -441,7 +451,7 @@ export default function WorkflowsPage() {
           <div className="mt-6 rounded-xl border border-[var(--ds-border-subtle)] bg-black/40 p-4">
             <div className="flex items-center justify-between">
               <div className="text-sm font-semibold text-white">
-                Versoes do fluxo
+                Versões do fluxo
               </div>
               <Button
                 variant="ghost"

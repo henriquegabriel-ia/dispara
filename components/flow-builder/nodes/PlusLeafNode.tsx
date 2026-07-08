@@ -15,7 +15,7 @@ const PlusLeafNode = memo(function PlusLeafNode({ data }: NodeProps) {
       <Handle type="target" position={Position.Top} />
       <button
         type="button"
-        className="nodrag nopan flex h-full w-full items-center justify-center rounded-full border border-slate-600 bg-card text-slate-400 shadow-sm transition-all hover:scale-110 hover:border-emerald-500 hover:bg-emerald-500 hover:text-white"
+        className="nodrag nopan flex h-full w-full items-center justify-center rounded-full border border-slate-600 bg-card text-slate-400 shadow-sm transition-all hover:scale-110 hover:border-primary-500 hover:bg-primary-500 hover:text-white"
         onClick={(e) => {
           e.stopPropagation();
           useFlowBuilderStore

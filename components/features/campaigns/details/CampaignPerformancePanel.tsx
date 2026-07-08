@@ -90,7 +90,7 @@ export const CampaignPerformancePanel: React.FC<CampaignPerformancePanelProps> =
                 return baselineText;
               })()}
               icon={CheckCircle2}
-              color="#818cf8"
+              color="#10b981"
             />
           </div>
 

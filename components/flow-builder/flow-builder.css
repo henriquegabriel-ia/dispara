@@ -28,14 +28,14 @@
   pointer-events: none;
 }
 
-/* Modo picking do Go To: nós válidos pulsam (emerald) */
+/* Modo picking do Go To: nós válidos pulsam (cor da marca) */
 @keyframes dispara-pulse {
   0%,
   100% {
-    box-shadow: 0 0 0 0 rgb(16 185 129 / 0.45);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--ds-brand-primary) 45%, transparent);
   }
   50% {
-    box-shadow: 0 0 0 8px rgb(16 185 129 / 0);
+    box-shadow: 0 0 0 8px transparent;
   }
 }
 

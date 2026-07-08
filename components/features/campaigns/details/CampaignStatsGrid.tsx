@@ -37,7 +37,7 @@ export const CampaignStatsGrid: React.FC<CampaignStatsGridProps> = ({
           ? `${(((Number(deliveredTotal || 0)) / (recipients ?? 1)) * 100).toFixed(1)}% taxa de entrega${deliveredOnlyCount > 0 ? ` - ${Number(deliveredOnlyCount).toLocaleString()} nao lidas` : ''}`
           : (hasLiveStats ? 'Aguardando webhook' : 'Aguardando webhook')}
         icon={CheckCircle2}
-        color="#818cf8"
+        color="#10b981"
         isActive={filterStatus === MessageStatus.DELIVERED}
         onClick={() => {
           if (!setFilterStatus) return;

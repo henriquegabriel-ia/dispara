@@ -347,7 +347,7 @@ export const UsagePanel: React.FC<UsagePanelProps> = ({ usage, isLoading, onRefr
                   <h4 className="font-medium text-[var(--ds-text-primary)] text-sm">Database</h4>
                   {usage.database.plan && usage.database.plan !== 'unknown' && (
                     <span className={`px-1.5 py-0.5 text-[10px] font-semibold uppercase rounded ${usage.database.plan === 'enterprise' ? 'bg-primary-500/20 text-primary-300' :
-                      usage.database.plan === 'team' ? 'bg-indigo-500/20 text-indigo-300' :
+                      usage.database.plan === 'team' ? 'bg-blue-500/20 text-blue-300' :
                         usage.database.plan === 'pro' ? 'bg-primary-500/20 text-primary-300' :
                           'bg-[var(--ds-bg-surface)] text-[var(--ds-text-secondary)]'
                       }`}>

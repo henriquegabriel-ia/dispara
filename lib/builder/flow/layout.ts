@@ -350,7 +350,7 @@ export function layoutFlow(flow: Flow): { nodes: LayoutNode[]; edges: LayoutEdge
         zIndex: 1000,
         data: { sideX: maxX + GOTO_SIDE_OFFSET + gotoIndex * 16 },
         // 'arrowclosed' === MarkerType.ArrowClosed do @xyflow/react
-        markerEnd: { type: "arrowclosed", color: "#7c3aed", width: 18, height: 18 },
+        markerEnd: { type: "arrowclosed", color: "#8b5cf6", width: 18, height: 18 },
       });
       gotoIndex += 1;
     }

@@ -453,7 +453,15 @@ export function DashboardShell({
                     } as React.CSSProperties}
                 >
                     <DashboardSidebar {...sidebarProps} />
-                    <div className="flex-1 min-w-0 lg:pl-14">
+                    {/* ExpandedSidebar é fixed (223px) e sobrepõe o conteúdo — o padding
+                        precisa acompanhar o estado, senão o header do builder fica
+                        escondido embaixo da sidebar (título/voltar cortados). */}
+                    <div
+                        className={cn(
+                            'flex-1 min-w-0 transition-[padding] duration-200',
+                            isSidebarExpanded ? 'lg:pl-56' : 'lg:pl-14'
+                        )}
+                    >
                         {children}
                     </div>
                 </div>

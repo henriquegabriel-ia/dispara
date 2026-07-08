@@ -5,7 +5,7 @@ import { Handle, Position } from "@xyflow/react";
 import type { NodeProps } from "@xyflow/react";
 import { Zap } from "lucide-react";
 
-const TriggerNode = memo(function TriggerNode({ data }: NodeProps) {
+const TriggerNode = memo(function TriggerNode({ data, selected }: NodeProps) {
   const { label, keywords } = data as unknown as {
     label: string;
     keywords?: string[];
@@ -17,7 +17,13 @@ const TriggerNode = memo(function TriggerNode({ data }: NodeProps) {
       : "Definir palavras-chave";
 
   return (
-    <div className="flex h-full w-full items-center gap-3 rounded-[10px] border-2 border-dashed border-slate-700 bg-card/60 px-3 hover:border-slate-500">
+    <div
+      className={`flex h-full w-full items-center gap-3 rounded-[10px] border-2 border-dashed px-3 ${
+        selected
+          ? "border-primary-500 bg-card/80 ring-2 ring-primary-500/25"
+          : "border-slate-700 bg-card/60 hover:border-slate-500"
+      }`}
+    >
       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-500/15 text-amber-400">
         <Zap size={16} />
       </div>

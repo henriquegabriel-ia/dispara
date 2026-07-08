@@ -74,9 +74,9 @@ const colorStyles = {
     iconGlow: "shadow-emerald-500/20",
   },
   gold: {
-    iconBg: "bg-[var(--ds-brand-secondary-muted)]",
-    iconColor: "text-[var(--ds-brand-secondary-text)] dark:text-[var(--ds-brand-secondary)]",
-    iconGlow: "shadow-[var(--ds-brand-secondary)]/20",
+    iconBg: "bg-amber-500/15",
+    iconColor: "text-amber-600 dark:text-amber-400",
+    iconGlow: "shadow-amber-500/20",
   },
   slate: {
     iconBg: "bg-slate-500/15",

@@ -570,7 +570,7 @@ export default function AtendimentoPage() {
               type="button"
               className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium transition-all"
               style={{
-                backgroundColor: templateFilter ? 'var(--geist-purple, #6366f1)' : 'transparent',
+                backgroundColor: templateFilter ? 'var(--geist-accent, #10b981)' : 'transparent',
                 color: templateFilter ? '#ffffff' : 'var(--geist-foreground-secondary)',
                 border: templateFilter ? 'none' : '1px solid var(--geist-border)',
               }}

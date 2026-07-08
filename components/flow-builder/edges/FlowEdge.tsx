@@ -113,7 +113,7 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
           >
             <button
               type="button"
-              className="flex h-6 w-6 items-center justify-center rounded-full border border-slate-600 bg-card text-slate-400 shadow-sm transition-all duration-150 hover:scale-115 hover:border-emerald-500 hover:bg-emerald-500 hover:text-white"
+              className="flex h-6 w-6 items-center justify-center rounded-full border border-slate-600 bg-card text-slate-400 shadow-sm transition-all duration-150 hover:scale-115 hover:border-primary-500 hover:bg-primary-500 hover:text-white"
               onClick={openPicker}
               aria-label="Inserir ação aqui"
             >

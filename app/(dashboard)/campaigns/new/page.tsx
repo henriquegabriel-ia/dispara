@@ -351,7 +351,7 @@ export default function CampaignsNewRealPage() {
                                       onSelect={() => ctrl.setTemplateVarValue('header', index, '{{nome}}')}
                                       className="flex items-center gap-2"
                                     >
-                                      <Users size={14} className="text-indigo-400" />
+                                      <Users size={14} className="text-primary-400" />
                                       <span>Nome</span>
                                     </DropdownMenuItem>
                                     <DropdownMenuItem
@@ -446,7 +446,7 @@ export default function CampaignsNewRealPage() {
                                       onSelect={() => ctrl.setTemplateVarValue('body', index, '{{nome}}')}
                                       className="flex items-center gap-2"
                                     >
-                                      <Users size={14} className="text-indigo-400" />
+                                      <Users size={14} className="text-primary-400" />
                                       <span>Nome</span>
                                     </DropdownMenuItem>
                                     <DropdownMenuItem
@@ -550,7 +550,7 @@ export default function CampaignsNewRealPage() {
                                                 onSelect={() => ctrl.setButtonVarValue(b.index, k, '{{nome}}')}
                                                 className="flex items-center gap-2"
                                               >
-                                                <Users size={14} className="text-indigo-400" />
+                                                <Users size={14} className="text-primary-400" />
                                                 <span>Nome</span>
                                               </DropdownMenuItem>
                                               <DropdownMenuItem

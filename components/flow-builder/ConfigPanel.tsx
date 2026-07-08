@@ -42,7 +42,7 @@ function Hint({ children }: { children: React.ReactNode }) {
 }
 
 const inputCls =
-  "w-full rounded-lg border border-border bg-slate-900/60 px-2.5 py-1.5 text-[13px] text-slate-200 outline-none placeholder:text-slate-600 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-50";
+  "w-full rounded-lg border border-border bg-slate-900/60 px-2.5 py-1.5 text-[13px] text-slate-200 outline-none placeholder:text-slate-600 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 disabled:cursor-not-allowed disabled:opacity-50";
 
 const MAX_BUTTONS = 3;
 const MAX_BUTTON_CHARS = 20;
@@ -145,7 +145,7 @@ function TriggerPanelBody({ flow }: { flow: Flow }) {
         </button>
         <button
           type="button"
-          className="rounded-lg bg-emerald-500 px-4 py-1.5 text-[13px] font-medium text-white shadow-sm hover:bg-emerald-600"
+          className="rounded-lg bg-primary-500 px-4 py-1.5 text-[13px] font-medium text-white shadow-sm hover:bg-primary-600"
           onClick={save}
         >
           Salvar gatilho
@@ -235,7 +235,7 @@ function PanelBody({ step }: { step: Step }) {
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full rounded border border-transparent bg-transparent px-1 py-0.5 text-[14px] font-semibold text-slate-100 outline-none hover:border-border focus:border-emerald-500"
+              className="w-full rounded border border-transparent bg-transparent px-1 py-0.5 text-[14px] font-semibold text-slate-100 outline-none hover:border-border focus:border-primary-500"
               aria-label="Nome da ação"
               disabled={comingSoon}
             />
@@ -304,7 +304,7 @@ function PanelBody({ step }: { step: Step }) {
         </button>
         <button
           type="button"
-          className="rounded-lg bg-emerald-500 px-4 py-1.5 text-[13px] font-medium text-white shadow-sm hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-lg bg-primary-500 px-4 py-1.5 text-[13px] font-medium text-white shadow-sm hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
           disabled={comingSoon}
           onClick={save}
         >
@@ -358,7 +358,7 @@ function highlightVars(text: string): React.ReactNode {
     p.startsWith("{{") ? (
       <span
         key={i}
-        className="rounded bg-emerald-500/15 px-0.5 font-medium text-emerald-400"
+        className="rounded bg-primary-500/15 px-0.5 font-medium text-primary-400"
       >
         {p}
       </span>
@@ -580,7 +580,7 @@ function ConditionForm({ branches, setBranches }: BranchesFormProps) {
       <Hint>A comparação é sensível a maiúsculas e acentos.</Hint>
       <button
         type="button"
-        className="mt-1 flex items-center gap-1.5 text-[13px] font-medium text-emerald-400 hover:text-emerald-300"
+        className="mt-1 flex items-center gap-1.5 text-[13px] font-medium text-primary-400 hover:text-primary-300"
         onClick={add}
       >
         <Plus size={13} /> Adicionar branch
@@ -668,7 +668,7 @@ function InteractiveForm({
         </div>
         <button
           type="button"
-          className="mt-2 flex items-center gap-1.5 text-[13px] font-medium text-emerald-400 hover:text-emerald-300 disabled:cursor-not-allowed disabled:opacity-40"
+          className="mt-2 flex items-center gap-1.5 text-[13px] font-medium text-primary-400 hover:text-primary-300 disabled:cursor-not-allowed disabled:opacity-40"
           onClick={add}
           disabled={buttonCount >= MAX_BUTTONS}
         >

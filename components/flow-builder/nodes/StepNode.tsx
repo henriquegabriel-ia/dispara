@@ -46,7 +46,7 @@ const StepNode = memo(function StepNode({ data, selected }: NodeProps) {
     <div
       className={`step-card relative flex h-full w-full items-center gap-3 rounded-[10px] border bg-card px-3 shadow-sm transition-shadow ${
         selected
-          ? "border-emerald-500 ring-2 ring-emerald-500/25"
+          ? "border-primary-500 ring-2 ring-primary-500/25"
           : "border-border hover:border-slate-600"
       }`}
     >
@@ -62,7 +62,7 @@ const StepNode = memo(function StepNode({ data, selected }: NodeProps) {
           <input
             ref={inputRef}
             defaultValue={step.name}
-            className="nodrag w-full rounded border border-emerald-500 bg-transparent px-1 py-0.5 text-[13px] font-medium text-slate-100 outline-none"
+            className="nodrag w-full rounded border border-primary-500 bg-transparent px-1 py-0.5 text-[13px] font-medium text-slate-100 outline-none"
             onClick={(e) => e.stopPropagation()}
             onBlur={commitRename}
             onKeyDown={(e) => {

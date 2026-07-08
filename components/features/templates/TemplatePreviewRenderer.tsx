@@ -102,7 +102,7 @@ export const TemplatePreviewRenderer: React.FC<TemplatePreviewRendererProps> = (
                         <div className="relative h-24 bg-gradient-to-br from-primary-900/50 to-primary-800/30">
                             {/* Grid pattern to simulate map */}
                             <div className="absolute inset-0 opacity-10" style={{
-                                backgroundImage: 'linear-gradient(#818cf8 1px, transparent 1px), linear-gradient(90deg, #818cf8 1px, transparent 1px)',
+                                backgroundImage: 'linear-gradient(#34d399 1px, transparent 1px), linear-gradient(90deg, #34d399 1px, transparent 1px)',
                                 backgroundSize: '20px 20px'
                             }} />
                             {/* Pin */}

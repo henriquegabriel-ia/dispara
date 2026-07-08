@@ -63,8 +63,6 @@ const THEME_CSS = `
     --geist-amber: #f5a623;
     --geist-amber-light: #fff4d4;
     --geist-amber-dark: #c68419;
-    --geist-purple: #6366f1;
-    --geist-primary-light: #e0e7ff;
     --geist-teal: #06b6d4;
     --geist-teal-light: #cffafe;
 
