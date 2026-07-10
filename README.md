@@ -8,7 +8,7 @@ O Dispara é um SaaS single-tenant (1 deploy = 1 empresa) para criar campanhas c
 
 - **Next.js 16** (App Router) + **React 19** + TypeScript
 - **Supabase** (PostgreSQL) — dados e realtime
-- **Upstash QStash / Workflow** — filas e steps duráveis de disparo
+- **pg_cron (Supabase)** — relógio de fundo: filas de disparo, agendamentos e waits de fluxo (via pg_net → `/api/cron/tick`, sem QStash/Redis)
 - **Meta WhatsApp Cloud API v24.0** — envio de templates e webhooks
 - **Vercel AI SDK v6** — geração de conteúdo (Gemini via BYOK)
 - Tailwind CSS v4 + shadcn/ui (dark-only, emerald)
@@ -48,7 +48,7 @@ Veja [.env.example](./.env.example). Obrigatórias:
 | `NEXT_PUBLIC_SUPABASE_URL` | URL do projeto Supabase |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Chave publishable do Supabase |
 | `SUPABASE_SECRET_KEY` | Chave secreta (service role) do Supabase |
-| `QSTASH_TOKEN` | Token do Upstash QStash |
+| `CRON_SECRET` | Segredo do relógio pg_cron (autentica `/api/cron/tick`; igual ao `cron_secret` no Vault do Supabase) |
 | `MASTER_PASSWORD` | Senha de login do dashboard |
 | `DISPARA_API_KEY` | Chave da REST API (`Bearer` / `X-API-Key`) |
 | `DISPARA_ADMIN_KEY` | Chave dos endpoints administrativos |
