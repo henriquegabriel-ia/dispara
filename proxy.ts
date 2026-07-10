@@ -126,6 +126,18 @@ export async function proxy(request: NextRequest) {
             return NextResponse.next()
         }
 
+        // Chamadas INTERNAS do runtime (pg_cron → /api/cron/tick; reinvokeSelf →
+        // execute/resume/dispatch) autenticam com Bearer CRON_SECRET — que não é
+        // uma API key, então o verifyApiKey abaixo as rejeitaria (401) e o relógio
+        // inteiro morreria no proxy. Deixa passar; a rota-alvo re-valida com
+        // verifyCronRequest (comparação timing-safe).
+        const bearerToken = request.headers.get('authorization')?.startsWith('Bearer ')
+            ? request.headers.get('authorization')!.slice(7).trim()
+            : null
+        if (bearerToken && process.env.CRON_SECRET && bearerToken === process.env.CRON_SECRET) {
+            return NextResponse.next()
+        }
+
         // Public endpoints don't require authentication
         if (isPublicEndpoint(pathname)) {
             return NextResponse.next()
