@@ -450,6 +450,89 @@ const integrations: IntegrationPlugin[] = [
       },
     ],
   },
+  {
+    type: "contacts",
+    label: "Contatos",
+    description: "Ações sobre o contato (tags)",
+    actions: [
+      {
+        slug: "add-tag",
+        label: "Adicionar tag",
+        description: "Adiciona uma ou mais tags ao contato",
+        category: "Contatos",
+        stepFunction: "addTagStep",
+        stepImportPath: "contacts/add-tag",
+        configFields: [
+          {
+            key: "tags",
+            label: "Tags (JSON array)",
+            type: "template-textarea",
+            placeholder: '["cliente-quente"]',
+            required: true,
+          },
+        ],
+        outputFields: [{ field: "contactId", description: "ID do contato" }],
+      },
+      {
+        slug: "remove-tag",
+        label: "Remover tag",
+        description: "Remove uma ou mais tags do contato",
+        category: "Contatos",
+        stepFunction: "removeTagStep",
+        stepImportPath: "contacts/remove-tag",
+        configFields: [
+          {
+            key: "tags",
+            label: "Tags (JSON array)",
+            type: "template-textarea",
+            placeholder: '["cliente-frio"]',
+            required: true,
+          },
+        ],
+        outputFields: [{ field: "contactId", description: "ID do contato" }],
+      },
+    ],
+  },
+  {
+    type: "crm",
+    label: "CRM",
+    description: "Pipelines e oportunidades",
+    actions: [
+      {
+        slug: "move-pipeline",
+        label: "Mover no pipeline",
+        description:
+          "Cria/move a oportunidade do contato para uma etapa do pipeline",
+        category: "CRM",
+        stepFunction: "movePipelineStep",
+        stepImportPath: "crm/move-pipeline",
+        configFields: [
+          {
+            key: "pipelineId",
+            label: "Pipeline",
+            type: "text",
+            required: true,
+          },
+          { key: "stageId", label: "Etapa", type: "text", required: true },
+          {
+            key: "oppStatus",
+            label: "Status da oportunidade",
+            type: "select",
+            options: [
+              { label: "Aberta", value: "open" },
+              { label: "Ganha", value: "won" },
+              { label: "Perdida", value: "lost" },
+              { label: "Abandonada", value: "abandoned" },
+            ],
+            defaultValue: "open",
+          },
+        ],
+        outputFields: [
+          { field: "opportunityId", description: "ID da oportunidade" },
+        ],
+      },
+    ],
+  },
 ];
 
 function getSafeIntegrations(): IntegrationPlugin[] {

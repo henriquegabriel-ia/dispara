@@ -33,6 +33,7 @@ import { settingsDb } from '@/lib/supabase-db'
 import { ensureWorkflowRecord, getCompanyId } from '@/lib/builder/workflow-db'
 import { reinvokeSelf } from '@/lib/self-invoke'
 import { getPendingConversation } from '@/lib/builder/workflow-conversations'
+import { parseWorkflowSettings } from '@/lib/builder/workflow-settings'
 
 // T046-T048: Inbox integration
 import {
@@ -490,6 +491,127 @@ function findMatchingWorkflow(
     }
   }
   return null
+}
+
+// Variantes do telefone para lookup (bug do 9 brasileiro + prefixo "+") —
+// mesma lógica do bloco AutoReply, extraída para os hooks de workflow.
+function buildPhoneLookupVariants(rawPhone: string): string[] {
+  const digits = String(rawPhone).replace(/\D/g, '')
+  if (!digits) return []
+  const variants = new Set<string>([digits, `+${digits}`])
+  if (digits.startsWith('55') && digits.length === 12) {
+    const withNine = `${digits.slice(0, 4)}9${digits.slice(4)}`
+    variants.add(withNine)
+    variants.add(`+${withNine}`)
+  } else if (digits.startsWith('55') && digits.length === 13 && digits[4] === '9') {
+    const withoutNine = `${digits.slice(0, 4)}${digits.slice(5)}`
+    variants.add(withoutNine)
+    variants.add(`+${withoutNine}`)
+  }
+  return Array.from(variants)
+}
+
+type CampaignReplyWorkflow = {
+  workflowId: string
+  campaignId: string
+  replyFilter: string
+}
+
+/** Workflows publicados com gatilho "Respondeu ao disparo" (CampaignReply). */
+async function loadCampaignReplyWorkflows(): Promise<CampaignReplyWorkflow[]> {
+  const { data } = await supabase
+    .from('workflow_versions')
+    .select('workflow_id, nodes')
+    .eq('status', 'published')
+
+  return (data || [])
+    .filter((version: any) => version?.workflow_id && version?.nodes)
+    .map((version: any) => {
+      const triggerNode = (version.nodes as any[]).find(
+        (node) => node?.data?.type === 'trigger'
+      )
+      if (triggerNode?.data?.config?.triggerType !== 'CampaignReply') return null
+      return {
+        workflowId: version.workflow_id as string,
+        campaignId: String(triggerNode?.data?.config?.campaignId || ''),
+        replyFilter: String(triggerNode?.data?.config?.replyFilter || ''),
+      }
+    })
+    .filter((entry): entry is CampaignReplyWorkflow => Boolean(entry))
+}
+
+/** Allow Re-entry desligado → contato que já participou do fluxo não re-entra. */
+async function passesReentryGate(
+  db: NonNullable<ReturnType<typeof getSupabaseAdmin>>,
+  workflowId: string,
+  phoneVariants: string[]
+): Promise<boolean> {
+  const { data: wfRow } = await db
+    .from('workflows')
+    .select('settings')
+    .eq('id', workflowId)
+    .maybeSingle()
+  const settings = parseWorkflowSettings((wfRow as any)?.settings)
+  if (settings.allowReentry !== false) return true
+
+  const { data: enr } = await db
+    .from('workflow_enrollments')
+    .select('id')
+    .eq('workflow_id', workflowId)
+    .in('phone', phoneVariants)
+    .limit(1)
+  if (enr && enr.length > 0) return false
+
+  const { data: run } = await db
+    .from('workflow_runs')
+    .select('id')
+    .eq('workflow_id', workflowId)
+    .or(phoneVariants.map((v) => `input->>from.eq.${v}`).join(','))
+    .limit(1)
+  return !(run && run.length > 0)
+}
+
+/**
+ * Stop on Response (settings do workflow): a resposta do contato cancela os
+ * waits de DELAY dos fluxos com a opção ligada. Ask-question não é afetado —
+ * a resposta é exatamente o resume esperado.
+ */
+async function cancelDelayWaitsOnResponse(
+  db: NonNullable<ReturnType<typeof getSupabaseAdmin>>,
+  rawPhone: string
+): Promise<void> {
+  const variants = buildPhoneLookupVariants(rawPhone)
+  if (variants.length === 0) return
+
+  const { data: waits } = await db
+    .from('workflow_enrollments')
+    .select('id, workflow_id')
+    .eq('status', 'waiting')
+    .eq('wait_kind', 'delay')
+    .in('phone', variants)
+  if (!waits || waits.length === 0) return
+
+  const workflowIds = Array.from(new Set(waits.map((w: any) => w.workflow_id)))
+  const { data: wfs } = await db
+    .from('workflows')
+    .select('id, settings')
+    .in('id', workflowIds)
+  const stopIds = new Set(
+    (wfs || [])
+      .filter((w: any) => parseWorkflowSettings(w.settings).stopOnResponse === true)
+      .map((w: any) => w.id)
+  )
+  const cancelIds = waits
+    .filter((w: any) => stopIds.has(w.workflow_id))
+    .map((w: any) => w.id)
+  if (cancelIds.length === 0) return
+
+  await db
+    .from('workflow_enrollments')
+    .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+    .in('id', cancelIds)
+    .eq('status', 'waiting') // CAS: não pisa em linha que o drain claimou
+  console.log('[StopOnResponse] cancelled delay waits:', cancelIds.length)
 }
 
 function isMissingColumnError(e: unknown, columnName: string): boolean {
@@ -1116,6 +1238,43 @@ export async function POST(request: NextRequest) {
                     console.log('[AutoReply] marked cc as replied:', campaignContact.id)
                   }
 
+                  // ===============================================================
+                  // Gatilho "Respondeu ao disparo" (CampaignReply): dispara os
+                  // workflows publicados que casam com esta campanha/frase.
+                  // Auto-dedupe: o replied acima tira o contato da elegibilidade,
+                  // então reentrega da Meta não redispara.
+                  // ===============================================================
+                  try {
+                    const replyWorkflows = await loadCampaignReplyWorkflows()
+                    if (replyWorkflows.length > 0) {
+                      const normalizedReply = normalizeInboundText(text)
+                      for (const wf of replyWorkflows) {
+                        if (wf.campaignId && wf.campaignId !== campaignContact.campaign_id) continue
+                        if (
+                          wf.replyFilter &&
+                          !normalizedReply.includes(normalizeInboundText(wf.replyFilter))
+                        ) {
+                          continue
+                        }
+                        if (!(await passesReentryGate(db, wf.workflowId, phoneVariants))) {
+                          console.log('[CampaignReply] blocked by re-entry:', wf.workflowId)
+                          continue
+                        }
+                        console.log('[CampaignReply] dispatching workflow:', wf.workflowId)
+                        reinvokeSelf(`/api/builder/workflow/${wf.workflowId}/execute`, {
+                          input: {
+                            from,
+                            to: from,
+                            message: text,
+                            campaignId: campaignContact.campaign_id,
+                          },
+                        })
+                      }
+                    }
+                  } catch (crErr) {
+                    console.error('[CampaignReply] dispatch failed:', crErr)
+                  }
+
                   // Envia só se houver resposta configurada
                   if (replyText && matchType) {
                     // Delay defensivo contra rate limit (1 msg / 6s Meta) e greeting automática do
@@ -1192,6 +1351,18 @@ export async function POST(request: NextRequest) {
               .maybeSingle()
             // Sem linha retornada = conflito (já processado) → não redisparar o fluxo.
             isNewInboundForWorkflow = !!dedupeRow
+          }
+
+          // =================================================================
+          // Stop on Response (settings do workflow): resposta cancela waits
+          // de Delay dos fluxos com a opção ligada.
+          // =================================================================
+          if (isNewInboundForWorkflow && text && from) {
+            try {
+              await cancelDelayWaitsOnResponse(supabaseAdmin, from)
+            } catch (sorErr) {
+              console.warn('[StopOnResponse] failed:', sorErr)
+            }
           }
 
           // =================================================================

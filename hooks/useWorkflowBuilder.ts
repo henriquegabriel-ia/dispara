@@ -193,5 +193,7 @@ export function useWorkflowBuilder(workflowId: string) {
     publishedVersion,
     publishing,
     publish,
+    /** settings do workflow (workflows.settings) — editadas na sheet própria */
+    settings: workflowQuery.data?.settings ?? {},
   };
 }

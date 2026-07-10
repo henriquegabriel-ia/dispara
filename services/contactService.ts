@@ -23,12 +23,19 @@ export interface ImportResult {
   report: string;
 }
 
+/** Sentinela do filtro "Sem tags" (a API aceita __NO_TAGS__ ou NONE no param `tag`) */
+export const NO_TAGS_FILTER = '__NO_TAGS__';
+
 export interface ContactListParams {
   limit: number;
   offset: number;
   search?: string;
   status?: string;
   tag?: string;
+  /** filtro multi-tag (paridade GHL): enviado como CSV em `tags` */
+  tags?: string[];
+  /** any = contém qualquer uma das tags; all = contém todas */
+  tagMatch?: 'any' | 'all';
 }
 
 export interface ContactListResult {
@@ -83,6 +90,10 @@ export const contactService = {
     if (params.search) searchParams.set('search', params.search);
     if (params.status && params.status !== 'ALL') searchParams.set('status', params.status);
     if (params.tag && params.tag !== 'ALL') searchParams.set('tag', params.tag);
+    if (params.tags && params.tags.length > 0) {
+      searchParams.set('tags', params.tags.join(','));
+      searchParams.set('tagMatch', params.tagMatch === 'all' ? 'all' : 'any');
+    }
 
     const response = await fetch(`/api/contacts?${searchParams.toString()}`, { cache: 'no-store' });
     if (!response.ok) {
@@ -91,11 +102,21 @@ export const contactService = {
     return response.json();
   },
 
-  getIds: async (params: { search?: string; status?: string; tag?: string }): Promise<string[]> => {
+  getIds: async (params: {
+    search?: string;
+    status?: string;
+    tag?: string;
+    tags?: string[];
+    tagMatch?: 'any' | 'all';
+  }): Promise<string[]> => {
     const searchParams = new URLSearchParams();
     if (params.search) searchParams.set('search', params.search);
     if (params.status && params.status !== 'ALL') searchParams.set('status', params.status);
     if (params.tag && params.tag !== 'ALL') searchParams.set('tag', params.tag);
+    if (params.tags && params.tags.length > 0) {
+      searchParams.set('tags', params.tags.join(','));
+      searchParams.set('tagMatch', params.tagMatch === 'all' ? 'all' : 'any');
+    }
 
     const qs = searchParams.toString();
     const response = await fetch(`/api/contacts/ids${qs ? `?${qs}` : ''}`, { cache: 'no-store' });

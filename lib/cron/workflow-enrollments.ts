@@ -109,6 +109,7 @@ export async function drainWorkflowEnrollments(): Promise<{
         initialVariables: e.variables ?? {},
         initialOutputs: e.outputs ?? {},
         alreadyResolvedNodeIds: e.resolved_nodes ?? [],
+        workflowSettings: workflow.settings,
       })) as ExecShape;
 
       if (execution.paused && execution.wait?.kind === "delay") {

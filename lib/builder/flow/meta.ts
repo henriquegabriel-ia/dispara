@@ -4,7 +4,7 @@
 
 import type { StepType } from "./types";
 
-export type PickerCategory = "Mensagem" | "Lógica" | "Dados";
+export type PickerCategory = "Mensagem" | "Lógica" | "Dados" | "CRM";
 
 export interface StepMeta {
   label: string;
@@ -90,17 +90,39 @@ export const STEP_META: Record<StepType, StepMeta> = {
   },
   tag: {
     label: "Adicionar tag",
-    desc: "Adiciona uma tag ao contato",
+    desc: "Adiciona uma ou mais tags ao contato",
     icon: "Tag",
     iconBg: "#ccfbf1",
     iconFg: "#0d9488",
     category: "Dados",
-    enabledV1: false,
-    badge: COMING_SOON,
+    enabledV1: true,
+  },
+  tag_remove: {
+    label: "Remover tag",
+    desc: "Remove uma ou mais tags do contato",
+    icon: "Tags",
+    iconBg: "#ffe4e6",
+    iconFg: "#e11d48",
+    category: "Dados",
+    enabledV1: true,
+  },
+  pipeline: {
+    label: "Mover no pipeline",
+    desc: "Cria/move a oportunidade do contato para uma etapa do CRM",
+    icon: "KanbanSquare",
+    iconBg: "#fef3c7",
+    iconFg: "#d97706",
+    category: "CRM",
+    enabledV1: true,
   },
 };
 
-export const PICKER_CATEGORIES: PickerCategory[] = ["Mensagem", "Lógica", "Dados"];
+export const PICKER_CATEGORIES: PickerCategory[] = [
+  "Mensagem",
+  "Lógica",
+  "Dados",
+  "CRM",
+];
 
 export const PICKER_ORDER: StepType[] = [
   "whatsapp",
@@ -111,6 +133,8 @@ export const PICKER_ORDER: StepType[] = [
   "goto",
   "end",
   "tag",
+  "tag_remove",
+  "pipeline",
 ];
 
 export function isStepTypeEnabledV1(type: StepType): boolean {

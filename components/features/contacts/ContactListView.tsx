@@ -2,8 +2,10 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import dynamic from 'next/dynamic';
-import { Trash2, UploadCloud, Download, FileText, Plus, Tag, CircleUser } from 'lucide-react';
+import { Trash2, UploadCloud, Download, FileText, Plus, Tag, CircleUser, Workflow } from 'lucide-react';
 import { Contact, ContactStatus, CustomFieldDefinition } from '../../../types';
+import type { ContactList } from '@/services/contactListService';
+import type { WorkflowSummary } from '@/services/workflowEnrollmentService';
 import { CustomFieldsSheet } from './CustomFieldsSheet';
 import { Page, PageActions, PageDescription, PageHeader, PageTitle } from '@/components/ui/page';
 import { Container } from '@/components/ui/container';
@@ -20,6 +22,8 @@ import {
   ContactAddModal,
   ContactEditModal,
   ContactDeleteModal,
+  ContactListSelector,
+  ContactAddToWorkflowModal,
 } from './list';
 import { ContactBulkTagsModal } from './list/ContactBulkTagsModal';
 import { ContactBulkStatusModal } from './list/ContactBulkStatusModal';
@@ -53,8 +57,32 @@ export interface ContactListViewProps {
   onSearchChange: (term: string) => void;
   statusFilter: ContactStatus | 'ALL' | 'SUPPRESSED';
   onStatusFilterChange: (status: ContactStatus | 'ALL' | 'SUPPRESSED') => void;
-  tagFilter: string;
-  onTagFilterChange: (tag: string) => void;
+  tagsFilter: string[];
+  onTagsFilterChange: (tags: string[]) => void;
+  tagMatch: 'any' | 'all';
+  onTagMatchChange: (match: 'any' | 'all') => void;
+  hasActiveFilters: boolean;
+
+  // Listas salvas (smart lists)
+  contactLists: ContactList[];
+  selectedListId: string | null;
+  isListDirty: boolean;
+  onSelectList: (id: string | null) => void;
+  onSaveList: (name: string) => void;
+  onUpdateListFilters: () => void;
+  onRenameList: (id: string, name: string) => void;
+  onDeleteList: (id: string) => void;
+  isSavingList?: boolean;
+  isUpdatingList?: boolean;
+  isDeletingList?: boolean;
+
+  // Adicionar ao workflow (bulk)
+  isAddToWorkflowModalOpen: boolean;
+  setIsAddToWorkflowModalOpen: (open: boolean) => void;
+  publishedWorkflows: WorkflowSummary[];
+  isLoadingWorkflows?: boolean;
+  onEnrollInWorkflow: (workflowId: string) => void;
+  isEnrolling?: boolean;
 
   // Pagination
   currentPage: number;
@@ -109,8 +137,28 @@ export const ContactListView: React.FC<ContactListViewProps> = ({
   onSearchChange,
   statusFilter,
   onStatusFilterChange,
-  tagFilter,
-  onTagFilterChange,
+  tagsFilter,
+  onTagsFilterChange,
+  tagMatch,
+  onTagMatchChange,
+  hasActiveFilters,
+  contactLists,
+  selectedListId,
+  isListDirty,
+  onSelectList,
+  onSaveList,
+  onUpdateListFilters,
+  onRenameList,
+  onDeleteList,
+  isSavingList,
+  isUpdatingList,
+  isDeletingList,
+  isAddToWorkflowModalOpen,
+  setIsAddToWorkflowModalOpen,
+  publishedWorkflows,
+  isLoadingWorkflows,
+  onEnrollInWorkflow,
+  isEnrolling,
   currentPage,
   totalPages,
   totalFiltered,
@@ -178,13 +226,11 @@ export const ContactListView: React.FC<ContactListViewProps> = ({
 
   // Computed values
   const showSuppressionDetails = statusFilter === 'SUPPRESSED';
-  const hasActiveFilters = statusFilter !== 'ALL' || tagFilter !== 'ALL' || !!searchTerm;
 
+  // Limpar filtros também desmarca a lista salva selecionada
   const handleClearFilters = useCallback(() => {
-    onSearchChange('');
-    onStatusFilterChange('ALL');
-    onTagFilterChange('ALL');
-  }, [onSearchChange, onStatusFilterChange, onTagFilterChange]);
+    onSelectList(null);
+  }, [onSelectList]);
 
   // Memoized toggle handler to prevent ContactFilters re-render
   const handleToggleFilters = useCallback(() => setShowFilters((prev) => !prev), []);
@@ -317,6 +363,20 @@ export const ContactListView: React.FC<ContactListViewProps> = ({
 
           {isSomeSelected && (
             <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsAddToWorkflowModalOpen(true)}
+              disabled={isEnrolling}
+              className="gap-2"
+            >
+              <Workflow size={14} />
+              Adicionar ao workflow
+              <span className="text-xs opacity-60">({selectedIds.size})</span>
+            </Button>
+          )}
+
+          {isSomeSelected && (
+            <Button
               variant="destructive"
               onClick={onBulkDeleteClick}
               aria-label={`Excluir ${selectedIds.size} contato(s) selecionado(s)`}
@@ -363,11 +423,29 @@ export const ContactListView: React.FC<ContactListViewProps> = ({
           onSearchChange={onSearchChange}
           statusFilter={statusFilter}
           onStatusFilterChange={onStatusFilterChange}
-          tagFilter={tagFilter}
-          onTagFilterChange={onTagFilterChange}
+          tagsFilter={tagsFilter}
+          onTagsFilterChange={onTagsFilterChange}
+          tagMatch={tagMatch}
+          onTagMatchChange={onTagMatchChange}
           tags={tags}
           showFilters={showFilters}
           onToggleFilters={handleToggleFilters}
+          listSelector={
+            <ContactListSelector
+              lists={contactLists}
+              selectedListId={selectedListId}
+              isListDirty={isListDirty}
+              hasActiveFilters={hasActiveFilters}
+              onSelectList={onSelectList}
+              onSaveList={onSaveList}
+              onUpdateListFilters={onUpdateListFilters}
+              onRenameList={onRenameList}
+              onDeleteList={onDeleteList}
+              isSaving={isSavingList}
+              isUpdating={isUpdatingList}
+              isDeleting={isDeletingList}
+            />
+          }
         />
 
         {/* Results Info */}
@@ -456,6 +534,16 @@ export const ContactListView: React.FC<ContactListViewProps> = ({
           setIsBulkStatusModalOpen(false)
         }}
         isLoading={isBulkUpdatingStatus}
+      />
+
+      <ContactAddToWorkflowModal
+        open={isAddToWorkflowModalOpen}
+        onOpenChange={setIsAddToWorkflowModalOpen}
+        selectedCount={selectedIds.size}
+        workflows={publishedWorkflows}
+        isLoadingWorkflows={isLoadingWorkflows}
+        onConfirm={onEnrollInWorkflow}
+        isEnrolling={isEnrolling}
       />
 
       <ContactImportModal

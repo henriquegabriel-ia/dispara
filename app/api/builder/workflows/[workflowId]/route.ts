@@ -17,6 +17,7 @@ import type {
 import type { WorkflowVisibility } from "@/lib/builder/api-client";
 import { validateTree } from "@/lib/builder/flow/tree-validate";
 import type { Flow } from "@/lib/builder/flow/types";
+import { parseWorkflowSettings } from "@/lib/builder/workflow-settings";
 
 type RouteParams = {
   params: Promise<{ workflowId: string }>;
@@ -79,6 +80,7 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     edges: normalized?.edges,
     tree,
     visibility: normalized?.visibility,
+    settings: normalized?.settings,
   });
   const companyId = await getCompanyId(supabase);
   const record = await ensureWorkflowRecord(supabase, workflowId, companyId);
@@ -115,6 +117,11 @@ function normalizeWorkflowPatch(body: Record<string, unknown>) {
     visibility:
       body?.visibility === "private" || body?.visibility === "public"
         ? (body.visibility as WorkflowVisibility)
+        : undefined,
+    // Sanitizado de verdade em updateWorkflowRecord (parseWorkflowSettings).
+    settings:
+      body?.settings && typeof body.settings === "object"
+        ? parseWorkflowSettings(body.settings)
         : undefined,
   };
 }

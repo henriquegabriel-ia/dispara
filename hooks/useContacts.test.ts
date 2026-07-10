@@ -77,6 +77,32 @@ vi.mock('@/services/customFieldService', () => ({
   },
 }))
 
+// Mock contactListService (listas salvas)
+const mockListsGetAll = vi.fn()
+const mockListCreate = vi.fn()
+const mockListUpdate = vi.fn()
+const mockListDelete = vi.fn()
+
+vi.mock('@/services/contactListService', () => ({
+  contactListService: {
+    getAll: (...args: unknown[]) => mockListsGetAll(...args),
+    create: (...args: unknown[]) => mockListCreate(...args),
+    update: (...args: unknown[]) => mockListUpdate(...args),
+    delete: (...args: unknown[]) => mockListDelete(...args),
+  },
+}))
+
+// Mock workflowEnrollmentService (adicionar ao workflow)
+const mockListWorkflows = vi.fn()
+const mockEnroll = vi.fn()
+
+vi.mock('@/services/workflowEnrollmentService', () => ({
+  workflowEnrollmentService: {
+    listWorkflows: (...args: unknown[]) => mockListWorkflows(...args),
+    enroll: (...args: unknown[]) => mockEnroll(...args),
+  },
+}))
+
 import { useContactsController } from './useContacts'
 import { ContactStatus } from '@/types'
 
@@ -96,6 +122,16 @@ const mockCustomFields = [{ id: 'cf-1', name: 'empresa', type: 'text' }]
 
 const mockListResult = { data: mockContacts, total: 3 }
 
+const mockContactLists = [
+  {
+    id: 'list-1',
+    name: 'VIPs',
+    filters: { tags: ['vip', 'lead'], tagMatch: 'all' as const },
+    createdAt: '2026-07-01T00:00:00Z',
+    updatedAt: null,
+  },
+]
+
 // =============================================================================
 // TESTES
 // =============================================================================
@@ -108,6 +144,8 @@ describe('useContactsController', () => {
     mockGetTags.mockResolvedValue(mockTags)
     mockGetAllCustomFields.mockResolvedValue(mockCustomFields)
     mockValidatePhone.mockReturnValue({ isValid: true })
+    mockListsGetAll.mockResolvedValue(mockContactLists)
+    mockListWorkflows.mockResolvedValue([])
   })
 
   // ---------------------------------------------------------------------------
@@ -217,6 +255,172 @@ describe('useContactsController', () => {
 
       expect(result.current.tagFilter).toBe('vip')
       expect(result.current.currentPage).toBe(1)
+    })
+
+    it('deve atualizar filtro multi-tag e resetar página', () => {
+      const { result } = renderHookWithProviders(() => useContactsController())
+
+      act(() => {
+        result.current.setCurrentPage(3)
+      })
+
+      act(() => {
+        result.current.setTagsFilter(['vip', 'lead'])
+      })
+
+      expect(result.current.tagsFilter).toEqual(['vip', 'lead'])
+      expect(result.current.tagFilter).toBe('vip') // espelho legado
+      expect(result.current.currentPage).toBe(1)
+      expect(result.current.hasActiveFilters).toBe(true)
+    })
+
+    it('deve enviar tags + tagMatch para o service', async () => {
+      const { result } = renderHookWithProviders(() => useContactsController())
+
+      act(() => {
+        result.current.setTagsFilter(['vip', 'lead'])
+      })
+      act(() => {
+        result.current.setTagMatch('all')
+      })
+
+      await waitFor(() => {
+        const lastCall = mockList.mock.calls.at(-1)?.[0]
+        expect(lastCall.tags).toEqual(['vip', 'lead'])
+        expect(lastCall.tagMatch).toBe('all')
+      })
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // Listas salvas (smart lists)
+  // ---------------------------------------------------------------------------
+
+  describe('listas salvas', () => {
+    it('deve carregar listas salvas', async () => {
+      const { result } = renderHookWithProviders(() => useContactsController())
+
+      await waitFor(() => {
+        expect(result.current.contactLists).toEqual(mockContactLists)
+      })
+    })
+
+    it('deve aplicar filtros ao selecionar lista', async () => {
+      const { result } = renderHookWithProviders(() => useContactsController())
+
+      await waitFor(() => {
+        expect(result.current.contactLists.length).toBe(1)
+      })
+
+      act(() => {
+        result.current.onSelectList('list-1')
+      })
+
+      expect(result.current.selectedListId).toBe('list-1')
+      expect(result.current.tagsFilter).toEqual(['vip', 'lead'])
+      expect(result.current.tagMatch).toBe('all')
+      expect(result.current.isListDirty).toBe(false)
+    })
+
+    it('deve marcar lista como editada quando filtros divergem', async () => {
+      const { result } = renderHookWithProviders(() => useContactsController())
+
+      await waitFor(() => {
+        expect(result.current.contactLists.length).toBe(1)
+      })
+
+      act(() => {
+        result.current.onSelectList('list-1')
+      })
+
+      act(() => {
+        result.current.setSearchTerm('João')
+      })
+
+      expect(result.current.isListDirty).toBe(true)
+    })
+
+    it('deve salvar lista com os filtros atuais', async () => {
+      mockListCreate.mockResolvedValue({
+        id: 'list-2',
+        name: 'Nova',
+        filters: { tags: ['vip'], tagMatch: 'any' },
+        createdAt: '2026-07-09T00:00:00Z',
+      })
+
+      const { result } = renderHookWithProviders(() => useContactsController())
+
+      act(() => {
+        result.current.setTagsFilter(['vip'])
+      })
+
+      await act(async () => {
+        result.current.onSaveList('Nova')
+      })
+
+      await waitFor(() => {
+        expect(mockListCreate).toHaveBeenCalledWith({
+          name: 'Nova',
+          filters: { tags: ['vip'], tagMatch: 'any' },
+        })
+      })
+    })
+
+    it('deve desmarcar lista selecionada ao excluir', async () => {
+      mockListDelete.mockResolvedValue(undefined)
+
+      const { result } = renderHookWithProviders(() => useContactsController())
+
+      await waitFor(() => {
+        expect(result.current.contactLists.length).toBe(1)
+      })
+
+      act(() => {
+        result.current.onSelectList('list-1')
+      })
+
+      await act(async () => {
+        result.current.onDeleteList('list-1')
+      })
+
+      await waitFor(() => {
+        expect(result.current.selectedListId).toBeNull()
+      })
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // Adicionar ao workflow
+  // ---------------------------------------------------------------------------
+
+  describe('adicionar ao workflow', () => {
+    it('deve ignorar enroll sem seleção', () => {
+      const { result } = renderHookWithProviders(() => useContactsController())
+
+      act(() => {
+        result.current.onEnrollInWorkflow('wf-1')
+      })
+
+      expect(mockEnroll).not.toHaveBeenCalled()
+    })
+
+    it('deve expor apenas workflows publicados', async () => {
+      mockListWorkflows.mockResolvedValue([
+        { id: 'wf-1', name: 'Publicado', status: 'published' },
+        { id: 'wf-2', name: 'Rascunho', status: 'draft' },
+      ])
+
+      const { result } = renderHookWithProviders(() => useContactsController())
+
+      act(() => {
+        result.current.setIsAddToWorkflowModalOpen(true)
+      })
+
+      await waitFor(() => {
+        expect(result.current.publishedWorkflows).toEqual([
+          { id: 'wf-1', name: 'Publicado', status: 'published' },
+        ])
+      })
     })
   })
 

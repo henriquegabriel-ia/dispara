@@ -9,6 +9,7 @@ import {
   Loader2,
   Pencil,
   Rocket,
+  Settings2,
   Undo2,
 } from "lucide-react";
 import { useFlowBuilderStore } from "./store";
@@ -20,6 +21,7 @@ interface BuilderHeaderProps {
   publishedVersion: number | null;
   publishing: boolean;
   onPublish: () => void;
+  onOpenSettings: () => void;
 }
 
 function SaveIndicator({ state }: { state: SaveState }) {
@@ -49,6 +51,7 @@ export default function BuilderHeader({
   publishedVersion,
   publishing,
   onPublish,
+  onOpenSettings,
 }: BuilderHeaderProps) {
   const name = useFlowBuilderStore((s) => s.flow?.name ?? "");
   const canUndo = useFlowBuilderStore((s) => s.past.length > 0);
@@ -116,6 +119,14 @@ export default function BuilderHeader({
           title="Desfazer (Cmd+Z)"
         >
           <Undo2 size={15} />
+        </button>
+        <button
+          type="button"
+          className="rounded p-1.5 text-[var(--ds-text-secondary)] hover:bg-[var(--ds-bg-hover)] hover:text-[var(--ds-text-primary)]"
+          onClick={onOpenSettings}
+          title="Configurações do workflow"
+        >
+          <Settings2 size={15} />
         </button>
         {/* Botão Refazer oculto até o store ter redo — um ícone permanentemente
             desabilitado lê como quebrado. */}

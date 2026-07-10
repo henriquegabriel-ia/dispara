@@ -13,7 +13,7 @@
 // Estado local + commit no "Salvar" (autosave dispara via store.patchStep).
 
 import { useQuery } from "@tanstack/react-query";
-import { Plus, Trash2, X, Zap } from "lucide-react";
+import { Hand, MessageCircleReply, Plus, Trash2, X, Zap } from "lucide-react";
 import { useState } from "react";
 import {
   CONDITION_OPERATORS,
@@ -21,7 +21,15 @@ import {
   WAIT_UNITS,
 } from "@/lib/builder/flow/meta";
 import { findStep } from "@/lib/builder/flow/operations";
-import type { Branch, Flow, Step } from "@/lib/builder/flow/types";
+import {
+  triggerTypeOf,
+  type Branch,
+  type Flow,
+  type FlowTriggerType,
+  type Step,
+} from "@/lib/builder/flow/types";
+import { campaignService } from "@/services/campaignService";
+import { contactService } from "@/services/contactService";
 import { templateService } from "@/services/templateService";
 import type { Template } from "@/types";
 import { stepChipStyle, stepIcon } from "./icons";
@@ -71,24 +79,83 @@ export default function ConfigPanel() {
 
 // ─── Painel do trigger ─────────────────────────────────────────────────────────
 
+const TRIGGER_OPTIONS: Array<{
+  type: FlowTriggerType;
+  label: string;
+  desc: string;
+  icon: typeof Zap;
+}> = [
+  {
+    type: "none",
+    label: "Sem gatilho",
+    desc: "Contatos entram manualmente — “Adicionar ao workflow” na lista de contatos",
+    icon: Hand,
+  },
+  {
+    type: "keywords",
+    label: "Palavra-chave",
+    desc: "Mensagem recebida é exatamente uma das palavras-chave",
+    icon: Zap,
+  },
+  {
+    type: "campaign_reply",
+    label: "Respondeu ao disparo",
+    desc: "Contato respondeu a uma campanha (qualquer uma ou uma específica)",
+    icon: MessageCircleReply,
+  },
+];
+
+const TRIGGER_LABELS: Record<FlowTriggerType, string> = {
+  none: "",
+  keywords: "Palavras-chave",
+  campaign_reply: "Respondeu ao disparo",
+};
+
 function TriggerPanelBody({ flow }: { flow: Flow }) {
+  const [type, setType] = useState<FlowTriggerType>(triggerTypeOf(flow.trigger));
   const [keywordsText, setKeywordsText] = useState(flow.trigger.keywords.join("\n"));
+  const [campaignId, setCampaignId] = useState(flow.trigger.campaignId ?? "");
+  const [replyFilter, setReplyFilter] = useState(flow.trigger.replyFilter ?? "");
 
   // O Flow inteiro é clonado a cada mutação — re-sincroniza quando o trigger
   // muda por fora do form (undo etc.).
   const [syncedTrigger, setSyncedTrigger] = useState(flow.trigger);
   if (flow.trigger !== syncedTrigger) {
     setSyncedTrigger(flow.trigger);
+    setType(triggerTypeOf(flow.trigger));
     setKeywordsText(flow.trigger.keywords.join("\n"));
+    setCampaignId(flow.trigger.campaignId ?? "");
+    setReplyFilter(flow.trigger.replyFilter ?? "");
   }
+
+  const campaignsQuery = useQuery({
+    queryKey: ["campaigns"],
+    queryFn: campaignService.getAll,
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+    enabled: type === "campaign_reply",
+  });
+  const campaigns = campaignsQuery.data ?? [];
+  const selectedCampaign = campaigns.find((c) => c.id === campaignId);
 
   const save = () => {
     useFlowBuilderStore.getState().patchTrigger({
+      type,
+      label: TRIGGER_LABELS[type],
       keywords: keywordsText.split("\n"),
+      campaignId: type === "campaign_reply" ? campaignId || null : null,
+      campaignName:
+        type === "campaign_reply" ? (selectedCampaign?.name ?? "") : "",
+      replyFilter: type === "campaign_reply" ? replyFilter : "",
     });
   };
 
-  const cancel = () => setKeywordsText(flow.trigger.keywords.join("\n"));
+  const cancel = () => {
+    setType(triggerTypeOf(flow.trigger));
+    setKeywordsText(flow.trigger.keywords.join("\n"));
+    setCampaignId(flow.trigger.campaignId ?? "");
+    setReplyFilter(flow.trigger.replyFilter ?? "");
+  };
 
   return (
     <>
@@ -99,10 +166,10 @@ function TriggerPanelBody({ flow }: { flow: Flow }) {
           </div>
           <div className="min-w-0 flex-1">
             <p className="px-1 text-[14px] font-semibold text-[var(--ds-text-primary)]">
-              {flow.trigger.label}
+              Gatilho do fluxo
             </p>
             <p className="px-1 text-[11px] text-[var(--ds-text-muted)]">
-              Inicia o fluxo quando uma palavra-chave chega
+              Define como os contatos entram neste workflow
             </p>
           </div>
           <button
@@ -116,22 +183,113 @@ function TriggerPanelBody({ flow }: { flow: Flow }) {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4">
+      <div className="flex-1 space-y-4 overflow-y-auto p-4">
         <div>
-          <Label>Palavras-chave (uma por linha)</Label>
-          <textarea
-            className={`${inputCls} resize-none`}
-            rows={6}
-            value={keywordsText}
-            onChange={(e) => setKeywordsText(e.target.value)}
-            placeholder={"quero\ninscrever\noi"}
-          />
-          <Hint>
-            O fluxo dispara quando a mensagem recebida for exatamente uma das
-            palavras-chave (match exato, normalizado — ignora
-            maiúsculas/acentos/espaços nas bordas).
-          </Hint>
+          <Label>Tipo de gatilho</Label>
+          <div className="space-y-2">
+            {TRIGGER_OPTIONS.map((opt) => {
+              const Icon = opt.icon;
+              const active = type === opt.type;
+              return (
+                <button
+                  key={opt.type}
+                  type="button"
+                  onClick={() => setType(opt.type)}
+                  className={`flex w-full items-start gap-3 rounded-lg border p-3 text-left transition-colors ${
+                    active
+                      ? "border-primary-500 bg-primary-500/5 ring-2 ring-primary-500/20"
+                      : "border-border hover:border-[var(--ds-border-strong)] hover:bg-[var(--ds-bg-hover)]"
+                  }`}
+                >
+                  <div
+                    className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${
+                      active
+                        ? "bg-primary-500/15 text-primary-600 dark:text-primary-400"
+                        : "bg-[var(--ds-bg-surface)] text-[var(--ds-text-muted)]"
+                    }`}
+                  >
+                    <Icon size={14} />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[13px] font-medium text-[var(--ds-text-primary)]">
+                      {opt.label}
+                    </p>
+                    <p className="text-[11px] leading-snug text-[var(--ds-text-muted)]">
+                      {opt.desc}
+                    </p>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
         </div>
+
+        {type === "keywords" && (
+          <div>
+            <Label>Palavras-chave (uma por linha)</Label>
+            <textarea
+              className={`${inputCls} resize-none`}
+              rows={6}
+              value={keywordsText}
+              onChange={(e) => setKeywordsText(e.target.value)}
+              placeholder={"quero\ninscrever\noi"}
+            />
+            <Hint>
+              O fluxo dispara quando a mensagem recebida for exatamente uma das
+              palavras-chave (match exato, normalizado — ignora
+              maiúsculas/acentos/espaços nas bordas).
+            </Hint>
+          </div>
+        )}
+
+        {type === "campaign_reply" && (
+          <>
+            <div>
+              <Label>Campanha</Label>
+              <select
+                className={inputCls}
+                value={campaignId}
+                onChange={(e) => setCampaignId(e.target.value)}
+                disabled={campaignsQuery.isLoading}
+              >
+                <option value="">Qualquer disparo</option>
+                {campaigns.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+              <Hint>
+                {campaignsQuery.isLoading
+                  ? "Carregando campanhas..."
+                  : "Dispara quando o contato responde ao disparo desta campanha (ou de qualquer uma)."}
+              </Hint>
+            </div>
+            <div>
+              <Label>A resposta contém (opcional)</Label>
+              <input
+                className={inputCls}
+                value={replyFilter}
+                onChange={(e) => setReplyFilter(e.target.value)}
+                placeholder="ex.: quero"
+              />
+              <Hint>
+                Se preenchido, o fluxo só dispara quando a resposta contiver esta
+                frase (ignora maiúsculas/acentos).
+              </Hint>
+            </div>
+          </>
+        )}
+
+        {type === "none" && (
+          <div className="rounded-lg border border-dashed border-border bg-[var(--ds-bg-surface)]/40 p-3 text-[12px] leading-relaxed text-[var(--ds-text-muted)]">
+            O fluxo não dispara sozinho. Depois de{" "}
+            <span className="font-medium text-[var(--ds-text-secondary)]">publicar</span>,
+            selecione contatos na página{" "}
+            <span className="font-medium text-[var(--ds-text-secondary)]">Contatos</span> e
+            use <span className="font-medium text-[var(--ds-text-secondary)]">Adicionar ao workflow</span>.
+          </div>
+        )}
       </div>
 
       <div className="flex items-center gap-2 border-t border-border px-4 py-3">
@@ -274,6 +432,10 @@ function PanelBody({ step }: { step: Step }) {
                   setBranches={setBranches}
                 />
               )}
+              {(step.type === "tag" || step.type === "tag_remove") && (
+                <TagForm config={config} set={set} remove={step.type === "tag_remove"} />
+              )}
+              {step.type === "pipeline" && <PipelineForm config={config} set={set} />}
               {step.type === "end" && (
                 <p className="text-[13px] text-[var(--ds-text-secondary)]">
                   Este passo encerra o fluxo para o contato. Sem configurações.
@@ -486,6 +648,207 @@ function WaitForm({ config, set }: FormProps) {
         </p>
       )}
     </div>
+  );
+}
+
+/** Tags configuradas no step (array novo; `tagName` legado vira array de 1). */
+function configTags(config: Record<string, unknown>): string[] {
+  const raw = config.tags;
+  const list = Array.isArray(raw)
+    ? raw.map((t) => String(t).trim()).filter(Boolean)
+    : [];
+  if (list.length > 0) return list;
+  const legacy = String(config.tagName ?? "").trim();
+  return legacy ? [legacy] : [];
+}
+
+function TagForm({
+  config,
+  set,
+  remove,
+}: FormProps & { remove: boolean }) {
+  const tags = configTags(config);
+  const [draft, setDraft] = useState("");
+
+  const tagsQuery = useQuery({
+    queryKey: ["contact-tags"],
+    queryFn: contactService.getTags,
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+  });
+  const suggestions = (tagsQuery.data ?? []).filter((t) => !tags.includes(t));
+
+  // Zera o tagName legado junto — senão o compile ressuscitaria a tag antiga
+  // quando o array ficasse vazio.
+  const setTags = (next: string[]) => {
+    set("tags", next);
+    set("tagName", "");
+  };
+
+  const commitDraft = () => {
+    const value = draft.trim();
+    if (!value) return;
+    if (!tags.includes(value)) setTags([...tags, value]);
+    setDraft("");
+  };
+
+  const removeTag = (tag: string) => setTags(tags.filter((t) => t !== tag));
+
+  return (
+    <div>
+      <Label>{remove ? "Tags a remover" : "Tags a adicionar"}</Label>
+      {tags.length > 0 && (
+        <div className="mb-2 flex flex-wrap gap-1.5">
+          {tags.map((tag) => (
+            <span
+              key={tag}
+              className="flex items-center gap-1 rounded-full border border-primary-500/30 bg-primary-500/10 py-0.5 pr-1 pl-2.5 text-[12px] font-medium text-primary-600 dark:text-primary-400"
+            >
+              {tag}
+              <button
+                type="button"
+                className="rounded-full p-0.5 hover:bg-primary-500/20"
+                onClick={() => removeTag(tag)}
+                aria-label={`Remover tag ${tag}`}
+              >
+                <X size={11} />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      <input
+        className={inputCls}
+        value={draft}
+        list="flow-tag-suggestions"
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === ",") {
+            e.preventDefault();
+            commitDraft();
+          }
+        }}
+        onBlur={commitDraft}
+        placeholder="Digite a tag e pressione Enter"
+      />
+      <datalist id="flow-tag-suggestions">
+        {suggestions.map((t) => (
+          <option key={t} value={t} />
+        ))}
+      </datalist>
+      <Hint>
+        {remove
+          ? "As tags são removidas do contato quando o fluxo passa por aqui."
+          : "As tags são aplicadas ao contato quando o fluxo passa por aqui. Tags novas são criadas automaticamente."}
+      </Hint>
+    </div>
+  );
+}
+
+type PipelineOption = {
+  id: string;
+  name: string;
+  stages: Array<{ id: string; name: string }>;
+};
+
+function PipelineForm({ config, set }: FormProps) {
+  const pipelinesQuery = useQuery({
+    queryKey: ["pipelines"],
+    queryFn: async (): Promise<PipelineOption[]> => {
+      const response = await fetch("/api/pipelines", { cache: "no-store" });
+      if (!response.ok) throw new Error("Falha ao buscar pipelines");
+      return response.json();
+    },
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+  });
+  const pipelines = pipelinesQuery.data ?? [];
+  const pipelineId = String(config.pipelineId ?? "");
+  const stageId = String(config.stageId ?? "");
+  const selected = pipelines.find((p) => p.id === pipelineId);
+
+  const choosePipeline = (id: string) => {
+    const pipeline = pipelines.find((p) => p.id === id);
+    // Denormaliza os nomes junto (exibição no card/logs); etapa reseta.
+    set("pipelineId", id);
+    set("pipelineName", pipeline?.name ?? "");
+    set("stageId", "");
+    set("stageName", "");
+  };
+
+  const chooseStage = (id: string) => {
+    const stage = selected?.stages.find((s) => s.id === id);
+    set("stageId", id);
+    set("stageName", stage?.name ?? "");
+  };
+
+  if (!pipelinesQuery.isLoading && pipelines.length === 0) {
+    return (
+      <div className="rounded-lg border border-dashed border-border bg-[var(--ds-bg-surface)]/40 p-4 text-[13px] leading-relaxed text-[var(--ds-text-secondary)]">
+        Nenhum pipeline criado ainda. Crie um na página{" "}
+        <a
+          href="/crm"
+          className="font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
+        >
+          CRM
+        </a>{" "}
+        e volte aqui para configurar este passo.
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div>
+        <Label>Pipeline</Label>
+        <select
+          className={inputCls}
+          value={pipelineId}
+          onChange={(e) => choosePipeline(e.target.value)}
+          disabled={pipelinesQuery.isLoading}
+        >
+          <option value="">Selecionar pipeline…</option>
+          {pipelines.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <Label>Etapa de destino</Label>
+        <select
+          className={inputCls}
+          value={stageId}
+          onChange={(e) => chooseStage(e.target.value)}
+          disabled={!selected}
+        >
+          <option value="">Selecionar etapa…</option>
+          {(selected?.stages ?? []).map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <Label>Status da oportunidade</Label>
+        <select
+          className={inputCls}
+          value={String(config.oppStatus ?? "open")}
+          onChange={(e) => set("oppStatus", e.target.value)}
+        >
+          <option value="open">Aberta</option>
+          <option value="won">Ganha</option>
+          <option value="lost">Perdida</option>
+          <option value="abandoned">Abandonada</option>
+        </select>
+        <Hint>
+          Se o contato já tem uma oportunidade aberta neste pipeline, ela é
+          movida para a etapa; senão, uma nova é criada.
+        </Hint>
+      </div>
+    </>
   );
 }
 

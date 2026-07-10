@@ -14,6 +14,7 @@ import {
     FileText,
     MessageCircle,
     Sparkles,
+    SquareKanban,
     Workflow,
     Headset,
 } from 'lucide-react'
@@ -358,6 +359,7 @@ export function DashboardShell({
         { path: '/conversations', label: 'Conversas', icon: MessageCircle, hidden: true },
         { path: '/templates', label: 'Templates', icon: FileText },
         { path: '/contacts', label: 'Contatos', icon: Users },
+        { path: '/crm', label: 'CRM', icon: SquareKanban, badge: 'novo' },
         { path: '/attendants', label: 'Atendentes', icon: Headset, badge: 'novo' },
         { path: '/settings/ai', label: 'IA', icon: Sparkles },
         { path: '/settings', label: 'Configurações', icon: Settings },
@@ -379,6 +381,7 @@ export function DashboardShell({
         if (path.startsWith('/flows/builder/')) return 'Editor de MiniApp'
         if (path === '/templates') return 'Templates'
         if (path.startsWith('/contacts')) return 'Contatos'
+        if (path.startsWith('/crm')) return 'CRM'
         if (path.startsWith('/submissions')) return 'Submissões'
         if (path === '/settings/ai') return 'Central de IA'
         if (path === '/settings/ai/agents') return 'Agentes IA'

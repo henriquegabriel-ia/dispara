@@ -15,7 +15,11 @@ import {
 export interface ContactSelectionFilters {
   search: string;
   status: ContactStatus | 'ALL' | 'SUPPRESSED';
-  tag: string;
+  /** filtro single-tag legado (usado pelo "Sem tags") */
+  tag?: string;
+  /** filtro multi-tag (paridade GHL) */
+  tags?: string[];
+  tagMatch?: 'any' | 'all';
 }
 
 /**
@@ -52,6 +56,8 @@ export function useContactSelection(
         search: filters.search.trim(),
         status: filters.status,
         tag: filters.tag,
+        tags: filters.tags,
+        tagMatch: filters.tagMatch,
       })
       .then((ids) => {
         setSelectedIds(selectAllContactsGlobal(ids));
@@ -59,7 +65,7 @@ export function useContactSelection(
       .catch((error: any) => {
         toast.error(error.message || 'Erro ao selecionar todos os contatos');
       });
-  }, [filters.search, filters.status, filters.tag]);
+  }, [filters.search, filters.status, filters.tag, filters.tags, filters.tagMatch]);
 
   // Clear all selections
   const clearSelection = useCallback(() => {

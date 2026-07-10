@@ -3,25 +3,34 @@
 // Porte do protótipo zapflow (src/flow/operations.ts), adaptado para o trigger com keywords.
 
 import { nanoid } from "nanoid";
-import type { Branch, Flow, Slot, Step, StepType } from "./types";
+import type { Branch, Flow, FlowTriggerType, Slot, Step, StepType } from "./types";
 
 export const isTerminalType = (t: StepType) => t === "end" || t === "goto";
 
-/** Cria um Flow vazio (trigger por keywords, sem steps). */
+/**
+ * Cria um Flow vazio. Como no GHL, fluxo novo começa SEM gatilho (slot
+ * "Adicionar novo gatilho"); passar keywords/triggerLabel cria um trigger de
+ * keywords (compat com chamadas antigas e testes).
+ */
 export function createEmptyFlow(args?: {
   id?: string;
   name?: string;
   triggerLabel?: string;
   keywords?: string[];
 }): Flow {
+  const hasKeywordArgs =
+    args?.keywords !== undefined || args?.triggerLabel !== undefined;
   return {
     schemaVersion: 1,
     id: args?.id ?? nanoid(8),
     name: args?.name ?? "Novo fluxo",
-    trigger: {
-      label: args?.triggerLabel ?? "Palavras-chave",
-      keywords: args?.keywords ?? [],
-    },
+    trigger: hasKeywordArgs
+      ? {
+          type: "keywords",
+          label: args?.triggerLabel ?? "Palavras-chave",
+          keywords: args?.keywords ?? [],
+        }
+      : { type: "none", label: "", keywords: [] },
     root: null,
   };
 }
@@ -136,7 +145,23 @@ function createStep(type: StepType): Step {
         ],
       };
     case "tag":
-      return { id, type, name: "Adicionar tag", config: { tagName: "" }, next: null };
+      return { id, type, name: "Adicionar tag", config: { tags: [] }, next: null };
+    case "tag_remove":
+      return { id, type, name: "Remover tag", config: { tags: [] }, next: null };
+    case "pipeline":
+      return {
+        id,
+        type,
+        name: "Mover no pipeline",
+        config: {
+          pipelineId: "",
+          pipelineName: "",
+          stageId: "",
+          stageName: "",
+          oppStatus: "open",
+        },
+        next: null,
+      };
     case "goto":
       return { id, type, name: "Ir para", config: { targetId: null }, next: null };
     case "end":
@@ -255,16 +280,27 @@ export function updateStep(flow: Flow, stepId: string, patch: StepPatch): Flow {
   return f;
 }
 
-/** Atualiza o trigger (label e/ou keywords) preservando a identidade em no-op. */
+/** Atualiza o trigger (tipo, label, keywords, filtros) preservando a identidade em no-op. */
 export function updateTrigger(
   flow: Flow,
-  patch: { label?: string; keywords?: string[] }
+  patch: {
+    type?: FlowTriggerType;
+    label?: string;
+    keywords?: string[];
+    campaignId?: string | null;
+    campaignName?: string | null;
+    replyFilter?: string;
+  }
 ): Flow {
   const f = structuredClone(flow);
+  if (patch.type !== undefined) f.trigger.type = patch.type;
   if (patch.label !== undefined) f.trigger.label = patch.label;
   if (patch.keywords !== undefined) {
     f.trigger.keywords = patch.keywords.map((k) => k.trim()).filter(Boolean);
   }
+  if (patch.campaignId !== undefined) f.trigger.campaignId = patch.campaignId;
+  if (patch.campaignName !== undefined) f.trigger.campaignName = patch.campaignName;
+  if (patch.replyFilter !== undefined) f.trigger.replyFilter = patch.replyFilter.trim();
   if (JSON.stringify(f.trigger) === JSON.stringify(flow.trigger)) return flow;
   return f;
 }

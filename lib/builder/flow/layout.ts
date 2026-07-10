@@ -287,9 +287,23 @@ function subtitleFor(step: Step, names: Map<string, string>): string {
       const n = step.branches?.length ?? 0;
       return `${n} paths`;
     }
-    case "tag": {
-      const tagName = String(cfg.tagName ?? "");
-      return tagName ? `Tag: ${tagName}` : "Definir tag";
+    case "tag":
+    case "tag_remove": {
+      const raw = cfg.tags;
+      const tags = Array.isArray(raw)
+        ? raw.map((t) => String(t).trim()).filter(Boolean)
+        : [];
+      const legacy = String(cfg.tagName ?? "").trim();
+      const all = tags.length > 0 ? tags : legacy ? [legacy] : [];
+      if (all.length === 0) return "Definir tags";
+      return truncate(all.join(", "), 42);
+    }
+    case "pipeline": {
+      const pipelineName = String(cfg.pipelineName ?? "").trim();
+      const stageName = String(cfg.stageName ?? "").trim();
+      if (pipelineName && stageName)
+        return truncate(`${pipelineName} → ${stageName}`, 46);
+      return "Selecionar pipeline e etapa";
     }
     case "goto": {
       const target = cfg.targetId as string | null | undefined;
@@ -321,7 +335,14 @@ export function layoutFlow(flow: Flow): { nodes: LayoutNode[]; edges: LayoutEdge
     position: { x: -TRIGGER_W / 2, y: 0 },
     width: TRIGGER_W,
     height: TRIGGER_H,
-    data: { label: flow.trigger.label, keywords: flow.trigger.keywords },
+    data: {
+      label: flow.trigger.label,
+      keywords: flow.trigger.keywords,
+      triggerType: flow.trigger.type ?? "keywords",
+      campaignName: flow.trigger.campaignName ?? "",
+      campaignId: flow.trigger.campaignId ?? "",
+      replyFilter: flow.trigger.replyFilter ?? "",
+    },
     selectable: false,
   });
 

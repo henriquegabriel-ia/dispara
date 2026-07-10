@@ -4,6 +4,7 @@ import type { SavedWorkflow, WorkflowData } from "./api-client";
 import type { WorkflowEdge, WorkflowNode } from "./graph-types";
 import { createEmptyFlow } from "./flow/operations";
 import type { Flow } from "./flow/types";
+import { parseWorkflowSettings } from "./workflow-settings";
 
 type WorkflowRow = {
   id: string;
@@ -12,6 +13,7 @@ type WorkflowRow = {
   status: string;
   owner_company_id?: string | null;
   active_version_id?: string | null;
+  settings?: unknown;
   created_at: string;
   updated_at: string;
 };
@@ -116,6 +118,7 @@ export function toSavedWorkflow(
     edges: record.version.edges,
     tree: record.version.tree ?? undefined,
     visibility: "private",
+    settings: parseWorkflowSettings(record.workflow.settings),
     createdAt: record.workflow.created_at,
     updatedAt: record.workflow.updated_at,
     isOwner: options?.isOwner ?? true,
@@ -279,6 +282,10 @@ export async function updateWorkflowRecord(
       patch.description === undefined
         ? existing.workflow.description
         : patch.description,
+    settings:
+      patch.settings === undefined
+        ? (existing.workflow.settings ?? {})
+        : parseWorkflowSettings(patch.settings),
     updated_at: now,
   }).eq("id", workflowId);
 

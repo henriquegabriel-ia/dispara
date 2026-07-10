@@ -11,6 +11,15 @@ export type { ContactStatsProps } from './ContactStats';
 export { ContactFilters, ContactResultsInfo, ContactSelectionBanner } from './ContactFilters';
 export type { ContactFiltersProps, ContactResultsInfoProps, ContactSelectionBannerProps } from './ContactFilters';
 
+export { ContactTagMultiSelect } from './ContactTagMultiSelect';
+export type { ContactTagMultiSelectProps } from './ContactTagMultiSelect';
+
+export { ContactListSelector } from './ContactListSelector';
+export type { ContactListSelectorProps } from './ContactListSelector';
+
+export { ContactAddToWorkflowModal } from './ContactAddToWorkflowModal';
+export type { ContactAddToWorkflowModalProps } from './ContactAddToWorkflowModal';
+
 export { ContactTable, ContactPagination } from './ContactTable';
 export type { ContactTableProps, ContactPaginationProps } from './ContactTable';
 

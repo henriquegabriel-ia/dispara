@@ -156,6 +156,7 @@ export async function POST(
     workflowId,
     startNodeIds: payload.startNodeIds,
     initialVariables: payload.initialVariables,
+    workflowSettings: workflow.settings,
   })) as ExecutionResultShape;
 
   // Delay durável: o executor pausou por Delay — persiste o enrollment com resume_at.

@@ -3,10 +3,13 @@ import { validateConditionExpression } from "@/lib/builder/condition-validator";
 import { getStepImporter } from "@/lib/builder/step-registry";
 import { validateWorkflowSchema } from "@/lib/shared/workflow-schema";
 import {
+  ACTION_ADD_TAG,
   ACTION_ASK_QUESTION,
   ACTION_CONDITION,
   ACTION_DELAY,
   ACTION_GET_VARIABLE,
+  ACTION_MOVE_PIPELINE,
+  ACTION_REMOVE_TAG,
   ACTION_SEND_MEDIA,
   ACTION_SEND_MESSAGE,
   ACTION_SEND_TEMPLATE,
@@ -429,14 +432,27 @@ describe("compileFlow — erros claros", () => {
     expect(() => compileFlow(makeFlow(split))).toThrow(/não é suportado no v1/);
   });
 
-  it("tag e goto não compilam no v1", () => {
-    const tag: Step = { id: "tg1", type: "tag", name: "Tag", config: { tagName: "vip" }, next: null };
-    expect(() => compileFlow(makeFlow(tag))).toThrow(/não é suportado no v1/);
-
+  it("goto não compila no v1", () => {
     const target = whatsapp("w1", "Oi");
     const goTo: Step = { id: "g1", type: "goto", name: "Ir para", config: { targetId: "w1" }, next: null };
     target.next = goTo;
     expect(() => compileFlow(makeFlow(target))).toThrow(/não é suportado no v1/);
+  });
+
+  it("tag sem tags configuradas falha com erro claro", () => {
+    const tag: Step = { id: "tg1", type: "tag", name: "Tag", config: { tags: [] }, next: null };
+    expect(() => compileFlow(makeFlow(tag))).toThrow(/pelo menos 1 tag/);
+  });
+
+  it("pipeline sem pipeline/etapa falha com erro claro", () => {
+    const pipe: Step = {
+      id: "pp1",
+      type: "pipeline",
+      name: "Mover no pipeline",
+      config: { pipelineId: "", stageId: "" },
+      next: null,
+    };
+    expect(() => compileFlow(makeFlow(pipe))).toThrow(/pipeline e a etapa/);
   });
 
   it("wait até resposta (mode reply) não é suportado no v1", () => {
@@ -758,5 +774,134 @@ describe("compileFlow — regressões de bugs", () => {
     expect(compiled.nodes.some((n) => n.id === "c1__cond_none")).toBe(true);
     // Sem o fallback, uma resposta que não bate na condição travaria o fluxo.
     expect(edgesFrom(compiled, "c1__cond_none")).toEqual(["cont"]);
+  });
+});
+
+// ─── Paridade GHL: passos de dados/CRM e tipos de gatilho ──────────────────────
+
+describe("compileFlow — tag, tag_remove e pipeline", () => {
+  it("tag compila para contacts/add-tag com as tags normalizadas", () => {
+    const tag: Step = {
+      id: "tg1",
+      type: "tag",
+      name: "Marcar VIP",
+      config: { tags: [" vip ", "cliente", "vip"] },
+      next: null,
+    };
+    const compiled = compileFlow(makeFlow(tag));
+    const node = compiled.nodes.find((n) => n.id === "tg1");
+    expect(node?.data.config).toMatchObject({
+      actionType: ACTION_ADD_TAG,
+      toSource: "inbound",
+      tags: ["vip", "cliente"],
+    });
+    expect(edgesFrom(compiled, TRIGGER_NODE_ID)).toEqual(["tg1"]);
+  });
+
+  it("tag aceita tagName legado (vira array de 1)", () => {
+    const tag: Step = {
+      id: "tg2",
+      type: "tag",
+      name: "Tag legada",
+      config: { tagName: "quente" },
+      next: null,
+    };
+    const compiled = compileFlow(makeFlow(tag));
+    const node = compiled.nodes.find((n) => n.id === "tg2");
+    expect(node?.data.config).toMatchObject({ tags: ["quente"] });
+  });
+
+  it("tag_remove compila para contacts/remove-tag", () => {
+    const tag: Step = {
+      id: "tr1",
+      type: "tag_remove",
+      name: "Desmarcar",
+      config: { tags: ["frio"] },
+      next: null,
+    };
+    const compiled = compileFlow(makeFlow(tag));
+    const node = compiled.nodes.find((n) => n.id === "tr1");
+    expect(node?.data.config).toMatchObject({
+      actionType: ACTION_REMOVE_TAG,
+      tags: ["frio"],
+    });
+  });
+
+  it("pipeline compila para crm/move-pipeline com ids e status", () => {
+    const pipe: Step = {
+      id: "pp1",
+      type: "pipeline",
+      name: "Mover pra Qualificado",
+      config: {
+        pipelineId: "pl_1",
+        stageId: "pls_2",
+        oppStatus: "open",
+        pipelineName: "Vendas",
+        stageName: "Qualificado",
+      },
+      next: null,
+    };
+    const compiled = compileFlow(makeFlow(pipe));
+    const node = compiled.nodes.find((n) => n.id === "pp1");
+    expect(node?.data.config).toMatchObject({
+      actionType: ACTION_MOVE_PIPELINE,
+      pipelineId: "pl_1",
+      stageId: "pls_2",
+      oppStatus: "open",
+    });
+  });
+
+  it("passos de dados encadeiam na cadeia como ações normais", () => {
+    const w1 = whatsapp("w1", "Oi!");
+    const tag: Step = {
+      id: "tg1",
+      type: "tag",
+      name: "Tag",
+      config: { tags: ["engajou"] },
+      next: w1,
+    };
+    const compiled = compileFlow(makeFlow(tag));
+    expect(edgesFrom(compiled, "tg1")).toEqual(["w1"]);
+  });
+});
+
+describe("compileFlow — tipos de gatilho", () => {
+  it("trigger sem type compila como Keywords (compat com árvores antigas)", () => {
+    const compiled = compileFlow(makeFlow(whatsapp("w1", "Oi")));
+    const trigger = compiled.nodes.find((n) => n.id === TRIGGER_NODE_ID);
+    expect(trigger?.data.config).toMatchObject({
+      triggerType: "Keywords",
+      keywordList: "oi\nmenu",
+    });
+  });
+
+  it("trigger none compila como None (fluxo publicável, entrada manual)", () => {
+    const flow = makeFlow(whatsapp("w1", "Oi"));
+    flow.trigger = { type: "none", label: "", keywords: [] };
+    const compiled = compileFlow(flow);
+    const trigger = compiled.nodes.find((n) => n.id === TRIGGER_NODE_ID);
+    expect(trigger?.data.config).toEqual({ triggerType: "None" });
+    expect(trigger?.data.label).toBe("Sem gatilho (entrada manual)");
+    // O grafo continua passando na validação (exatamente 1 trigger node).
+    expect(validateWorkflowSchema({ nodes: compiled.nodes, edges: compiled.edges }).success).toBe(true);
+  });
+
+  it("trigger campaign_reply compila como CampaignReply com filtros", () => {
+    const flow = makeFlow(whatsapp("w1", "Oi"));
+    flow.trigger = {
+      type: "campaign_reply",
+      label: "Respondeu ao disparo",
+      keywords: [],
+      campaignId: "c_123",
+      campaignName: "Campanha X",
+      replyFilter: "  quero  ",
+    };
+    const compiled = compileFlow(flow);
+    const trigger = compiled.nodes.find((n) => n.id === TRIGGER_NODE_ID);
+    expect(trigger?.data.config).toMatchObject({
+      triggerType: "CampaignReply",
+      campaignId: "c_123",
+      replyFilter: "quero",
+    });
   });
 });

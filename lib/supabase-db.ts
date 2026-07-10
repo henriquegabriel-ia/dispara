@@ -655,12 +655,19 @@ export const contactDb = {
         search?: string | null
         status?: string | null
         tag?: string | null
+        /** filtro multi-tag (paridade GHL): any = qualquer uma; all = todas */
+        tags?: string[] | null
+        tagMatch?: 'any' | 'all' | null
     }): Promise<{ data: Contact[]; total: number }> => {
         const limit = Math.max(1, Math.min(100, Math.floor(params.limit || 10)))
         const offset = Math.max(0, Math.floor(params.offset || 0))
         const search = (params.search || '').trim()
         const status = (params.status || '').trim()
         const tag = (params.tag || '').trim()
+        const multiTags = Array.from(new Set(
+            (params.tags || []).map((t) => String(t).trim()).filter(Boolean)
+        ))
+        const tagMatch = params.tagMatch === 'all' ? 'all' : 'any'
 
         const buildContactSearchOr = (raw: string) => {
             const term = String(raw || '').trim()
@@ -725,6 +732,22 @@ export const contactDb = {
                 query = query.or('tags.is.null,tags.eq.[]')
             } else {
                 query = query.filter('tags', 'cs', JSON.stringify([tag]))
+            }
+        }
+
+        if (multiTags.length > 0) {
+            if (tagMatch === 'all') {
+                // jsonb @> — contém TODAS as tags
+                query = query.filter('tags', 'cs', JSON.stringify(multiTags))
+            } else {
+                // OR de contains individuais — contém QUALQUER uma. Valores vão
+                // entre aspas (PostgREST) para tags com vírgula/parênteses.
+                const quote = (v: string) => '"' + v.replace(/"/g, '\\"') + '"'
+                query = query.or(
+                    multiTags
+                        .map((t) => `tags.cs.${quote(JSON.stringify([t]))}`)
+                        .join(',')
+                )
             }
         }
 
@@ -829,10 +852,20 @@ export const contactDb = {
         search?: string | null
         status?: string | null
         tag?: string | null
+        /** filtro multi-tag (paridade GHL): any = qualquer uma; all = todas */
+        tags?: string[] | null
+        tagMatch?: 'any' | 'all' | null
     }): Promise<string[]> => {
         const search = (params.search || '').trim()
         const status = (params.status || '').trim()
         const tag = (params.tag || '').trim()
+        const multiTags = Array.from(new Set(
+            (params.tags || []).map((t) => String(t).trim()).filter(Boolean)
+        ))
+        const tagMatch = params.tagMatch === 'all' ? 'all' : 'any'
+
+        // Aspas PostgREST para tags com vírgula/parênteses (mesmo padrão do list)
+        const quoteTagFilter = (v: string) => '"' + v.replace(/"/g, '\\"') + '"'
 
         const buildContactSearchOr = (raw: string) => {
             const term = String(raw || '').trim()
@@ -891,6 +924,21 @@ export const contactDb = {
                 }
             }
 
+            // Multi-tag (mesmo padrão do contactDb.list)
+            if (multiTags.length > 0) {
+                if (tagMatch === 'all') {
+                    // jsonb @> — contém TODAS as tags
+                    q = q.filter('tags', 'cs', JSON.stringify(multiTags))
+                } else {
+                    // OR de contains individuais — contém QUALQUER uma
+                    q = q.or(
+                        multiTags
+                            .map((t) => `tags.cs.${quoteTagFilter(JSON.stringify([t]))}`)
+                            .join(',')
+                    )
+                }
+            }
+
             // SUPPRESSED é tratado no caminho separado com chunking (ver abaixo).
             // Esta função só é chamada para status != 'SUPPRESSED'.
 
@@ -928,6 +976,19 @@ export const contactDb = {
                                     q = q.or('tags.is.null,tags.eq.[]')
                                 } else {
                                     q = q.filter('tags', 'cs', JSON.stringify([tag]))
+                                }
+                            }
+
+                            // Multi-tag (mesmo padrão do contactDb.list)
+                            if (multiTags.length > 0) {
+                                if (tagMatch === 'all') {
+                                    q = q.filter('tags', 'cs', JSON.stringify(multiTags))
+                                } else {
+                                    q = q.or(
+                                        multiTags
+                                            .map((t) => `tags.cs.${quoteTagFilter(JSON.stringify([t]))}`)
+                                            .join(',')
+                                    )
                                 }
                             }
 
@@ -2650,6 +2711,323 @@ export const campaignTagDb = {
             .eq('campaign_id', campaignId)
             .eq('tag_id', tagId)
 
+        if (error) throw error
+    },
+}
+
+// ============================================================================
+// CONTACT LISTS (smart lists — filtros salvos, membros dinâmicos)
+// ============================================================================
+
+export interface ContactListFilters {
+    tags?: string[]
+    tagMatch?: 'any' | 'all'
+    status?: string
+    search?: string
+}
+
+export interface ContactList {
+    id: string
+    name: string
+    filters: ContactListFilters
+    createdAt: string
+    updatedAt?: string | null
+}
+
+function mapContactList(row: Record<string, unknown>): ContactList {
+    return {
+        id: row.id as string,
+        name: row.name as string,
+        filters: (row.filters as ContactListFilters) || {},
+        createdAt: row.created_at as string,
+        updatedAt: (row.updated_at as string | null) ?? null,
+    }
+}
+
+export const contactListDb = {
+    getAll: async (): Promise<ContactList[]> => {
+        const { data, error } = await supabase
+            .from('contact_lists')
+            .select('*')
+            .order('created_at', { ascending: true })
+        if (error) throw error
+        return (data || []).map(mapContactList)
+    },
+
+    create: async (input: { name: string; filters: ContactListFilters }): Promise<ContactList> => {
+        const { data, error } = await supabase
+            .from('contact_lists')
+            .insert({ name: input.name, filters: input.filters })
+            .select('*')
+            .single()
+        if (error) throw error
+        return mapContactList(data)
+    },
+
+    update: async (
+        id: string,
+        patch: { name?: string; filters?: ContactListFilters }
+    ): Promise<ContactList> => {
+        const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
+        if (patch.name !== undefined) updates.name = patch.name
+        if (patch.filters !== undefined) updates.filters = patch.filters
+        const { data, error } = await supabase
+            .from('contact_lists')
+            .update(updates)
+            .eq('id', id)
+            .select('*')
+            .single()
+        if (error) throw error
+        return mapContactList(data)
+    },
+
+    delete: async (id: string): Promise<void> => {
+        const { error } = await supabase.from('contact_lists').delete().eq('id', id)
+        if (error) throw error
+    },
+}
+
+// ============================================================================
+// CRM (pipelines > etapas > oportunidades)
+// ============================================================================
+
+export interface PipelineStage {
+    id: string
+    pipelineId: string
+    name: string
+    position: number
+}
+
+export interface Pipeline {
+    id: string
+    name: string
+    position: number
+    stages: PipelineStage[]
+    createdAt: string
+}
+
+export interface Opportunity {
+    id: string
+    pipelineId: string
+    stageId: string
+    contactId: string | null
+    phone: string | null
+    name: string
+    status: 'open' | 'won' | 'lost' | 'abandoned'
+    value: number | null
+    source: string | null
+    stageChangedAt: string
+    createdAt: string
+    updatedAt?: string | null
+    /** dados do contato vinculado (join opcional) */
+    contactName?: string | null
+    contactPhone?: string | null
+}
+
+function mapStage(row: Record<string, unknown>): PipelineStage {
+    return {
+        id: row.id as string,
+        pipelineId: row.pipeline_id as string,
+        name: row.name as string,
+        position: (row.position as number) ?? 0,
+    }
+}
+
+function mapOpportunity(row: Record<string, unknown>): Opportunity {
+    const contact = row.contacts as { name?: string; phone?: string } | null
+    return {
+        id: row.id as string,
+        pipelineId: row.pipeline_id as string,
+        stageId: row.stage_id as string,
+        contactId: (row.contact_id as string | null) ?? null,
+        phone: (row.phone as string | null) ?? null,
+        name: (row.name as string) || '',
+        status: (row.status as Opportunity['status']) || 'open',
+        value: row.value === null || row.value === undefined ? null : Number(row.value),
+        source: (row.source as string | null) ?? null,
+        stageChangedAt: row.stage_changed_at as string,
+        createdAt: row.created_at as string,
+        updatedAt: (row.updated_at as string | null) ?? null,
+        contactName: contact?.name ?? null,
+        contactPhone: contact?.phone ?? null,
+    }
+}
+
+export const pipelineDb = {
+    getAll: async (): Promise<Pipeline[]> => {
+        const [{ data: pipelines, error }, { data: stages, error: stagesError }] =
+            await Promise.all([
+                supabase.from('pipelines').select('*').order('position').order('created_at'),
+                supabase.from('pipeline_stages').select('*').order('position').order('created_at'),
+            ])
+        if (error) throw error
+        if (stagesError) throw stagesError
+        const stagesByPipeline = new Map<string, PipelineStage[]>()
+        for (const row of stages || []) {
+            const stage = mapStage(row)
+            const list = stagesByPipeline.get(stage.pipelineId) ?? []
+            list.push(stage)
+            stagesByPipeline.set(stage.pipelineId, list)
+        }
+        return (pipelines || []).map((row) => ({
+            id: row.id as string,
+            name: row.name as string,
+            position: (row.position as number) ?? 0,
+            stages: stagesByPipeline.get(row.id as string) ?? [],
+            createdAt: row.created_at as string,
+        }))
+    },
+
+    create: async (input: { name: string; stageNames?: string[] }): Promise<Pipeline> => {
+        const { data: pipeline, error } = await supabase
+            .from('pipelines')
+            .insert({ name: input.name })
+            .select('*')
+            .single()
+        if (error) throw error
+
+        const names =
+            input.stageNames && input.stageNames.length > 0
+                ? input.stageNames
+                : ['Novo lead', 'Em conversa', 'Fechado']
+        const stageRows = names.map((name, index) => ({
+            pipeline_id: pipeline.id,
+            name,
+            position: index,
+        }))
+        const { data: stages, error: stagesError } = await supabase
+            .from('pipeline_stages')
+            .insert(stageRows)
+            .select('*')
+        if (stagesError) throw stagesError
+
+        return {
+            id: pipeline.id as string,
+            name: pipeline.name as string,
+            position: (pipeline.position as number) ?? 0,
+            stages: (stages || []).map(mapStage),
+            createdAt: pipeline.created_at as string,
+        }
+    },
+
+    rename: async (id: string, name: string): Promise<void> => {
+        const { error } = await supabase
+            .from('pipelines')
+            .update({ name, updated_at: new Date().toISOString() })
+            .eq('id', id)
+        if (error) throw error
+    },
+
+    delete: async (id: string): Promise<void> => {
+        const { error } = await supabase.from('pipelines').delete().eq('id', id)
+        if (error) throw error
+    },
+
+    addStage: async (pipelineId: string, name: string): Promise<PipelineStage> => {
+        const { data: last } = await supabase
+            .from('pipeline_stages')
+            .select('position')
+            .eq('pipeline_id', pipelineId)
+            .order('position', { ascending: false })
+            .limit(1)
+        const position = ((last?.[0]?.position as number) ?? -1) + 1
+        const { data, error } = await supabase
+            .from('pipeline_stages')
+            .insert({ pipeline_id: pipelineId, name, position })
+            .select('*')
+            .single()
+        if (error) throw error
+        return mapStage(data)
+    },
+
+    renameStage: async (stageId: string, name: string): Promise<void> => {
+        const { error } = await supabase
+            .from('pipeline_stages')
+            .update({ name })
+            .eq('id', stageId)
+        if (error) throw error
+    },
+
+    deleteStage: async (stageId: string): Promise<void> => {
+        const { error } = await supabase
+            .from('pipeline_stages')
+            .delete()
+            .eq('id', stageId)
+        if (error) throw error
+    },
+}
+
+export const opportunityDb = {
+    listByPipeline: async (pipelineId: string): Promise<Opportunity[]> => {
+        const { data, error } = await supabase
+            .from('opportunities')
+            .select('*, contacts(name, phone)')
+            .eq('pipeline_id', pipelineId)
+            .order('stage_changed_at', { ascending: false })
+        if (error) throw error
+        return (data || []).map(mapOpportunity)
+    },
+
+    create: async (input: {
+        pipelineId: string
+        stageId: string
+        contactId?: string | null
+        phone?: string | null
+        name: string
+        value?: number | null
+        status?: Opportunity['status']
+        source?: string | null
+    }): Promise<Opportunity> => {
+        const { data, error } = await supabase
+            .from('opportunities')
+            .insert({
+                pipeline_id: input.pipelineId,
+                stage_id: input.stageId,
+                contact_id: input.contactId ?? null,
+                phone: input.phone ?? null,
+                name: input.name,
+                value: input.value ?? null,
+                status: input.status ?? 'open',
+                source: input.source ?? 'manual',
+            })
+            .select('*, contacts(name, phone)')
+            .single()
+        if (error) throw error
+        return mapOpportunity(data)
+    },
+
+    update: async (
+        id: string,
+        patch: {
+            stageId?: string
+            status?: Opportunity['status']
+            name?: string
+            value?: number | null
+            contactId?: string | null
+        }
+    ): Promise<Opportunity> => {
+        const now = new Date().toISOString()
+        const updates: Record<string, unknown> = { updated_at: now }
+        if (patch.stageId !== undefined) {
+            updates.stage_id = patch.stageId
+            updates.stage_changed_at = now
+        }
+        if (patch.status !== undefined) updates.status = patch.status
+        if (patch.name !== undefined) updates.name = patch.name
+        if (patch.value !== undefined) updates.value = patch.value
+        if (patch.contactId !== undefined) updates.contact_id = patch.contactId
+        const { data, error } = await supabase
+            .from('opportunities')
+            .update(updates)
+            .eq('id', id)
+            .select('*, contacts(name, phone)')
+            .single()
+        if (error) throw error
+        return mapOpportunity(data)
+    },
+
+    delete: async (id: string): Promise<void> => {
+        const { error } = await supabase.from('opportunities').delete().eq('id', id)
         if (error) throw error
     },
 }

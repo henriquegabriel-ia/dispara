@@ -14,7 +14,9 @@ import {
   MessagesSquare,
   Shuffle,
   Square,
+  SquareKanban,
   Tag,
+  Tags,
   type LucideIcon,
 } from "lucide-react";
 import type { StepMeta } from "@/lib/builder/flow/meta";
@@ -28,6 +30,8 @@ const STEP_ICONS: Record<string, LucideIcon> = {
   CornerDownRight,
   Square,
   Tag,
+  Tags,
+  KanbanSquare: SquareKanban,
 };
 
 export function stepIcon(name: string): LucideIcon {

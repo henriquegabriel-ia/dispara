@@ -12,6 +12,9 @@ const STEP_IMPORTERS: Record<string, () => Promise<unknown>> = {
   "whatsapp/send-media": () => import("./steps/whatsapp/send-media"),
   "whatsapp/send-buttons": () => import("./steps/whatsapp/send-buttons"),
   "whatsapp/send-list": () => import("./steps/whatsapp/send-list"),
+  "contacts/add-tag": () => import("./steps/contacts/add-tag"),
+  "contacts/remove-tag": () => import("./steps/contacts/remove-tag"),
+  "crm/move-pipeline": () => import("./steps/crm/move-pipeline"),
 };
 
 export function getStepImporter(actionType: string): StepImporter | null {

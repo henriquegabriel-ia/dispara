@@ -5,11 +5,12 @@
 // React Flow mede DOM no client.
 
 import dynamic from "next/dynamic";
-import { use } from "react";
+import { use, useState } from "react";
 import { Loader2 } from "lucide-react";
 import ActionPicker from "@/components/flow-builder/ActionPicker";
 import BuilderHeader from "@/components/flow-builder/BuilderHeader";
 import ConfigPanel from "@/components/flow-builder/ConfigPanel";
+import WorkflowSettingsSheet from "@/components/flow-builder/WorkflowSettingsSheet";
 import { useWorkflowBuilder } from "@/hooks/useWorkflowBuilder";
 
 const FlowCanvas = dynamic(() => import("@/components/flow-builder/FlowCanvas"), {
@@ -31,8 +32,16 @@ type BuilderPageProps = {
 
 export default function BuilderPage({ params }: BuilderPageProps) {
   const { id } = use(params);
-  const { isLoading, loadError, saveState, publishedVersion, publishing, publish } =
-    useWorkflowBuilder(id);
+  const {
+    isLoading,
+    loadError,
+    saveState,
+    publishedVersion,
+    publishing,
+    publish,
+    settings,
+  } = useWorkflowBuilder(id);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   return (
     <div className="flex h-full w-full flex-col overflow-hidden bg-background">
@@ -41,6 +50,7 @@ export default function BuilderPage({ params }: BuilderPageProps) {
         publishedVersion={publishedVersion}
         publishing={publishing}
         onPublish={publish}
+        onOpenSettings={() => setSettingsOpen(true)}
       />
       <div className="relative flex-1 overflow-hidden">
         {isLoading ? (
@@ -61,6 +71,13 @@ export default function BuilderPage({ params }: BuilderPageProps) {
         )}
         <ConfigPanel />
         <ActionPicker />
+        {settingsOpen && (
+          <WorkflowSettingsSheet
+            workflowId={id}
+            initialSettings={settings}
+            onClose={() => setSettingsOpen(false)}
+          />
+        )}
       </div>
     </div>
   );

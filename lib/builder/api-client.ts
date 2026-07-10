@@ -4,6 +4,7 @@
  */
 
 import type { WorkflowEdge, WorkflowNode } from "./graph-types";
+import type { WorkflowSettings } from "./workflow-settings";
 
 // Workflow data types
 export type WorkflowVisibility = "private" | "public";
@@ -17,6 +18,8 @@ export type WorkflowData = {
   /** árvore canônica do builder novo (lib/builder/flow/types.ts, schemaVersion 1) */
   tree?: unknown;
   visibility?: WorkflowVisibility;
+  /** configurações estilo GHL (workflows.settings) */
+  settings?: WorkflowSettings;
 };
 
 export type SavedWorkflow = WorkflowData & {

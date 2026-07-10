@@ -26,13 +26,21 @@ export async function GET(request: Request) {
     const search = url.searchParams.get('search') || ''
     const status = url.searchParams.get('status') || ''
     const tag = url.searchParams.get('tag') || ''
+    // multi-tag (paridade GHL): ?tags=a,b,c&tagMatch=any|all
+    const tagsParam = url.searchParams.get('tags') || ''
+    const tags = tagsParam
+      .split(',')
+      .map((t) => t.trim())
+      .filter(Boolean)
+    const tagMatch = url.searchParams.get('tagMatch') === 'all' ? 'all' : 'any'
 
     const wantsPaged =
       limitParam !== null ||
       offsetParam !== null ||
       search.length > 0 ||
       status.length > 0 ||
-      tag.length > 0
+      tag.length > 0 ||
+      tags.length > 0
 
     if (wantsPaged) {
       const limitRaw = Number(limitParam)
@@ -46,6 +54,8 @@ export async function GET(request: Request) {
         search,
         status,
         tag,
+        tags,
+        tagMatch,
       })
 
       return NextResponse.json(

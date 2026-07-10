@@ -3,8 +3,11 @@
 import React from 'react';
 import { Search, Filter } from 'lucide-react';
 import { ContactStatus, StatusOption } from './types';
+import { ContactTagMultiSelect } from './ContactTagMultiSelect';
+import { NO_TAGS_FILTER } from '@/services/contactService';
 
-export const NO_TAGS_FILTER = '__NO_TAGS__'
+// Re-export para consumidores legados (a fonte agora é o contactService)
+export { NO_TAGS_FILTER };
 
 export interface ContactFiltersProps {
   // Search
@@ -15,14 +18,19 @@ export interface ContactFiltersProps {
   statusFilter: ContactStatus | 'ALL' | 'SUPPRESSED';
   onStatusFilterChange: (status: ContactStatus | 'ALL' | 'SUPPRESSED') => void;
 
-  // Tag filter
-  tagFilter: string;
-  onTagFilterChange: (tag: string) => void;
+  // Multi-tag filter (paridade GHL)
+  tagsFilter: string[];
+  onTagsFilterChange: (tags: string[]) => void;
+  tagMatch: 'any' | 'all';
+  onTagMatchChange: (match: 'any' | 'all') => void;
   tags: string[];
 
   // Filter visibility
   showFilters: boolean;
   onToggleFilters: () => void;
+
+  // Slot para o seletor de listas salvas (smart lists)
+  listSelector?: React.ReactNode;
 }
 
 const statusOptions: StatusOption[] = [
@@ -38,14 +46,20 @@ export const ContactFilters: React.FC<ContactFiltersProps> = ({
   onSearchChange,
   statusFilter,
   onStatusFilterChange,
-  tagFilter,
-  onTagFilterChange,
+  tagsFilter,
+  onTagsFilterChange,
+  tagMatch,
+  onTagMatchChange,
   tags,
   showFilters,
-  onToggleFilters
+  onToggleFilters,
+  listSelector
 }) => {
   return (
-    <div className="p-5 border-b border-[var(--ds-border-subtle)] flex flex-col lg:flex-row gap-4">
+    <div className="p-5 border-b border-[var(--ds-border-subtle)] flex flex-col lg:flex-row lg:items-center gap-4">
+      {/* Listas salvas (smart lists) */}
+      {listSelector}
+
       {/* Search */}
       <div className="flex items-center gap-3 flex-1 bg-[var(--ds-bg-elevated)] border border-[var(--ds-border-default)] rounded-xl px-4 py-2.5 max-w-md focus-within:border-primary-500/50 focus-within:ring-1 focus-within:ring-primary-500/50 transition-all">
         <Search size={18} className="text-[var(--ds-text-muted)]" aria-hidden="true" />
@@ -63,8 +77,8 @@ export const ContactFilters: React.FC<ContactFiltersProps> = ({
       <div className="flex items-center gap-3">
         <button
           onClick={onToggleFilters}
-          className={`p-2.5 rounded-xl border transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500 focus-visible:outline-offset-2 ${showFilters || statusFilter !== 'ALL' || tagFilter !== 'ALL'
-            ? 'text-primary-400 bg-primary-500/10 border-primary-500/30'
+          className={`p-2.5 rounded-xl border transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500 focus-visible:outline-offset-2 ${showFilters || statusFilter !== 'ALL' || tagsFilter.length > 0
+            ? 'text-primary-600 dark:text-primary-400 bg-primary-500/10 border-primary-500/30'
             : 'text-[var(--ds-text-secondary)] hover:text-[var(--ds-text-primary)] hover:bg-[var(--ds-bg-hover)] border-[var(--ds-border-default)]'
             }`}
           aria-label={showFilters ? "Ocultar filtros avançados" : "Mostrar filtros avançados"}
@@ -85,19 +99,14 @@ export const ContactFilters: React.FC<ContactFiltersProps> = ({
           ))}
         </select>
 
-        {/* Tag Filter */}
-        <select
-          value={tagFilter}
-          onChange={(e) => onTagFilterChange(e.target.value)}
-          className="px-4 py-2.5 text-sm font-medium bg-[var(--ds-bg-elevated)] text-[var(--ds-text-primary)] hover:text-[var(--ds-text-primary)] rounded-xl border border-[var(--ds-border-default)] transition-colors outline-none cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500 focus-visible:outline-offset-2"
-          aria-label="Filtrar contatos por tag"
-        >
-          <option value="ALL">Todas Tags</option>
-          <option value={NO_TAGS_FILTER}>Sem tags</option>
-          {tags.map(tag => (
-            <option key={tag} value={tag}>{tag}</option>
-          ))}
-        </select>
+        {/* Multi-tag Filter (paridade GHL) */}
+        <ContactTagMultiSelect
+          tags={tags}
+          selected={tagsFilter}
+          onChange={onTagsFilterChange}
+          tagMatch={tagMatch}
+          onTagMatchChange={onTagMatchChange}
+        />
       </div>
     </div>
   );

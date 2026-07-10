@@ -3,8 +3,11 @@ import { useSearchParams } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { contactService } from '../services';
+import { NO_TAGS_FILTER } from '../services/contactService';
 import { Contact, ContactStatus } from '../types';
 import { customFieldService } from '../services/customFieldService';
+import { contactListService, type ContactList, type ContactListFilters } from '../services/contactListService';
+import { workflowEnrollmentService } from '../services/workflowEnrollmentService';
 import { PAGINATION, CACHE } from '@/lib/constants';
 import { invalidateContacts } from '@/lib/query-invalidation';
 import {
@@ -22,7 +25,8 @@ interface ContactsQueryParams {
   page: number
   search: string
   status: ContactStatus | 'ALL' | 'SUPPRESSED'
-  tag: string
+  tags: string[]
+  tagMatch: 'any' | 'all'
 }
 
 /**
@@ -35,9 +39,21 @@ const createContactsQueryKey = (params: ContactsQueryParams) => [
     page: params.page,
     search: (params.search || '').trim().toLowerCase(),
     status: params.status || 'ALL',
-    tag: params.tag || 'ALL',
+    tags: [...params.tags].sort().join(','),
+    // tagMatch só diferencia resultado com 2+ tags — normaliza pra evitar cache miss
+    tagMatch: params.tags.length > 1 ? params.tagMatch : 'any',
   }
 ] as const;
+
+/**
+ * Normaliza filtros de lista salva para comparação (detecção de "lista editada")
+ */
+const normalizeListFilters = (filters: ContactListFilters) => ({
+  search: (filters.search || '').trim().toLowerCase(),
+  status: filters.status || 'ALL',
+  tags: [...(filters.tags || [])].sort().join(','),
+  tagMatch: (filters.tags?.length || 0) > 1 && filters.tagMatch === 'all' ? 'all' : 'any',
+});
 
 export const useContactsController = (initialData?: ContactsInitialData) => {
   const queryClient = useQueryClient();
@@ -48,14 +64,25 @@ export const useContactsController = (initialData?: ContactsInitialData) => {
   // UI State - Filters
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<ContactStatus | 'ALL' | 'SUPPRESSED'>('ALL');
-  const [tagFilter, setTagFilter] = useState<string>('ALL');
+  // Multi-tag (paridade GHL): pode conter a sentinela NO_TAGS_FILTER (exclusiva)
+  const [tagsFilter, setTagsFilter] = useState<string[]>([]);
+  const [tagMatch, setTagMatch] = useState<'any' | 'all'>('any');
   const [currentPage, setCurrentPage] = useState(1);
+
+  // Lista salva selecionada (smart list) — os filtros dela são aplicados na listagem
+  const [selectedListId, setSelectedListId] = useState<string | null>(null);
+
+  // Compat: espelho single-tag do filtro multi-tag (testes/consumidores legados)
+  const tagFilter = tagsFilter.length > 0 ? tagsFilter[0] : 'ALL';
+  // "Sem tags" é exclusivo e viaja pelo param legado `tag`
+  const noTagsOnly = tagsFilter.includes(NO_TAGS_FILTER);
 
   // Modal State
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isAddToWorkflowModalOpen, setIsAddToWorkflowModalOpen] = useState(false);
   const [editingContact, setEditingContact] = useState<Contact | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ type: 'single' | 'bulk'; id?: string } | null>(null);
 
@@ -68,12 +95,13 @@ export const useContactsController = (initialData?: ContactsInitialData) => {
     page: currentPage,
     search: searchTerm,
     status: statusFilter,
-    tag: tagFilter,
+    tags: tagsFilter,
+    tagMatch,
   };
   const contactsQueryKey = createContactsQueryKey(queryParams);
 
   // Se temos initialData e estamos na página 1 sem filtros, usamos como dados iniciais
-  const isFirstPageNoFilters = currentPage === 1 && !searchTerm.trim() && statusFilter === 'ALL' && tagFilter === 'ALL'
+  const isFirstPageNoFilters = currentPage === 1 && !searchTerm.trim() && statusFilter === 'ALL' && tagsFilter.length === 0
   const contactsInitial = isFirstPageNoFilters && initialData
     ? { data: initialData.contacts, total: initialData.total }
     : undefined
@@ -85,7 +113,10 @@ export const useContactsController = (initialData?: ContactsInitialData) => {
       offset: (currentPage - 1) * PAGINATION.contacts,
       search: searchTerm.trim(),
       status: statusFilter,
-      tag: tagFilter,
+      // "Sem tags" usa o param legado `tag`; demais casos usam `tags`+`tagMatch`
+      tag: noTagsOnly ? NO_TAGS_FILTER : undefined,
+      tags: noTagsOnly ? undefined : tagsFilter,
+      tagMatch,
     }),
     initialData: contactsInitial,
     staleTime: CACHE.contacts,
@@ -137,6 +168,27 @@ export const useContactsController = (initialData?: ContactsInitialData) => {
   const refreshCustomFields = () => {
     queryClient.invalidateQueries({ queryKey: ['customFields'] });
   };
+
+  // Listas salvas (smart lists estilo GHL)
+  const contactListsQuery = useQuery({
+    queryKey: ['contact-lists'],
+    queryFn: contactListService.getAll,
+    staleTime: CACHE.stats,
+  });
+
+  // Workflows do builder — só busca quando o modal "Adicionar ao workflow" abre
+  const workflowsQuery = useQuery({
+    queryKey: ['builder-workflows'],
+    queryFn: workflowEnrollmentService.listWorkflows,
+    enabled: isAddToWorkflowModalOpen,
+    staleTime: CACHE.stats,
+  });
+
+  // Só workflows publicados aceitam inscrição em massa (paridade GHL)
+  const publishedWorkflows = useMemo(
+    () => (workflowsQuery.data || []).filter((w) => w.status === 'published'),
+    [workflowsQuery.data]
+  );
 
   // NOTA: Realtime agora é gerenciado pelo CentralizedRealtimeProvider
   // que invalida queries automaticamente via debounce
@@ -363,6 +415,68 @@ export const useContactsController = (initialData?: ContactsInitialData) => {
     }
   });
 
+  // --- Mutations: listas salvas ---
+  const createListMutation = useMutation({
+    mutationFn: (input: { name: string; filters: ContactListFilters }) =>
+      contactListService.create(input),
+    onSuccess: (created) => {
+      queryClient.invalidateQueries({ queryKey: ['contact-lists'] });
+      setSelectedListId(created.id);
+      toast.success(`Lista "${created.name}" salva!`);
+    },
+    onError: (error: any) => {
+      toast.error(error.message || 'Erro ao salvar lista');
+    },
+  });
+
+  const updateListMutation = useMutation({
+    mutationFn: ({ id, patch }: { id: string; patch: { name?: string; filters?: ContactListFilters } }) =>
+      contactListService.update(id, patch),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['contact-lists'] });
+      toast.success('Lista atualizada!');
+    },
+    onError: (error: any) => {
+      toast.error(error.message || 'Erro ao atualizar lista');
+    },
+  });
+
+  const deleteListMutation = useMutation({
+    mutationFn: contactListService.delete,
+    onSuccess: (_result, id) => {
+      queryClient.invalidateQueries({ queryKey: ['contact-lists'] });
+      // Excluir a lista não limpa os filtros — só desmarca a seleção
+      setSelectedListId((prev) => (prev === id ? null : prev));
+      toast.success('Lista excluída!');
+    },
+    onError: (error: any) => {
+      toast.error(error.message || 'Erro ao excluir lista');
+    },
+  });
+
+  // --- Mutation: inscrição em massa num workflow publicado ---
+  const enrollMutation = useMutation({
+    mutationFn: ({ workflowId, contactIds }: { workflowId: string; contactIds: string[] }) =>
+      workflowEnrollmentService.enroll(workflowId, contactIds),
+    onSuccess: (result) => {
+      const parts = [`${result.enrolled} inscrito${result.enrolled === 1 ? '' : 's'}`];
+      if (result.alreadyActive > 0) {
+        parts.push(`${result.alreadyActive} já ${result.alreadyActive === 1 ? 'estava' : 'estavam'} no fluxo`);
+      }
+      if (result.blockedByReentry > 0) {
+        parts.push(`${result.blockedByReentry} bloqueado${result.blockedByReentry === 1 ? '' : 's'} por reentrada`);
+      }
+      toast.success(parts.join(' · '), {
+        description: 'Processamento em segundo plano: ~25 contatos por minuto.',
+      });
+      setIsAddToWorkflowModalOpen(false);
+      clearSelection();
+    },
+    onError: (error: any) => {
+      toast.error(error.message || 'Erro ao adicionar contatos ao workflow');
+    },
+  });
+
   // --- Filtering & Pagination Logic (server-side) ---
   const contacts = contactsQuery.data?.data || [];
   const totalFiltered = contactsQuery.data?.total || 0;
@@ -385,16 +499,110 @@ export const useContactsController = (initialData?: ContactsInitialData) => {
     setCurrentPage(1);
   }, []);
 
+  // Compat: adaptador single-tag legado → estado multi-tag
   const handleTagFilterChange = useCallback((tag: string) => {
-    setTagFilter(tag);
+    setTagsFilter(tag && tag !== 'ALL' ? [tag] : []);
     setCurrentPage(1);
   }, []);
+
+  const handleTagsFilterChange = useCallback((tags: string[]) => {
+    setTagsFilter(tags);
+    setCurrentPage(1);
+  }, []);
+
+  const handleTagMatchChange = useCallback((match: 'any' | 'all') => {
+    setTagMatch(match);
+    setCurrentPage(1);
+  }, []);
+
+  // --- Listas salvas: filtros atuais, seleção e divergência ---
+  // Filtros ativos no formato persistido pelas listas salvas
+  const currentListFilters = useMemo<ContactListFilters>(() => {
+    const filters: ContactListFilters = {};
+    const search = searchTerm.trim();
+    if (search) filters.search = search;
+    if (statusFilter !== 'ALL') filters.status = statusFilter;
+    if (tagsFilter.length > 0) {
+      filters.tags = tagsFilter;
+      filters.tagMatch = tagMatch;
+    }
+    return filters;
+  }, [searchTerm, statusFilter, tagsFilter, tagMatch]);
+
+  const hasActiveFilters =
+    !!currentListFilters.search || !!currentListFilters.status || !!currentListFilters.tags;
+
+  const contactLists = contactListsQuery.data || [];
+  const selectedList = useMemo(
+    () => contactLists.find((list) => list.id === selectedListId) || null,
+    [contactLists, selectedListId]
+  );
+
+  // Lista "editada": filtros atuais divergem dos filtros salvos na lista
+  const isListDirty = useMemo(() => {
+    if (!selectedList) return false;
+    const saved = normalizeListFilters(selectedList.filters);
+    const current = normalizeListFilters(currentListFilters);
+    return (
+      saved.search !== current.search ||
+      saved.status !== current.status ||
+      saved.tags !== current.tags ||
+      saved.tagMatch !== current.tagMatch
+    );
+  }, [selectedList, currentListFilters]);
+
+  // Aplica um conjunto de filtros (de lista salva ou reset) na listagem
+  const applyListFilters = useCallback((filters: ContactListFilters) => {
+    setSearchTerm(filters.search || '');
+    setStatusFilter((filters.status as ContactStatus | 'ALL' | 'SUPPRESSED') || 'ALL');
+    setTagsFilter(filters.tags || []);
+    setTagMatch(filters.tagMatch === 'all' ? 'all' : 'any');
+    setCurrentPage(1);
+  }, []);
+
+  const handleSelectList = useCallback((listId: string | null) => {
+    setSelectedListId(listId);
+    if (!listId) {
+      // "Todos os contatos" limpa os filtros
+      applyListFilters({});
+      return;
+    }
+    const list = (contactListsQuery.data || []).find((l) => l.id === listId);
+    if (list) applyListFilters(list.filters);
+  }, [applyListFilters, contactListsQuery.data]);
+
+  const handleSaveList = useCallback((name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    createListMutation.mutate({ name: trimmed, filters: currentListFilters });
+  }, [createListMutation.mutate, currentListFilters]);
+
+  const handleUpdateListFilters = useCallback(() => {
+    if (!selectedListId) return;
+    updateListMutation.mutate({ id: selectedListId, patch: { filters: currentListFilters } });
+  }, [selectedListId, updateListMutation.mutate, currentListFilters]);
+
+  const handleRenameList = useCallback((id: string, name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    updateListMutation.mutate({ id, patch: { name: trimmed } });
+  }, [updateListMutation.mutate]);
+
+  const handleDeleteList = useCallback((id: string) => {
+    deleteListMutation.mutate(id);
+  }, [deleteListMutation.mutate]);
 
   // --- Selection Logic (extracted to reusable hook) ---
   const pageContactIds = useMemo(() => contacts.map(c => c.id), [contacts]);
   const selectionFilters = useMemo(
-    () => ({ search: searchTerm, status: statusFilter, tag: tagFilter }),
-    [searchTerm, statusFilter, tagFilter]
+    () => ({
+      search: searchTerm,
+      status: statusFilter,
+      tag: noTagsOnly ? NO_TAGS_FILTER : undefined,
+      tags: noTagsOnly ? undefined : tagsFilter,
+      tagMatch,
+    }),
+    [searchTerm, statusFilter, tagsFilter, tagMatch, noTagsOnly]
   );
   const {
     selectedIds,
@@ -482,6 +690,14 @@ export const useContactsController = (initialData?: ContactsInitialData) => {
     unsuppressMutation.mutate(phone);
   }, [unsuppressMutation]);
 
+  // Inscreve os contatos selecionados no workflow escolhido.
+  // No modo "selecionar todos", selectedIds já contém TODOS os ids que casam
+  // com os filtros atuais (materializados via GET /api/contacts/ids).
+  const handleEnrollInWorkflow = useCallback((workflowId: string) => {
+    if (!workflowId || selectedIds.size === 0) return;
+    enrollMutation.mutate({ workflowId, contactIds: Array.from(selectedIds) });
+  }, [enrollMutation.mutate, selectedIds]);
+
   return {
     // Data
     contacts,
@@ -499,6 +715,33 @@ export const useContactsController = (initialData?: ContactsInitialData) => {
     setStatusFilter: handleStatusFilterChange,
     tagFilter,
     setTagFilter: handleTagFilterChange,
+    tagsFilter,
+    setTagsFilter: handleTagsFilterChange,
+    tagMatch,
+    setTagMatch: handleTagMatchChange,
+    hasActiveFilters,
+
+    // Listas salvas (smart lists)
+    contactLists,
+    selectedListId,
+    selectedList,
+    isListDirty,
+    onSelectList: handleSelectList,
+    onSaveList: handleSaveList,
+    isSavingList: createListMutation.isPending,
+    onUpdateListFilters: handleUpdateListFilters,
+    onRenameList: handleRenameList,
+    isUpdatingList: updateListMutation.isPending,
+    onDeleteList: handleDeleteList,
+    isDeletingList: deleteListMutation.isPending,
+
+    // Adicionar ao workflow (bulk)
+    isAddToWorkflowModalOpen,
+    setIsAddToWorkflowModalOpen,
+    publishedWorkflows,
+    isLoadingWorkflows: workflowsQuery.isLoading,
+    onEnrollInWorkflow: handleEnrollInWorkflow,
+    isEnrolling: enrollMutation.isPending,
 
     // Pagination
     currentPage,

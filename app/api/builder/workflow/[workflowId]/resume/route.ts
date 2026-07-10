@@ -168,6 +168,7 @@ export async function POST(
     workflowId,
     startNodeIds: [resumeNodeId],
     initialVariables: nextVariables,
+    workflowSettings: workflow.settings,
   })) as ExecutionResultShape;
 
   // A resposta foi consumida: encerra a conversa do ask-question.

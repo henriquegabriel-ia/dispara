@@ -28,7 +28,7 @@ import {
 import { WAIT_UNITS } from "./meta";
 import { layoutFlow, TRIGGER_ID } from "./layout";
 import { validateTree } from "./tree-validate";
-import type { Branch, Flow, Step } from "./types";
+import { triggerTypeOf, type Branch, type Flow, type Step } from "./types";
 
 // ─── Action types reais do executor (ver plugins.ts / step-registry.ts) ───────
 export const ACTION_SEND_MESSAGE = "whatsapp/send-message";
@@ -38,6 +38,9 @@ export const ACTION_ASK_QUESTION = "whatsapp/ask-question";
 export const ACTION_CONDITION = "Condition";
 export const ACTION_DELAY = "Delay";
 export const ACTION_GET_VARIABLE = "Get Variable";
+export const ACTION_ADD_TAG = "contacts/add-tag";
+export const ACTION_REMOVE_TAG = "contacts/remove-tag";
+export const ACTION_MOVE_PIPELINE = "crm/move-pipeline";
 
 export const TRIGGER_NODE_ID = TRIGGER_ID; // "__trigger"
 
@@ -298,6 +301,67 @@ function compileWait(ctx: CompileCtx, step: Step): void {
     type: "action",
     label: step.name,
     config: { actionType: ACTION_DELAY, delayMs },
+    position: posOf(ctx, step.id),
+  });
+}
+
+/** Tags do config (array `tags` novo; `tagName` legado vira array de 1). */
+function stepTags(step: Step): string[] {
+  const raw = step.config.tags;
+  const list = Array.isArray(raw)
+    ? raw.map((t) => String(t).trim()).filter(Boolean)
+    : [];
+  if (list.length > 0) return Array.from(new Set(list));
+  const legacy = String(step.config.tagName ?? "").trim();
+  return legacy ? [legacy] : [];
+}
+
+function compileTag(ctx: CompileCtx, step: Step, remove: boolean): void {
+  const tags = stepTags(step);
+  if (tags.length === 0) {
+    throw new FlowCompileError(
+      `Passo "${step.name}": defina pelo menos 1 tag.`,
+      step.id
+    );
+  }
+  addNode(ctx, {
+    id: step.id,
+    type: "action",
+    label: step.name,
+    config: {
+      actionType: remove ? ACTION_REMOVE_TAG : ACTION_ADD_TAG,
+      toSource: "inbound",
+      tags,
+    },
+    position: posOf(ctx, step.id),
+  });
+}
+
+function compilePipeline(ctx: CompileCtx, step: Step): void {
+  const pipelineId = String(step.config.pipelineId ?? "").trim();
+  const stageId = String(step.config.stageId ?? "").trim();
+  if (!pipelineId || !stageId) {
+    throw new FlowCompileError(
+      `Passo "${step.name}": selecione o pipeline e a etapa de destino.`,
+      step.id
+    );
+  }
+  const oppStatus = String(step.config.oppStatus ?? "open");
+  addNode(ctx, {
+    id: step.id,
+    type: "action",
+    label: step.name,
+    config: {
+      actionType: ACTION_MOVE_PIPELINE,
+      toSource: "inbound",
+      pipelineId,
+      stageId,
+      oppStatus,
+      // denormalizados para logs/exibição (a execução usa os ids)
+      pipelineName: String(step.config.pipelineName ?? ""),
+      stageName: String(step.config.stageName ?? ""),
+      oppName: String(step.config.oppName ?? ""),
+    },
     position: posOf(ctx, step.id),
   });
 }
@@ -588,8 +652,22 @@ function compileChain(
       );
     }
 
-    case "split":
     case "tag":
+    case "tag_remove": {
+      compileTag(ctx, step, step.type === "tag_remove");
+      const nextHeads = compileChain(ctx, step.next, convergeHeads, askStepId);
+      connect(ctx, step.id, nextHeads);
+      return [step.id];
+    }
+
+    case "pipeline": {
+      compilePipeline(ctx, step);
+      const nextHeads = compileChain(ctx, step.next, convergeHeads, askStepId);
+      connect(ctx, step.id, nextHeads);
+      return [step.id];
+    }
+
+    case "split":
     case "goto":
       throw new FlowCompileError(
         `O passo "${step.name}" (${step.type}) ainda não é suportado no v1 — remova-o ou aguarde a próxima versão.`,
@@ -629,15 +707,35 @@ export function compileFlow(flow: Flow): CompiledWorkflow {
     pos,
   };
 
-  // 3. Trigger (exatamente 1, exigido pelo workflow-schema)
+  // 3. Trigger (exatamente 1, exigido pelo workflow-schema). O nó __trigger é
+  // SEMPRE emitido — "sem gatilho" vira triggerType "None": o webhook nunca o
+  // dispara, mas o fluxo publicado aceita inscrição manual/bulk (/enroll).
+  const triggerType = triggerTypeOf(flow.trigger);
+  const triggerConfig: Record<string, unknown> =
+    triggerType === "none"
+      ? { triggerType: "None" }
+      : triggerType === "campaign_reply"
+        ? {
+            triggerType: "CampaignReply",
+            campaignId: String(flow.trigger.campaignId ?? ""),
+            campaignName: String(flow.trigger.campaignName ?? ""),
+            replyFilter: String(flow.trigger.replyFilter ?? "").trim(),
+          }
+        : {
+            triggerType: "Keywords",
+            keywordList: flow.trigger.keywords.join("\n"),
+          };
+  const triggerFallbackLabel =
+    triggerType === "none"
+      ? "Sem gatilho (entrada manual)"
+      : triggerType === "campaign_reply"
+        ? "Respondeu ao disparo"
+        : "Palavras-chave";
   addNode(ctx, {
     id: TRIGGER_NODE_ID,
     type: "trigger",
-    label: flow.trigger.label || "Palavras-chave",
-    config: {
-      triggerType: "Keywords",
-      keywordList: flow.trigger.keywords.join("\n"),
-    },
+    label: flow.trigger.label || triggerFallbackLabel,
+    config: triggerConfig,
     position: posOf(ctx, TRIGGER_ID),
   });
 

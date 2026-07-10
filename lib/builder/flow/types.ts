@@ -12,6 +12,8 @@ export type StepType =
   | "condition"
   | "split"
   | "tag"
+  | "tag_remove"
+  | "pipeline"
   | "goto"
   | "end";
 
@@ -44,10 +46,33 @@ export interface Step {
   branches?: Branch[];
 }
 
+/**
+ * Tipos de gatilho (estilo GHL):
+ *   - "none": sem gatilho — o fluxo só recebe contatos por inscrição manual/bulk
+ *     ("Adicionar ao workflow" na lista de contatos) — válido e publicável.
+ *   - "keywords": mensagem recebida bate com uma palavra-chave (comportamento v1).
+ *   - "campaign_reply": contato respondeu a um disparo (campanha) — com filtro
+ *     opcional por campanha específica e por frase contida na resposta.
+ * Árvores antigas não têm `type`: tratar ausência como "keywords".
+ */
+export type FlowTriggerType = "none" | "keywords" | "campaign_reply";
+
 export interface FlowTrigger {
+  type?: FlowTriggerType;
   label: string;
   /** palavras-chave que disparam o fluxo (uma entrada por keyword) */
   keywords: string[];
+  /** campaign_reply: id da campanha (null/"" = resposta a qualquer disparo) */
+  campaignId?: string | null;
+  /** campaign_reply: nome da campanha denormalizado para exibição */
+  campaignName?: string | null;
+  /** campaign_reply: a resposta precisa conter esta frase (opcional) */
+  replyFilter?: string;
+}
+
+/** Ausência de `type` (árvores antigas) = keywords. */
+export function triggerTypeOf(trigger: FlowTrigger): FlowTriggerType {
+  return trigger.type ?? "keywords";
 }
 
 export interface Flow {

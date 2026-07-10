@@ -18,8 +18,15 @@ export async function GET(request: Request) {
     const search = url.searchParams.get('search') || ''
     const status = url.searchParams.get('status') || ''
     const tag = url.searchParams.get('tag') || ''
+    // multi-tag (paridade GHL): ?tags=a,b,c&tagMatch=any|all
+    const tagsParam = url.searchParams.get('tags') || ''
+    const tags = tagsParam
+      .split(',')
+      .map((t) => t.trim())
+      .filter(Boolean)
+    const tagMatch = url.searchParams.get('tagMatch') === 'all' ? 'all' : 'any'
 
-    const ids = await contactDb.getIds({ search, status, tag })
+    const ids = await contactDb.getIds({ search, status, tag, tags, tagMatch })
     return NextResponse.json(ids, {
       headers: {
         'Cache-Control': 'private, no-store, no-cache, must-revalidate, max-age=0',

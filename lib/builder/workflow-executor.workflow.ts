@@ -21,6 +21,10 @@ import { createConversation } from "./workflow-conversations";
 import { normalizePhoneNumber } from "@/lib/phone-formatter";
 import type { WorkflowEdge, WorkflowNode } from "./graph-types";
 import { getWorkflowExecutionConfig } from "@/lib/builder/workflow-execution-settings";
+import {
+  timeWindowDelayMs,
+  type WorkflowSettings,
+} from "@/lib/builder/workflow-settings";
 
 // System actions that don't have plugins - maps to module import functions
 const SYSTEM_ACTIONS: Record<string, StepImporter> = {
@@ -589,6 +593,9 @@ export async function executeWorkflow(
     // (ex.: Condition sobre a mensagem do gatilho após um Delay). Fase D.
     // Tipo permissivo (Record) porque vem do jsonb do enrollment; casteado internamente.
     initialOutputs?: Record<string, unknown>;
+    // Settings do workflow (workflows.settings): timeWindow pausa passos de
+    // comunicação (whatsapp/*) fora da janela — mesma mecânica do Delay durável.
+    workflowSettings?: WorkflowSettings;
   }
 ) {
   "use workflow";
@@ -901,6 +908,39 @@ export async function executeWorkflow(
               }
               // Delay terminal: nada a retomar; segue o loop (nó já resolvido).
               continue;
+            }
+
+            // Time Window (settings do workflow, estilo GHL): passos de COMUNICAÇÃO
+            // fora da janela pausam até o próximo slot — mesma mecânica do Delay
+            // durável, mas retomando NO PRÓPRIO nó (que não foi resolvido nem
+            // executado, então reexecuta e envia dentro da janela). Ações internas
+            // (tag, pipeline, condição) NÃO são afetadas, como no GHL.
+            if (actionType.startsWith("whatsapp/")) {
+              const windowDelayMs = timeWindowDelayMs(
+                input.workflowSettings?.timeWindow
+              );
+              if (windowDelayMs > 0) {
+                const pending = readyQueue.filter((id) => !resolvedNodes.has(id));
+                if (pending.length > 1) {
+                  console.warn(
+                    "[Workflow Executor] Time window pausou com nós paralelos pendentes no readyQueue (não suportado):",
+                    pending
+                  );
+                }
+                return {
+                  success: true,
+                  results,
+                  outputs,
+                  paused: true,
+                  wait: {
+                    kind: "delay" as const,
+                    resumeNodeIds: [nodeId],
+                    resumeInMs: windowDelayMs,
+                  },
+                  variables,
+                  resolvedNodeIds: Array.from(resolvedNodes),
+                };
+              }
             }
 
             const isAskQuestion = shouldTreatAsAskQuestion(

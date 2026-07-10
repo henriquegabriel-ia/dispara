@@ -22,7 +22,7 @@ import {
 } from "@/lib/builder/flow/operations";
 import type { StepPatch } from "@/lib/builder/flow/operations";
 import { TRIGGER_ID } from "@/lib/builder/flow/layout";
-import type { Flow, Slot, StepType } from "@/lib/builder/flow/types";
+import type { Flow, FlowTriggerType, Slot, StepType } from "@/lib/builder/flow/types";
 
 const MAX_HISTORY = 50;
 
@@ -56,7 +56,14 @@ interface FlowBuilderStore {
   insertStep: (type: StepType) => void;
   removeStep: (id: string) => void;
   patchStep: (id: string, patch: StepPatch) => void;
-  patchTrigger: (patch: { label?: string; keywords?: string[] }) => void;
+  patchTrigger: (patch: {
+    type?: FlowTriggerType;
+    label?: string;
+    keywords?: string[];
+    campaignId?: string | null;
+    campaignName?: string | null;
+    replyFilter?: string;
+  }) => void;
   addBranchTo: (id: string) => void;
   renameFlow: (name: string) => void;
   startGotoPick: (id: string) => void;
