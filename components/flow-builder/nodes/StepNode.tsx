@@ -47,12 +47,12 @@ const StepNode = memo(function StepNode({ data, selected }: NodeProps) {
       className={`step-card relative flex h-full w-full items-center gap-3 rounded-[10px] border bg-card px-3 shadow-sm transition-shadow ${
         selected
           ? "border-primary-500 ring-2 ring-primary-500/25"
-          : "border-border hover:border-slate-600"
+          : "border-border hover:border-[var(--ds-border-strong)]"
       }`}
     >
       <Handle type="target" position={Position.Top} />
       <div
-        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
+        className="step-chip flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
         style={stepChipStyle(meta)}
       >
         <Icon size={16} />
@@ -108,7 +108,7 @@ const StepNode = memo(function StepNode({ data, selected }: NodeProps) {
           </button>
           <button
             type="button"
-            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-red-400 hover:bg-red-500/10"
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-red-600 hover:bg-red-500/10 dark:text-red-400"
             onClick={handleDelete}
           >
             <Trash2 size={12} /> Deletar

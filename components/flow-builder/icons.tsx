@@ -47,13 +47,18 @@ function lighten(hex: string, amount: number): string {
 }
 
 /**
- * Chip de ícone re-skinado para o tema dark: os iconBg/iconFg do meta são
- * pastéis de tema claro — aqui usamos o iconFg translúcido como fundo e uma
- * versão clareada como cor do ícone.
+ * Chip de ícone theme-aware: expõe os dois pares como custom properties e a
+ * classe `step-chip` (flow-builder.css) escolhe por tema — pastéis iconBg/
+ * iconFg do meta no claro (visual do protótipo/GHL), iconFg translúcido +
+ * clareado no escuro.
  */
-export function stepChipStyle(meta: Pick<StepMeta, "iconFg">): CSSProperties {
+export function stepChipStyle(
+  meta: Pick<StepMeta, "iconBg" | "iconFg">
+): CSSProperties {
   return {
-    background: `${meta.iconFg}26`, // ~15% alpha
-    color: lighten(meta.iconFg, 0.45),
-  };
+    "--chip-bg-light": meta.iconBg,
+    "--chip-fg-light": meta.iconFg,
+    "--chip-bg-dark": `${meta.iconFg}26`, // ~15% alpha
+    "--chip-fg-dark": lighten(meta.iconFg, 0.45),
+  } as CSSProperties;
 }

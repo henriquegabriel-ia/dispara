@@ -12,6 +12,7 @@ import {
 } from "@xyflow/react";
 import type { Edge, Node, NodeMouseHandler } from "@xyflow/react";
 import { CornerDownRight } from "lucide-react";
+import { useTheme } from "next-themes";
 import { layoutFlow } from "@/lib/builder/flow/layout";
 import { TRIGGER_SELECTION_ID, useFlowBuilderStore } from "./store";
 import { edgeTypes } from "./edges";
@@ -22,9 +23,9 @@ const FIT_VIEW_OPTIONS = { padding: 0.15, maxZoom: 0.9 };
 
 function miniMapColor(n: Node): string {
   if (n.type === "trigger" || n.type === "placeholder" || n.type === "plus") {
-    return "#334155";
+    return "var(--ds-border-strong)";
   }
-  if (n.type === "end") return "#64748b";
+  if (n.type === "end") return "var(--ds-text-muted)";
   return "var(--ds-brand-primary)";
 }
 
@@ -43,6 +44,9 @@ function ZoomIndicator() {
 const noopNodesChange = () => {};
 
 export default function FlowCanvas() {
+  // colorMode do React Flow precisa seguir o tema do app: ele injeta a classe
+  // dark/light no subtree do canvas, e os tokens --ds-* resolvem por ela.
+  const { resolvedTheme } = useTheme();
   const flow = useFlowBuilderStore((s) => s.flow);
   const selectedStepId = useFlowBuilderStore((s) => s.selectedStepId);
   const pickingGotoId = useFlowBuilderStore((s) => s.pickingGotoId);
@@ -142,7 +146,7 @@ export default function FlowCanvas() {
         fitView
         fitViewOptions={FIT_VIEW_OPTIONS}
         proOptions={PRO_OPTIONS}
-        colorMode="dark"
+        colorMode={resolvedTheme === "light" ? "light" : "dark"}
       >
         <Background variant={BackgroundVariant.Dots} gap={22} size={1.5} color="var(--ds-border-default)" />
         <Controls position="bottom-left" showInteractive={false} />
@@ -151,7 +155,7 @@ export default function FlowCanvas() {
       </ReactFlow>
       {pickingGotoId && (
         <div className="pointer-events-none absolute top-4 left-1/2 z-40 -translate-x-1/2">
-          <div className="flex items-center gap-2 rounded-full border border-violet-500/30 bg-violet-500/10 px-4 py-2 text-[13px] font-medium text-violet-300 shadow-md backdrop-blur">
+          <div className="flex items-center gap-2 rounded-full border border-violet-500/30 bg-violet-500/10 px-4 py-2 text-[13px] font-medium text-violet-600 shadow-md backdrop-blur dark:text-violet-300">
             <CornerDownRight size={14} />
             Clique em um passo para definir o destino do Go To — Esc cancela
           </div>

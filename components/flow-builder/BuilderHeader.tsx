@@ -32,7 +32,7 @@ function SaveIndicator({ state }: { state: SaveState }) {
   }
   if (state === "error") {
     return (
-      <span className="flex items-center gap-1 px-1 text-[12px] text-red-400">
+      <span className="flex items-center gap-1 px-1 text-[12px] text-red-600 dark:text-red-400">
         <CircleAlert size={13} /> Erro ao salvar
       </span>
     );
@@ -102,7 +102,7 @@ export default function BuilderHeader({
       )}
 
       {publishedVersion != null && (
-        <span className="shrink-0 rounded-full border border-primary-500/30 bg-primary-500/10 px-2 py-0.5 text-[11px] font-medium text-primary-400">
+        <span className="shrink-0 rounded-full border border-primary-500/30 bg-primary-500/10 px-2 py-0.5 text-[11px] font-medium text-primary-600 dark:text-primary-400">
           v{publishedVersion} publicada
         </span>
       )}

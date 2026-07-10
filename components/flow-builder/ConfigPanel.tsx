@@ -94,7 +94,7 @@ function TriggerPanelBody({ flow }: { flow: Flow }) {
     <>
       <div className="border-b border-border px-4 py-4">
         <div className="flex items-start gap-3">
-          <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-500/15 text-amber-400">
+          <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-500/15 text-amber-600 dark:text-amber-400">
             <Zap size={17} />
           </div>
           <div className="min-w-0 flex-1">
@@ -226,7 +226,7 @@ function PanelBody({ step }: { step: Step }) {
       <div className="border-b border-border px-4 py-4">
         <div className="flex items-start gap-3">
           <div
-            className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
+            className="step-chip mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
             style={stepChipStyle(meta)}
           >
             <Icon size={17} />
@@ -288,7 +288,7 @@ function PanelBody({ step }: { step: Step }) {
       <div className="flex items-center gap-2 border-t border-border px-4 py-3">
         <button
           type="button"
-          className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-medium text-red-400 hover:bg-red-500/10"
+          className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-medium text-red-600 hover:bg-red-500/10 dark:text-red-400"
           onClick={remove}
         >
           <Trash2 size={13} /> Excluir
@@ -358,7 +358,7 @@ function highlightVars(text: string): React.ReactNode {
     p.startsWith("{{") ? (
       <span
         key={i}
-        className="rounded bg-primary-500/15 px-0.5 font-medium text-primary-400"
+        className="rounded bg-primary-500/15 px-0.5 font-medium text-primary-600 dark:text-primary-400"
       >
         {p}
       </span>
@@ -481,7 +481,7 @@ function WaitForm({ config, set }: FormProps) {
         na fase 2.
       </Hint>
       {overCap && (
-        <p className="mt-1 text-[12px] font-medium text-red-400">
+        <p className="mt-1 text-[12px] font-medium text-red-600 dark:text-red-400">
           Valor ajustado para 1–{MAX_WAIT_MINUTES} minutos ao salvar.
         </p>
       )}
@@ -542,7 +542,7 @@ function ConditionForm({ branches, setBranches }: BranchesFormProps) {
                 />
                 <button
                   type="button"
-                  className="shrink-0 rounded p-1 text-[var(--ds-text-muted)] hover:bg-red-500/10 hover:text-red-400 disabled:invisible"
+                  className="shrink-0 rounded p-1 text-[var(--ds-text-muted)] hover:bg-red-500/10 hover:text-red-600 dark:hover:text-red-400 disabled:invisible"
                   disabled={buttonCount <= 1}
                   onClick={() => removeBranch(b)}
                   aria-label="Remover branch"
@@ -580,7 +580,7 @@ function ConditionForm({ branches, setBranches }: BranchesFormProps) {
       <Hint>A comparação é sensível a maiúsculas e acentos.</Hint>
       <button
         type="button"
-        className="mt-1 flex items-center gap-1.5 text-[13px] font-medium text-primary-400 hover:text-primary-300"
+        className="mt-1 flex items-center gap-1.5 text-[13px] font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
         onClick={add}
       >
         <Plus size={13} /> Adicionar branch
@@ -656,7 +656,7 @@ function InteractiveForm({
               </div>
               <button
                 type="button"
-                className="shrink-0 rounded p-1 text-[var(--ds-text-muted)] hover:bg-red-500/10 hover:text-red-400 disabled:invisible"
+                className="shrink-0 rounded p-1 text-[var(--ds-text-muted)] hover:bg-red-500/10 hover:text-red-600 dark:hover:text-red-400 disabled:invisible"
                 disabled={buttonCount <= 1}
                 onClick={() => removeBranch(b)}
                 aria-label="Remover botão"
@@ -668,7 +668,7 @@ function InteractiveForm({
         </div>
         <button
           type="button"
-          className="mt-2 flex items-center gap-1.5 text-[13px] font-medium text-primary-400 hover:text-primary-300 disabled:cursor-not-allowed disabled:opacity-40"
+          className="mt-2 flex items-center gap-1.5 text-[13px] font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300 disabled:cursor-not-allowed disabled:opacity-40"
           onClick={add}
           disabled={buttonCount >= MAX_BUTTONS}
         >

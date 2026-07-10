@@ -311,18 +311,18 @@ const ExpandedSidebar = memo(function ExpandedSidebar({
       aria-label="Menu de navegação expandido"
     >
       <div className="flex h-full flex-col">
-        {/* Cabeçalho: logo alinhado à esquerda + controle de recolher */}
-        <div className="flex h-14 items-center justify-between border-b border-[var(--ds-border-subtle)] px-4">
+        {/* Cabeçalho: logo centralizado; controles absolutos à direita */}
+        <div className="relative flex h-14 items-center justify-center border-b border-[var(--ds-border-subtle)] px-10">
           <div
-            className="flex min-w-0 items-center"
+            className="flex min-w-0 items-center justify-center"
             role="img"
             aria-label={`Logo ${brandName || 'Dispara'}`}
           >
-            <BrandLogo logoUrl={brandLogoUrl} name={brandName} className="h-7 max-w-[150px] object-contain" />
+            <BrandLogo logoUrl={brandLogoUrl} name={brandName} className="h-7 max-w-[136px] object-contain" />
           </div>
           <button
             type="button"
-            className="hidden h-7 w-7 items-center justify-center rounded-lg text-[var(--ds-text-muted)] hover:text-[var(--ds-text-primary)] hover:bg-[var(--ds-bg-hover)] transition-colors lg:flex focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500 focus-visible:outline-offset-2"
+            className="absolute right-3 top-1/2 hidden h-7 w-7 -translate-y-1/2 items-center justify-center rounded-lg text-[var(--ds-text-muted)] hover:text-[var(--ds-text-primary)] hover:bg-[var(--ds-bg-hover)] transition-colors lg:flex focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500 focus-visible:outline-offset-2"
             onClick={() => onToggleSidebar(false)}
             title="Recolher menu"
             aria-label="Recolher menu de navegação"
@@ -330,7 +330,7 @@ const ExpandedSidebar = memo(function ExpandedSidebar({
             <ChevronLeft size={14} aria-hidden="true" />
           </button>
           <button
-            className="lg:hidden rounded-lg p-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500 focus-visible:outline-offset-2"
+            className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-1 lg:hidden focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500 focus-visible:outline-offset-2"
             onClick={onCloseMobileMenu}
             aria-label="Fechar menu"
           >

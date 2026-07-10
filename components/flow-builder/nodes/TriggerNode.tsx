@@ -21,10 +21,10 @@ const TriggerNode = memo(function TriggerNode({ data, selected }: NodeProps) {
       className={`flex h-full w-full items-center gap-3 rounded-[10px] border-2 border-dashed px-3 ${
         selected
           ? "border-primary-500 bg-card/80 ring-2 ring-primary-500/25"
-          : "border-[var(--ds-border-default)] bg-card/60 hover:border-slate-500"
+          : "border-[var(--ds-border-default)] bg-card/60 hover:border-[var(--ds-border-strong)]"
       }`}
     >
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-500/15 text-amber-400">
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-500/15 text-amber-600 dark:text-amber-400">
         <Zap size={16} />
       </div>
       <div className="min-w-0 flex-1">

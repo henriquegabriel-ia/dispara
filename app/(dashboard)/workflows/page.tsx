@@ -274,7 +274,7 @@ export default function WorkflowsPage() {
       <div className="rounded-2xl border border-[var(--ds-border-subtle)] bg-[var(--ds-bg-surface)]/40 p-4">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2 text-sm text-[var(--ds-text-secondary)]">
-            <WorkflowIcon className="h-4 w-4 text-primary-400" />
+            <WorkflowIcon className="h-4 w-4 text-primary-600 dark:text-primary-400" />
             {workflows.length} fluxos encontrados
           </div>
           <div className="flex w-full max-w-sm items-center gap-2 rounded-xl border border-[var(--ds-border-subtle)] bg-[var(--ds-bg-surface)] px-3 py-2">
@@ -327,7 +327,7 @@ export default function WorkflowsPage() {
                 <div className="space-y-1">
                   <div className="flex items-center gap-3">
                 <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--ds-border-subtle)] bg-[var(--ds-bg-hover)]">
-                  <WorkflowIcon className="h-4 w-4 text-primary-400" />
+                  <WorkflowIcon className="h-4 w-4 text-primary-600 dark:text-primary-400" />
                 </div>
                 <div>
                   <div className="text-sm font-semibold text-[var(--ds-text-primary)]">

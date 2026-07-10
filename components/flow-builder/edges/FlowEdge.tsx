@@ -19,7 +19,9 @@ export interface FlowEdgeData {
 }
 
 const nf = new Intl.NumberFormat("pt-BR");
-const EDGE_STYLE = { stroke: "#334155", strokeWidth: 1.5 };
+// var(--ds-border-strong): #cbd5e1 no claro (≈ #d1d5db do protótipo GHL),
+// #334155 no escuro (valor que estava hardcoded).
+const EDGE_STYLE = { stroke: "var(--ds-border-strong)", strokeWidth: 1.5 };
 
 const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
   const { id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition } =
@@ -94,7 +96,7 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
         )}
         {hasCount && (
           <div
-            className="pointer-events-none absolute flex items-center gap-1 rounded-full border border-sky-500/30 bg-sky-500/10 px-2 py-0.5 text-[11px] font-medium whitespace-nowrap text-sky-400"
+            className="pointer-events-none absolute flex items-center gap-1 rounded-full border border-sky-500/30 bg-sky-500/10 px-2 py-0.5 text-[11px] font-medium whitespace-nowrap text-sky-600 dark:text-sky-400"
             style={{
               transform: `translate(-50%,-50%) translate(${targetX}px,${targetY - 44}px)`,
             }}

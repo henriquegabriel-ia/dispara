@@ -112,7 +112,7 @@ export default function ActionPicker() {
                     aria-disabled={disabled}
                   >
                     <span
-                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg"
+                      className="step-chip flex h-7 w-7 shrink-0 items-center justify-center rounded-lg"
                       style={stepChipStyle(meta)}
                     >
                       <Icon size={14} />

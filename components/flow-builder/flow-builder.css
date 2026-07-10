@@ -5,6 +5,12 @@
   background: var(--ds-bg-base);
 }
 
+/* O React Flow pinta o pane com --xy-background-color (transparent no light,
+   #141414 no dark) — apontamos pro token pra seguir o tema do app. */
+.dispara-canvas .react-flow {
+  --xy-background-color: var(--ds-bg-base);
+}
+
 /* Handles invisíveis mas mensuráveis (NUNCA display:none) */
 .dispara-canvas .react-flow__handle {
   opacity: 0;
@@ -48,11 +54,11 @@
   border-radius: 10px;
 }
 
-/* Controles estilo GHL — re-skin dark */
+/* Controles estilo GHL — tokens seguem o tema */
 .dispara-canvas .react-flow__controls {
   border-radius: 8px;
   overflow: hidden;
-  box-shadow: 0 1px 3px rgb(0 0 0 / 0.4);
+  box-shadow: var(--ds-shadow-md);
 }
 
 .dispara-canvas .react-flow__controls-button {
@@ -73,10 +79,25 @@
 .dispara-canvas .react-flow__minimap {
   border-radius: 8px;
   overflow: hidden;
-  box-shadow: 0 1px 3px rgb(0 0 0 / 0.4);
+  box-shadow: var(--ds-shadow-md);
   background: var(--ds-bg-elevated);
 }
 
 .dispara-canvas .react-flow__minimap-mask {
-  fill: rgb(2 6 23 / 0.65);
+  fill: color-mix(in srgb, var(--ds-bg-base) 65%, transparent);
+}
+
+/* ─── Chips de ícone dos passos ──────────────────────────────────────────────
+   Usados dentro do canvas (StepNode) e fora dele (ActionPicker, ConfigPanel).
+   Os valores por passo vêm de stepChipStyle() como custom properties; aqui só
+   escolhemos o par certo por tema: pastéis do STEP_META no claro (visual do
+   protótipo/GHL), re-skin translúcido no escuro. */
+.step-chip {
+  background: var(--chip-bg-light);
+  color: var(--chip-fg-light);
+}
+
+.dark .step-chip {
+  background: var(--chip-bg-dark);
+  color: var(--chip-fg-dark);
 }
