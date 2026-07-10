@@ -129,3 +129,6 @@ PRD-campaigns-new.md
 .env*.local
 .env.local
 .env.local.*
+
+# Graphify (knowledge graph local — artefato gerado)
+graphify-out/
