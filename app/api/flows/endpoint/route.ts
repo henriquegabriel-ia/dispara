@@ -9,6 +9,9 @@
  * Segurança: rota pública no proxy (public_route_auth). A assinatura
  * X-Hub-Signature-256 é verificada antes de decifrar (lib/meta-webhook-signature.ts)
  * e as chaves RSA só são geradas/regeneradas automaticamente com assinatura verificada.
+ * Sem assinatura verificada, um erro OAEP só re-sincroniza a chave pública LOCAL
+ * existente com a Meta (idempotente, com cooldown) e falhas de chave que não dá para
+ * consertar viram account_alert + diagnóstico (lib/whatsapp/flow-endpoint-keys.ts).
  *
  * Handlers:
  * - ping: health check
@@ -27,12 +30,17 @@ import {
 } from '@/lib/whatsapp/flow-endpoint-crypto'
 import { handleFlowAction } from '@/lib/whatsapp/flow-endpoint-handlers'
 import {
+  FLOW_LAST_KEY_RESYNC_SETTING,
   FLOW_PRIVATE_KEY_SETTING,
+  type FlowDecryptKeyStatus,
   type FlowKeyRecoveryTrigger,
   decideFlowKeyRecovery,
   getLastFlowKeyRegenAt,
+  getLastFlowKeyResyncAt,
   isOaepDecryptError,
+  reportFlowDecryptFailure,
   rotateFlowEndpointKeys,
+  syncFlowPublicKeyWithMeta,
 } from '@/lib/whatsapp/flow-endpoint-keys'
 import {
   META_SIGNATURE_HEADER,
@@ -75,48 +83,75 @@ function parseEnvelope(rawBody: string): EncryptedFlowEnvelope | null {
 
 /**
  * Auto-recuperação das chaves RSA. Só gera/regenera com assinatura VERIFICADA
- * (prova de que a request veio da Meta) e fora do cooldown. Retorna o hint da resposta.
+ * (prova de que a request veio da Meta) e fora do cooldown. Sem assinatura
+ * verificada, só re-sincroniza a chave LOCAL existente com a Meta. Sempre registra
+ * a falha (diagnóstico/alerta). Retorna o hint da resposta.
  */
 async function recoverFlowKeys(params: {
   signatureVerified: boolean
   trigger: FlowKeyRecoveryTrigger
+  privateKey: string | null
 }): Promise<string | undefined> {
   if (params.trigger === 'other_error') return undefined
 
+  const now = Date.now()
   const decision = decideFlowKeyRecovery({
     signatureVerified: params.signatureVerified,
     trigger: params.trigger,
-    lastRegenAt: await getLastFlowKeyRegenAt(),
-    now: Date.now(),
+    lastRegenAt: params.signatureVerified ? await getLastFlowKeyRegenAt() : 0,
+    lastResyncAt: !params.signatureVerified && params.trigger === 'oaep_error' ? await getLastFlowKeyResyncAt() : 0,
+    now,
   })
   const what = params.trigger === 'missing_key' ? 'Chave privada ausente' : 'OAEP Error'
+  let keyStatus: FlowDecryptKeyStatus = params.trigger === 'missing_key' ? 'missing_key' : 'pending'
+  let hint: string | undefined
 
   if (decision === 'regenerate') {
     console.log(`[flow-endpoint] 🔑 ${what} com assinatura verificada! Gerando novas chaves...`)
     try {
-      await rotateFlowEndpointKeys()
-      return 'Chaves foram regeneradas e sincronizadas. Tente novamente.'
+      const { metaSynced } = await rotateFlowEndpointKeys(now)
+      keyStatus = metaSynced ? 'regenerated' : 'unconfirmed'
+      hint = 'Chaves foram regeneradas e sincronizadas. Tente novamente.'
     } catch (recoveryError) {
       console.error('[flow-endpoint] ❌ Falha na auto-recuperação:', recoveryError)
-      return undefined
+      keyStatus = 'unconfirmed'
     }
-  }
-
-  if (decision === 'cooldown') {
-    console.log(`[flow-endpoint] ⏳ ${what}, mas cooldown de regeneração ativo.`)
+  } else if (decision === 'resync') {
+    // Consome o cooldown ANTES de chamar a Graph: lixo em rajada não multiplica chamadas.
+    await settingsDb.set(FLOW_LAST_KEY_RESYNC_SETTING, String(now))
+    const result = await syncFlowPublicKeyWithMeta({ privateKey: params.privateKey })
+    if (result.status === 'in_sync') {
+      // A Meta já tem a nossa chave: a falha não é de chave nossa (lixo/forja, ou o
+      // cliente com chave em cache — o 421 faz ele rebuscar). Nada a consertar.
+      keyStatus = 'in_sync'
+    } else if (result.status === 'resynced') {
+      keyStatus = 'resynced'
+      hint = 'Chave pública re-sincronizada com a Meta. Tente novamente.'
+    } else {
+      keyStatus = 'unconfirmed'
+      const detail = result.status === 'failed' ? `${result.status}: ${result.error}` : result.status
+      console.warn(
+        `[flow-endpoint] ⚠️ ${what} sem assinatura verificada e não foi possível conferir a chave na Meta (${detail}).`
+      )
+    }
+  } else if (decision === 'cooldown') {
+    console.log(`[flow-endpoint] ⏳ ${what}, mas cooldown de regeneração/sincronização ativo.`)
     console.log('[flow-endpoint] 💡 A Meta pode demorar alguns minutos para propagar a nova chave.')
-    return undefined
-  }
-
-  if (decision === 'unverified') {
-    // Sem App Secret qualquer um manda lixo aqui: regenerar viraria DoS.
-    // O 421 faz a Meta rebuscar a chave pública já registrada.
+  } else if (decision === 'unverified') {
+    // Sem assinatura verificada qualquer um manda lixo aqui: gerar chave viraria DoS.
     console.warn(
-      `[flow-endpoint] ⚠️ ${what} sem assinatura verificada (App Secret ausente): chaves NÃO geradas/regeneradas automaticamente. ` +
-        'Se os Flows pararam, gere as chaves em Configurações > Flows e configure o App Secret.'
+      `[flow-endpoint] ⚠️ ${what} sem assinatura verificada (App Secret ausente ou ainda não confirmado): chaves NÃO geradas automaticamente. ` +
+        'Se os Flows pararam, gere as chaves em Configurações > MiniApp Dinâmico e configure o App Secret.'
     )
   }
-  return undefined
+
+  await reportFlowDecryptFailure({
+    trigger: params.trigger,
+    keyStatus,
+    signatureVerified: params.signatureVerified,
+    now,
+  })
+  return hint
 }
 
 export async function POST(request: NextRequest) {
@@ -135,9 +170,14 @@ export async function POST(request: NextRequest) {
       await reportMetaSignatureFailure({ evaluation: signature, endpoint: 'flows_endpoint' })
       return NextResponse.json({ error: 'Assinatura inválida' }, { status: STATUS_SIGNATURE_FAILED })
     }
+    if (!signature.verified) {
+      // report_only (secret de Configurações ainda não comprovado) ou sem App Secret:
+      // aceita, mas registra para o diagnóstico/alerta.
+      await reportMetaSignatureFailure({ evaluation: signature, endpoint: 'flows_endpoint' })
+    }
     // Só assinatura VERIFICADA prova que a request veio da Meta: só nesse caso o
     // endpoint pode gerar/regenerar as chaves RSA e re-registrá-las na Meta.
-    const signatureVerified = signature.mode === 'enforced'
+    const signatureVerified = signature.verified
 
     // Valida campos obrigatorios
     const envelope = parseEnvelope(rawBody)
@@ -151,7 +191,7 @@ export async function POST(request: NextRequest) {
     if (!privateKey) {
       // Sem chave não há como decifrar; com assinatura verificada, gera e registra
       // para as próximas requests.
-      const hint = await recoverFlowKeys({ signatureVerified, trigger: 'missing_key' })
+      const hint = await recoverFlowKeys({ signatureVerified, trigger: 'missing_key', privateKey: null })
       return NextResponse.json(
         { error: 'Chave do endpoint não configurada', hint },
         { status: STATUS_DECRYPT_FAILED }
@@ -167,6 +207,7 @@ export async function POST(request: NextRequest) {
       const hint = await recoverFlowKeys({
         signatureVerified,
         trigger: isOaepDecryptError(error) ? 'oaep_error' : 'other_error',
+        privateKey,
       })
       return NextResponse.json(
         { error: 'Falha na descriptografia', hint },

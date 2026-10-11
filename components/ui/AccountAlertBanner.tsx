@@ -10,6 +10,7 @@ const alertIcons: Record<string, typeof AlertTriangle> = {
   rate_limit: AlertTriangle,
   template: AlertTriangle,
   system: AlertTriangle,
+  meta_integration: AlertTriangle,
   recipient: AlertTriangle,
   media: AlertTriangle,
   unknown: XCircle,
@@ -46,6 +47,12 @@ const alertColors: Record<string, { bg: string; border: string; text: string; ic
     text: 'text-[var(--ds-text-primary)]',
     icon: 'text-[var(--ds-text-secondary)]',
   },
+  meta_integration: {
+    bg: 'bg-yellow-950/50',
+    border: 'border-yellow-800',
+    text: 'text-yellow-200',
+    icon: 'text-yellow-400',
+  },
   default: {
     bg: 'bg-red-950/50',
     border: 'border-red-800',
@@ -59,8 +66,12 @@ interface AccountAlertBannerProps {
 }
 
 export function AccountAlertBanner({ className = '' }: AccountAlertBannerProps) {
-  const { criticalAlert, dismiss, isDismissing } = useAccountAlerts()
-  
+  const { criticalAlert: critical, alerts, dismiss, isDismissing } = useAccountAlerts()
+  // Avisos da integração com a Meta (type 'meta_integration': assinatura do webhook,
+  // chaves dos Flows — ver lib/meta-integration-alerts.ts) só aparecem quando NÃO há
+  // alerta crítico (pagamento/auth): nunca escondem um alerta real da Meta.
+  const criticalAlert = critical ?? alerts.find((a) => a.type === 'meta_integration') ?? null
+
   if (!criticalAlert) {
     return null
   }
@@ -90,6 +101,7 @@ export function AccountAlertBanner({ className = '' }: AccountAlertBannerProps) 
         : alertType === 'rate_limit' ? 'Limite de Taxa Excedido'
         : alertType === 'template' ? 'Problema com Template'
         : alertType === 'system' ? 'Erro do Sistema'
+        : alertType === 'meta_integration' ? 'Integração com a Meta'
         : 'Alerta'
       )
 
@@ -122,7 +134,7 @@ export function AccountAlertBanner({ className = '' }: AccountAlertBannerProps) 
             </p>
           )}
 
-          {isPossibleMetaLock && (
+          {(isPossibleMetaLock || alertType === 'meta_integration') && (
             <div className="mt-2">
               <Link
                 href="/settings/meta-diagnostics"

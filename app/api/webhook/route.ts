@@ -58,6 +58,7 @@ import {
   evaluateMetaSignature,
   reportMetaSignatureFailure,
 } from '@/lib/meta-webhook-signature'
+import { logWebhookOriginMismatches } from '@/lib/meta-webhook-origin'
 
 async function getCalendarBookingSettings(): Promise<{
   timezone: string | null
@@ -674,6 +675,11 @@ export async function POST(request: NextRequest) {
     await reportMetaSignatureFailure({ evaluation: signature, endpoint: 'webhook' })
     return NextResponse.json({ status: 'unauthorized' }, { status: 401 })
   }
+  if (!signature.verified) {
+    // report_only (secret de Configurações ainda não comprovado) ou sem App Secret:
+    // aceita (como sempre foi), mas registra para o diagnóstico/alerta.
+    await reportMetaSignatureFailure({ evaluation: signature, endpoint: 'webhook' })
+  }
 
   if (!rawBody) {
     return NextResponse.json({ status: 'ignored', error: 'Body inválido' }, { status: 400 })
@@ -697,6 +703,10 @@ export async function POST(request: NextRequest) {
   if (body.object !== 'whatsapp_business_account') {
     return NextResponse.json({ status: 'ignored' })
   }
+
+  // Defesa em profundidade (só log, não descarta): WABA/phone_number_id diferentes
+  // das credenciais configuradas. Ver lib/meta-webhook-origin.ts.
+  await logWebhookOriginMismatches(body, { verified: signature.verified, mode: signature.mode })
 
   // Evita logs gigantes: guardamos payload estruturado em DB (whatsapp_status_events)
   // e fazemos logs de alto nível aqui.
@@ -744,7 +754,18 @@ export async function POST(request: NextRequest) {
             ? [rawTemplateUpdates]
             : []
 
-        for (const tu of templateUpdates) {
+        // Sem assinatura verificada qualquer um forja "template X → REJECTED/APPROVED"
+        // pelo nome. O status real é ressincronizado pela Graph (Templates > Sincronizar),
+        // então aqui só aplicamos o que veio comprovadamente da Meta.
+        if (templateUpdates.length > 0 && !signature.verified) {
+          console.warn(
+            `[Webhook] ${templateUpdates.length} message_template_status_update ignorado(s): requisição sem assinatura verificada (modo ${signature.mode}). ` +
+              'Sincronize os templates em Templates para atualizar o status; configure o App Secret para aplicar em tempo real.'
+          )
+        }
+        const verifiedTemplateUpdates = signature.verified ? templateUpdates : []
+
+        for (const tu of verifiedTemplateUpdates) {
           const templateId = (tu?.message_template_id || tu?.id || null) as string | null
           const templateName = (tu?.message_template_name || tu?.name || null) as string | null
           const eventRaw = (tu?.event || tu?.status || tu?.message_template_status || tu?.template_status || '') as string

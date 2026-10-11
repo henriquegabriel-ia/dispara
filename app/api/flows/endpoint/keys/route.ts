@@ -15,6 +15,7 @@ import {
 } from '@/lib/whatsapp/flow-endpoint-crypto'
 import { getWhatsAppCredentials } from '@/lib/whatsapp-credentials'
 import { metaSetEncryptionPublicKey } from '@/lib/meta-flows-api'
+import { dismissFlowKeyAlerts } from '@/lib/whatsapp/flow-endpoint-keys'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -175,6 +176,8 @@ export async function POST(request: Request) {
 
         metaSyncSuccess = true
         console.log('[flow-endpoint-keys] ✅ Chave pública sincronizada com a Meta')
+        // Chaves novas e registradas: avisos de chave dos Flows deixam de valer.
+        await dismissFlowKeyAlerts()
       } else {
         console.log('[flow-endpoint-keys] ⚠️ Credenciais WhatsApp não configuradas, sincronização com Meta ignorada')
         metaSyncError = 'Credenciais WhatsApp não configuradas'
