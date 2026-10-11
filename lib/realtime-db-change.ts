@@ -135,6 +135,45 @@ export function matchesRealtimeFilter(event: DbChangeEvent, filter: string | und
   })
 }
 
+function rowContentKey(row: Record<string, unknown> | null): string {
+  if (!row) return '-'
+  return Object.keys(row)
+    .sort()
+    .map((column) => {
+      const value = row[column]
+      const scalar =
+        value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
+      // As colunas do contrato são escalares; objeto/array (só em payload forjado) entra
+      // pelo tipo, sem serializar (nada de recursão em input não confiável).
+      return `${JSON.stringify(column)}:${scalar ? JSON.stringify(value) : `<${Array.isArray(value) ? 'array' : typeof value}>`}`
+    })
+    .join(',')
+}
+
+/**
+ * Chave de coalescência: tipo + linha + conteúdo de new/old. Só eventos com o MESMO
+ * conteúdo colapsam — um evento forjado com o id de uma linha real (mas outro
+ * campaign_id/conversation_id, ou outro `old.status`) é outra entrada e nunca é
+ * misturado ao legítimo.
+ */
+export function dbChangeContentKey(event: DbChangeEvent): string {
+  const row = event.new ?? event.old
+  const id = row?.id
+  const rowId = typeof id === 'string' || typeof id === 'number' ? String(id) : '*'
+  return `${event.eventType}|${rowId}|${rowContentKey(event.new)}|${rowContentKey(event.old)}`
+}
+
+/**
+ * O evento carrega uma transição de status (ex.: campanha Enviando → Concluído)?
+ * Só UPDATE cujo `old` traz a coluna (hoje, campaigns: old = id/status/completed_at).
+ */
+export function isDbChangeStatusTransition(event: DbChangeEvent): boolean {
+  if (event.eventType !== 'UPDATE' || !event.new || !event.old) return false
+  const statusChanged = 'status' in event.old && event.new.status !== event.old.status
+  const completed = 'completed_at' in event.old && event.old.completed_at == null && event.new.completed_at != null
+  return statusChanged || completed
+}
+
 /** Evento no formato que o CentralizedRealtimeProvider entrega aos assinantes. */
 export interface RealtimeEvent {
   table: string

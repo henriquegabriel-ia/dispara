@@ -59,6 +59,7 @@ import {
   __resetDbChangesHubForTests,
   createRealtimeChannel,
   DB_CHANGE_MAX_ROWS_PER_WINDOW,
+  DB_CHANGE_MAX_TRANSITIONS_PER_WINDOW,
   DB_CHANGE_WINDOW_MS,
   onDbChangesStatus,
   removeChannel,
@@ -244,31 +245,119 @@ describe('hub: coalescência por tabela (canal público, eventos forjáveis)', (
     }
   })
 
-  it('mesma linha repetida na janela: new mais recente com o old do primeiro (transição líquida)', () => {
+  it('mesma linha com conteúdo diferente: cada evento sai intacto (nada de fundir new/old)', () => {
     const listener = vi.fn()
     subscribeToDbChanges(listener, { table: 'campaigns' })
 
     emit({ table: 'campaigns', eventType: 'INSERT', new: { id: 'c_0' }, old: null }) // abre a janela
-    emit({
+    const completion = {
       table: 'campaigns',
       eventType: 'UPDATE',
       new: { id: 'c_1', status: 'Concluído', delivered: 9 },
       old: { id: 'c_1', status: 'Enviando' },
-    })
-    emit({
+    }
+    const counter = {
       table: 'campaigns',
       eventType: 'UPDATE',
       new: { id: 'c_1', status: 'Concluído', delivered: 10 },
       old: { id: 'c_1', status: 'Concluído' },
+    }
+    emit(completion)
+    emit(counter)
+    emit(counter) // duplicata exata: colapsa
+    vi.advanceTimersByTime(DB_CHANGE_WINDOW_MS)
+
+    expect(listener).toHaveBeenCalledTimes(3)
+    expect(listener.mock.calls[1][0]).toMatchObject({ new: completion.new, old: completion.old })
+    expect(listener.mock.calls[2][0]).toMatchObject({ new: counter.new, old: counter.old })
+  })
+
+  it('replay forjado com o id real e outro campaign_id não tira o INSERT legítimo do assinante filtrado', () => {
+    const panel = vi.fn()
+    subscribeToDbChanges(panel, { table: 'flow_submissions', event: 'INSERT', filter: 'campaign_id=eq.c1' })
+
+    // atacante mantém a janela aberta e reenvia o id legítimo com outro campaign_id
+    emit({ table: 'flow_submissions', eventType: 'INSERT', new: { id: 'forged_0', campaign_id: 'zzz' }, old: null })
+    emit({ table: 'flow_submissions', eventType: 'INSERT', new: { id: 's1', campaign_id: 'c1' }, old: null })
+    emit({ table: 'flow_submissions', eventType: 'INSERT', new: { id: 's1', campaign_id: 'zzz' }, old: null })
+    vi.advanceTimersByTime(DB_CHANGE_WINDOW_MS)
+
+    expect(panel).toHaveBeenCalledTimes(1)
+    expect(panel.mock.calls[0][0]).toMatchObject({ new: { id: 's1', campaign_id: 'c1' } })
+  })
+
+  it('old forjado ("Concluído") semeado antes não apaga a transição da conclusão real', () => {
+    const listener = vi.fn()
+    subscribeToDbChanges(listener, { table: 'campaigns', event: 'UPDATE' })
+
+    emit({ table: 'campaigns', eventType: 'INSERT', new: { id: 'x' }, old: null }) // abre a janela
+    emit({
+      table: 'campaigns',
+      eventType: 'UPDATE',
+      new: { id: 'c1', status: 'Enviando' },
+      old: { id: 'c1', status: 'Concluído', completed_at: 'x' },
+    })
+    emit({
+      table: 'campaigns',
+      eventType: 'UPDATE',
+      new: { id: 'c1', status: 'Concluído', completed_at: '2026-10-11T10:00:00Z' },
+      old: { id: 'c1', status: 'Enviando', completed_at: null },
     })
     vi.advanceTimersByTime(DB_CHANGE_WINDOW_MS)
 
-    expect(listener).toHaveBeenCalledTimes(2)
-    expect(listener.mock.calls[1][0]).toMatchObject({
-      eventType: 'UPDATE',
-      new: { id: 'c_1', status: 'Concluído', delivered: 10 },
-      old: { id: 'c_1', status: 'Enviando' },
-    })
+    const delivered = listener.mock.calls.map((call) => call[0])
+    expect(delivered).toContainEqual(
+      expect.objectContaining({
+        new: { id: 'c1', status: 'Concluído', completed_at: '2026-10-11T10:00:00Z' },
+        old: { id: 'c1', status: 'Enviando', completed_at: null },
+      })
+    )
+  })
+
+  it('apagar pasta com 21+ campanhas na janela não rebaixa a conclusão real a sinal genérico', () => {
+    const listener = vi.fn()
+    subscribeToDbChanges(listener, { table: 'campaigns' })
+
+    // ON DELETE SET NULL de folder_id: um UPDATE por campanha (sem mudar status).
+    // 1º sai na hora (leading), 20 enchem a cota de linhas e o resto estoura.
+    for (let i = 0; i < 25; i++) {
+      emit({
+        table: 'campaigns',
+        eventType: 'UPDATE',
+        new: { id: `f_${i}`, status: 'Concluído', folder_id: null },
+        old: { id: `f_${i}`, status: 'Concluído', completed_at: 'x' },
+      })
+    }
+    const completion = {
+      new: { id: 'c_real', status: 'Concluído', completed_at: '2026-10-11T10:00:00Z' },
+      old: { id: 'c_real', status: 'Enviando', completed_at: null },
+    }
+    emit({ table: 'campaigns', eventType: 'UPDATE', ...completion })
+    vi.advanceTimersByTime(DB_CHANGE_WINDOW_MS)
+
+    const delivered = listener.mock.calls.map((call) => call[0])
+    expect(delivered).toContainEqual(expect.objectContaining(completion))
+    // o excesso sem transição continua virando UM sinal genérico
+    expect(delivered.filter((e) => e.new === null && e.old === null)).toHaveLength(1)
+  })
+
+  it('flood de transições forjadas fica limitado pela cota própria (o excesso vira sinal genérico)', () => {
+    const listener = vi.fn()
+    subscribeToDbChanges(listener, { table: 'campaigns' })
+
+    emit({ table: 'campaigns', eventType: 'INSERT', new: { id: 'x' }, old: null }) // abre a janela
+    for (let i = 0; i < 500; i++) {
+      emit({
+        table: 'campaigns',
+        eventType: 'UPDATE',
+        new: { id: `fake_${i}`, status: 'Concluído' },
+        old: { id: `fake_${i}`, status: 'Enviando' },
+      })
+    }
+    vi.advanceTimersByTime(DB_CHANGE_WINDOW_MS)
+
+    expect(listener).toHaveBeenCalledTimes(1 + DB_CHANGE_MAX_TRANSITIONS_PER_WINDOW + 1)
+    expect(listener.mock.calls.at(-1)![0]).toMatchObject({ eventType: 'UPDATE', new: null, old: null })
   })
 
   it('linhas distintas na mesma janela não se perdem (filtros por conversa continuam valendo)', () => {
