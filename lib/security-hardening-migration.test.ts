@@ -100,8 +100,24 @@ function triggerDefinition(specs: TriggerSpec[], table: string, name: string): s
   return found[0].definition
 }
 
-/** Fonte de realtime.send exigida (EXCEPTION WHEN OTHERS próprio), no DO block e na função. */
-const SEND_HANDLES_ERRORS_REGEX = "p.prosrc ~* '\\mexception\\s+when\\s+others\\M'"
+/**
+ * Critério de realtime.send, igual na guarda da função e no DO block (espaços normalizados):
+ * o fonte, sem literais e comentários, tem EXCEPTION WHEN OTHERS THEN e nenhum comando que
+ * lance erro (só RAISE DEBUG/LOG/INFO/NOTICE/WARNING; RAISE; que relança, RAISE sem nível,
+ * RAISE EXCEPTION e ASSERT reprovam). O comportamento (send do Supabase aceito; sem handler,
+ * handler que relança etc. recusados, sem derrubar escrita) é verificado em Postgres por
+ * `npm run db:check`, que também confere que usa estes mesmos três regex.
+ */
+const SEND_SAFE_CRITERION = String.raw`SELECT 1 FROM pg_catalog.pg_proc p, LATERAL (SELECT regexp_replace(p.prosrc, '''(?:[^'']|'''')*''|-{2}[^\n]*|/\*(?:[^*]|\*+[^/*])*\*+/', ' ', 'g') AS src) s WHERE p.oid = v_send::oid AND s.src ~* '\mexception\s+when\s+others\s+then\M' AND s.src !~* '\m(?:assert|raise(?!\s+(?:debug|log|info|notice|warning)\M))\M'`
+
+/** USAGE no schema realtime antes do to_regprocedure (sem ele, to_regprocedure ERRA). */
+const REALTIME_USAGE_GUARD =
+  "IF NOT EXISTS ( SELECT 1 FROM pg_catalog.pg_namespace n WHERE n.nspname = 'realtime' AND has_schema_privilege(n.oid, 'USAGE') ) THEN RETURN NULL; END IF;"
+
+/** SQL sem o texto das mensagens de RAISE WARNING (que citam GRANT/CREATE POLICY como correção). */
+function withoutWarningMessages(sql: string): string {
+  return sql.replace(/RAISE WARNING '(?:[^']|'')*'/g, "RAISE WARNING ''")
+}
 
 interface ColumnInfo {
   name: string
@@ -369,7 +385,8 @@ describe('migration 20261011000000_security_hardening.sql', () => {
 
   it('não cria nenhuma policy de leitura anônima irrestrita', () => {
     expect(sql).not.toMatch(/TO anon USING \(true\)/i)
-    expect(sql).not.toMatch(/CREATE POLICY/i)
+    // CREATE POLICY só aparece como correção sugerida num WARNING, nunca executado
+    expect(withoutWarningMessages(sql)).not.toMatch(/CREATE POLICY/i)
   })
 
   it('remove as 7 policies anon_select_*', () => {
@@ -408,7 +425,7 @@ describe('migration 20261011000000_security_hardening.sql', () => {
     // Fora da função de broadcast (best-effort por definição), todo handler é estreito
     // ou relança lock_not_available/deadlock antes do WHEN OTHERS.
     const body = broadcastFunctionBody(raw)
-    const ddl = normalizeSql(raw.replace(body, ''))
+    const ddl = withoutWarningMessages(normalizeSql(raw.replace(body, '')))
 
     const handlers = ddl.match(/EXCEPTION WHEN [\s\S]*? END;/g) ?? []
     expect(handlers.length).toBe(3)
@@ -585,15 +602,19 @@ describe('migration 20261011000000_security_hardening.sql', () => {
       const block = normalizedBody.slice(blockStart, handler)
       expect(block).not.toMatch(/PERFORM|EXECUTE|INSERT INTO|UPDATE [a-z]|DELETE FROM|realtime\./i)
 
-      // Guardas ANTES do bloco: sem realtime.send, sem EXECUTE nele, ou sem o EXCEPTION
-      // WHEN OTHERS próprio dele, não publica (o send fora do bloco nunca derruba a
-      // escrita por permissão revogada nem por falha no INSERT em realtime.messages).
+      // Guardas ANTES do bloco: sem USAGE no schema realtime (checado ANTES do
+      // to_regprocedure, que erra sem ele), sem realtime.send, sem EXECUTE nele, ou com um
+      // send que não trata/relança os próprios erros, não publica (o send fora do bloco
+      // nunca derruba a escrita por permissão revogada nem por falha no INSERT).
       const guard = normalizedBody.indexOf(
-        "v_send := to_regprocedure('realtime.send(jsonb,text,text,boolean)'); IF v_send IS NULL THEN RETURN NULL; END IF; IF NOT has_function_privilege(v_send::oid, 'EXECUTE') THEN RETURN NULL; END IF; " +
-          `IF NOT EXISTS ( SELECT 1 FROM pg_catalog.pg_proc p WHERE p.oid = v_send::oid AND ${SEND_HANDLES_ERRORS_REGEX} ) THEN RETURN NULL; END IF;`
+        `${REALTIME_USAGE_GUARD} v_send := to_regprocedure('realtime.send(jsonb,text,text,boolean)'); IF v_send IS NULL THEN RETURN NULL; END IF; IF NOT has_function_privilege(v_send::oid, 'EXECUTE') THEN RETURN NULL; END IF; ` +
+          `IF NOT EXISTS ( ${SEND_SAFE_CRITERION} ) THEN RETURN NULL; END IF;`
       )
       expect(guard).toBeGreaterThanOrEqual(0)
       expect(guard).toBeLessThan(blockStart)
+      // Nenhum to_regprocedure/to_regclass em realtime antes da checagem de USAGE
+      expect(normalizedBody.indexOf("to_regprocedure('realtime.")).toBeGreaterThan(normalizedBody.indexOf(REALTIME_USAGE_GUARD))
+      expect(normalizedBody).not.toMatch(/to_regclass\('realtime\./)
       // A checagem é a cada evento: nada entre as guardas e o send pula a verificação
       expect(normalizedBody.indexOf('PERFORM realtime.send(')).toBeGreaterThan(guard)
       expect(normalizedBody.match(/PERFORM realtime\.send\(/g)).toHaveLength(1)
@@ -605,36 +626,58 @@ describe('migration 20261011000000_security_hardening.sql', () => {
     const def = (table: string, name: string) => triggerDefinition(specs, table, name)
 
     it('sem realtime.send: WARNING acionável (não NOTICE) e nenhuma trigger', () => {
-      const missing = sql.indexOf(
-        "v_send := to_regprocedure('realtime.send(jsonb,text,text,boolean)'); IF v_send IS NULL THEN RAISE WARNING 'security_hardening: realtime.send indisponível"
+      // USAGE no schema realtime antes do to_regprocedure (sem ele, to_regprocedure erra)
+      const lookup = sql.indexOf(
+        "SELECT n.oid INTO v_realtime FROM pg_catalog.pg_namespace n WHERE n.nspname = 'realtime'; IF v_realtime IS NOT NULL AND has_schema_privilege(v_realtime, 'USAGE') THEN v_send := to_regprocedure('realtime.send(jsonb,text,text,boolean)'); END IF;"
       )
-      expect(missing).toBeGreaterThan(0)
+      expect(lookup).toBeGreaterThan(0)
+      const missing = sql.indexOf("IF v_send IS NULL THEN RAISE WARNING 'security_hardening: realtime.send indisponível", lookup)
+      expect(missing).toBeGreaterThan(lookup)
       // Diz o que fazer, e sai do DO block antes de criar qualquer trigger
       const statement = sql.slice(missing, sql.indexOf('END IF;', missing))
       expect(statement).toMatch(/Reaplique esta migration depois que o Realtime estiver ativo/)
-      expect(statement).toMatch(/'; RETURN; $/)
+      expect(statement).toMatch(/; RETURN; $/)
       expect(missing).toBeLessThan(sql.indexOf("EXECUTE format('CREATE OR REPLACE TRIGGER"))
       // NOTICE some no log do SQL editor/installer
       expect(sql).not.toMatch(/RAISE NOTICE/i)
     })
 
-    it('só cria as triggers se realtime.send tiver o próprio EXCEPTION WHEN OTHERS (send fora de bloco de exceção)', () => {
+    it('só cria as triggers se realtime.send tratar os próprios erros sem relançar (send fora de bloco de exceção)', () => {
       const check = sql.indexOf(
-        `IF NOT EXISTS ( SELECT 1 FROM pg_catalog.pg_proc p WHERE p.oid = v_send::oid AND ${SEND_HANDLES_ERRORS_REGEX} ) THEN RAISE WARNING 'security_hardening: realtime.send não trata os próprios erros`
+        `IF NOT EXISTS ( ${SEND_SAFE_CRITERION} ) THEN RAISE WARNING 'security_hardening: realtime.send não trata os próprios erros`
       )
       expect(check).toBeGreaterThan(sql.indexOf('IF v_send IS NULL THEN RAISE WARNING'))
       const statement = sql.slice(check, sql.indexOf('END IF;', check))
-      // Explica o motivo e sai antes de criar triggers
+      // Explica o motivo (inclusive o handler que relança) e sai antes de criar triggers
       expect(statement).toMatch(/derrubaria a escrita do app/)
+      expect(statement).toMatch(/RAISE;/)
       expect(statement).toMatch(/Reaplique esta migration/)
       expect(statement).toMatch(/'; RETURN; $/)
       expect(check).toBeLessThan(sql.indexOf("EXECUTE format('CREATE OR REPLACE TRIGGER"))
 
       // Mesmo critério na guarda da função (vale também para triggers já existentes).
-      // O comportamento real (send do Supabase aceito; send sem handler recusado, sem
-      // derrubar escrita) é verificado em Postgres por `npm run db:check`.
-      expect(sql.split(SEND_HANDLES_ERRORS_REGEX)).toHaveLength(3)
+      expect(sql.split(SEND_SAFE_CRITERION)).toHaveLength(3)
       expect(raw).toMatch(/PREMISSA do realtime\.send/)
+    })
+
+    it('avisa (sem impedir as triggers) quando o dono não pode chamar o send ou gravar em realtime.messages', () => {
+      const start = sql.indexOf("SELECT f.proowner, CASE WHEN s.prosecdef THEN s.proowner ELSE f.proowner END")
+      const loop = sql.indexOf("EXECUTE format('CREATE OR REPLACE TRIGGER")
+      expect(start).toBeGreaterThan(sql.indexOf(`IF NOT EXISTS ( ${SEND_SAFE_CRITERION} ) THEN RAISE WARNING`))
+      expect(start).toBeLessThan(loop)
+      const block = sql.slice(start, sql.indexOf('END IF;', sql.indexOf("tem RLS ligado", start)) + 'END IF;'.length)
+      // Quem chama o send é o DONO de dispara_broadcast_change; quem insere, ele ou o dono do send SECURITY DEFINER
+      expect(block).toContain("WHERE f.oid = 'public.dispara_broadcast_change()'::regprocedure AND s.oid = v_send::oid;")
+      expect(block).toContain("has_schema_privilege(v_fn_owner, v_realtime, 'USAGE') AND has_function_privilege(v_fn_owner, v_send::oid, 'EXECUTE')")
+      expect(block).toContain("has_table_privilege(v_inserter, v_messages, 'INSERT')")
+      // RLS: superusuário, BYPASSRLS, dono sem FORCE ou policy PERMISSIVE de INSERT/ALL aplicável
+      expect(block).toMatch(/AND c\.relrowsecurity AND NOT a\.rolsuper AND NOT a\.rolbypassrls AND NOT \(pg_has_role\(v_inserter, c\.relowner, 'USAGE'\) AND NOT c\.relforcerowsecurity\)/)
+      expect(block).toContain("pol.polcmd IN ('a', '*') AND pol.polpermissive")
+      // Mensagens acionáveis (o GRANT/policy que falta), sem RETURN: as triggers são criadas
+      expect(block).toMatch(/sem USAGE no schema realtime ou sem EXECUTE em realtime\.send .*GRANT EXECUTE ON FUNCTION realtime\.send/)
+      expect(block).toMatch(/sem INSERT em realtime\.messages .*GRANT INSERT ON realtime\.messages TO %/)
+      expect(block).toMatch(/tem RLS ligado .*CREATE POLICY dispara_broadcast_insert ON realtime\.messages FOR INSERT TO %/)
+      expect(block).not.toMatch(/RETURN;/)
     })
 
     it('cobrem as tabelas do frontend, todas pela função de broadcast', () => {
@@ -670,23 +713,40 @@ describe('migration 20261011000000_security_hardening.sql', () => {
       )
     })
 
-    it('re-executar não trava tabela: CREATE OR REPLACE só quando a definição muda, sem DROP TRIGGER', () => {
+    it('re-executar não trava tabela: CREATE OR REPLACE só quando a definição muda ou a trigger foi mexida à mão, sem DROP TRIGGER', () => {
       // DROP TRIGGER pega ACCESS EXCLUSIVE (até o COMMIT) mesmo para recriar igual
       expect(sql).not.toMatch(/DROP TRIGGER/i)
       expect(sql).not.toMatch(/CREATE TRIGGER/)
       expect(sql).toContain(
-        "v_definition := regexp_replace(btrim(r.definition), '\\s+', ' ', 'g'); v_marker := 'dispara_broadcast:' || md5(v_definition);"
+        "v_definition := regexp_replace(btrim(r.definition), '\\s+', ' ', 'g'); v_spec_md5 := md5(v_definition);"
       )
-      expect(sql).toContain("SELECT obj_description(tg.oid, 'pg_trigger') INTO v_current FROM pg_trigger tg")
+      expect(sql).toContain(
+        "SELECT tg.oid, obj_description(tg.oid, 'pg_trigger'), tg.tgenabled INTO v_trigger, v_current, v_enabled FROM pg_trigger tg"
+      )
 
-      const skip = sql.indexOf('IF v_current IS NOT DISTINCT FROM v_marker THEN CONTINUE; END IF;')
+      // search_path canônico (pg_get_triggerdef qualifica a função conforme ele) e de volta no fim
+      const canonical = sql.indexOf("v_search_path := current_setting('search_path'); PERFORM set_config('search_path', 'pg_catalog', true);")
+      // Pula só se: existe, está habilitada, a 1ª parte da marca é a definição deste arquivo e
+      // a 2ª é o pg_get_triggerdef de AGORA (CREATE OR REPLACE TRIGGER manual mantém OID e COMMENT)
+      const skip = sql.indexOf(
+        "IF v_trigger IS NOT NULL AND v_enabled IN ('O', 'A') AND v_current = 'dispara_broadcast:' || v_spec_md5 || ':' || md5(pg_get_triggerdef(v_trigger)) THEN CONTINUE; END IF;"
+      )
       const create = sql.indexOf("EXECUTE format('CREATE OR REPLACE TRIGGER %I %s', r.trigger_name, v_definition);")
+      const marker = sql.indexOf(
+        "SELECT 'dispara_broadcast:' || v_spec_md5 || ':' || md5(pg_get_triggerdef(tg.oid)) INTO v_marker FROM pg_trigger tg"
+      )
       const comment = sql.indexOf(
         "EXECUTE format('COMMENT ON TRIGGER %I ON public.%I IS %L', r.trigger_name, r.table_name, v_marker);"
       )
-      expect(skip).toBeGreaterThan(0)
+      const restore = sql.indexOf("END LOOP; PERFORM set_config('search_path', v_search_path, true); END $$;")
+      expect(canonical).toBeGreaterThan(0)
+      expect(skip).toBeGreaterThan(canonical)
       expect(create).toBeGreaterThan(skip)
-      expect(comment).toBeGreaterThan(create)
+      expect(marker).toBeGreaterThan(create)
+      expect(comment).toBeGreaterThan(marker)
+      expect(restore).toBeGreaterThan(comment)
+      // Nenhum RETURN entre o search_path canônico e a restauração
+      expect(sql.slice(canonical, restore)).not.toMatch(/RETURN;/)
     })
 
     it('campaigns: INSERT/DELETE sem condição e UPDATE com WHEN (nunca 1 evento por webhook de status)', () => {
@@ -1096,7 +1156,7 @@ describe('migration 20261011000000_security_hardening.sql', () => {
     expect(sql).not.toMatch(/CREATE FUNCTION/i)
     expect(sql).not.toMatch(/CREATE TABLE(?! IF NOT EXISTS)/i)
     expect(sql).not.toMatch(/CREATE TRIGGER/)
-    expect(sql).not.toMatch(/CREATE POLICY/i)
+    expect(withoutWarningMessages(sql)).not.toMatch(/CREATE POLICY/i)
   })
 })
 

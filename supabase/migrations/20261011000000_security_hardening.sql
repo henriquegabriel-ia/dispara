@@ -74,14 +74,19 @@
 --    EXCEPTION WHEN OTHERS — o do Supabase tem: o INSERT em realtime.messages fica num
 --    BEGIN ... EXCEPTION WHEN OTHERS THEN RAISE WARNING 'ErrorSendingBroadcastMessage'.
 --    Isso é verificado, não presumido: as triggers só são criadas se o fonte de
---    realtime.send(jsonb,text,text,boolean) tiver EXCEPTION WHEN OTHERS (pg_proc.prosrc), e
+--    realtime.send(jsonb,text,text,boolean) (pg_proc.prosrc, sem literais e comentários)
+--    tiver EXCEPTION WHEN OTHERS THEN e nenhum comando que lance erro (só RAISE
+--    DEBUG/LOG/INFO/NOTICE/WARNING: um handler que relança com RAISE; reprova), e
 --    dispara_broadcast_change refaz a checagem a cada evento (se o Supabase trocar a
---    função depois, a trigger para de publicar em vez de derrubar a escrita).
+--    função depois, a trigger para de publicar em vez de derrubar a escrita). A guarda
+--    também confere USAGE no schema realtime e EXECUTE no send antes de usá-lo.
 --    Preferimos ficar sem realtime a arriscar derrubar escritas do app.
 --    Sem realtime.send (Broadcast from Database indisponível) ou sem o tratamento de
 --    erro, a migration aplica o resto normalmente, NÃO cria as triggers e emite um
 --    WARNING: o dashboard fica só no polling até esta migration ser reaplicada depois
---    que o Realtime estiver ativo.
+--    que o Realtime estiver ativo. Se o dono da função não puder chamar o send ou gravar
+--    em realtime.messages (privilégio ou RLS), as triggers são criadas e a migration
+--    emite um WARNING com o GRANT/policy que falta (o send engoliria o erro em silêncio).
 --
 -- EXIGE a versão correspondente do frontend (realtime via broadcast em
 -- lib/supabase-realtime.ts + CentralizedRealtimeProvider, useUnreadCount via
@@ -93,8 +98,10 @@
 -- Idempotente e SEGURO DE RE-EXECUTAR: pode rodar mais de uma vez (o installer aplica
 -- todas as migrations em ordem em instalações novas; em produção é aplicada
 -- manualmente). Re-executar recria a função; cada trigger só é (re)criada quando a
--- definição deste arquivo muda (marca md5 no COMMENT da trigger), então uma
--- re-execução sem mudança não trava nenhuma tabela por causa das triggers.
+-- definição deste arquivo muda ou quando foi alterada/desabilitada à mão (marca com o md5
+-- da definição e o do pg_get_triggerdef no COMMENT da trigger), então uma re-execução
+-- sem mudança não trava nenhuma tabela por causa das triggers — e reaplicar conserta
+-- uma trigger mexida à mão.
 --
 -- COMO APLICAR EM PRODUÇÃO (operacional):
 -- - Rode numa janela de BAIXO TRÁFEGO, fora de um disparo de campanha: ENABLE ROW LEVEL
@@ -235,11 +242,19 @@ DECLARE
   v_new jsonb := NULL;
   v_old jsonb := NULL;
 BEGIN
-  -- Sem realtime.send, sem EXECUTE nele (a função é SECURITY DEFINER: vale o dono) ou
-  -- sem o EXCEPTION WHEN OTHERS próprio dele (o PERFORM abaixo fica fora de bloco de
-  -- exceção: ver a PREMISSA no cabeçalho), não publica e nunca derruba a escrita.
-  -- Checado fora de qualquer bloco de exceção, a cada evento (o Supabase pode trocar a
-  -- função depois desta migration).
+  -- Sem USAGE no schema realtime, sem realtime.send, sem EXECUTE nele (a função é
+  -- SECURITY DEFINER: vale o dono) ou sem o tratamento de erro próprio dele (o PERFORM
+  -- abaixo fica fora de bloco de exceção: ver a PREMISSA no cabeçalho), não publica e
+  -- nunca derruba a escrita. Checado fora de qualquer bloco de exceção, a cada evento (o
+  -- Supabase pode trocar a função ou os privilégios depois desta migration).
+  -- USAGE ANTES do to_regprocedure: sem ele, to_regprocedure ERRA (42501 "permission
+  -- denied for schema realtime") em vez de devolver NULL — e derrubaria a escrita.
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_namespace n
+    WHERE n.nspname = 'realtime' AND has_schema_privilege(n.oid, 'USAGE')
+  ) THEN
+    RETURN NULL;
+  END IF;
   v_send := to_regprocedure('realtime.send(jsonb,text,text,boolean)');
   IF v_send IS NULL THEN
     RETURN NULL;
@@ -247,9 +262,18 @@ BEGIN
   IF NOT has_function_privilege(v_send::oid, 'EXECUTE') THEN
     RETURN NULL;
   END IF;
+  -- Fonte de realtime.send, sem literais e comentários: tem de ter EXCEPTION WHEN OTHERS
+  -- THEN e nenhum comando que lance erro — só RAISE DEBUG/LOG/INFO/NOTICE/WARNING. Um
+  -- handler que relança (RAISE;), RAISE EXCEPTION/SQLSTATE/condição, RAISE sem nível
+  -- (= EXCEPTION) ou ASSERT, em qualquer ponto do fonte, reprova (conservador: não dá
+  -- para localizar o handler por regex, e preferimos ficar sem realtime).
   IF NOT EXISTS (
-    SELECT 1 FROM pg_catalog.pg_proc p
-    WHERE p.oid = v_send::oid AND p.prosrc ~* '\mexception\s+when\s+others\M'
+    SELECT 1
+    FROM pg_catalog.pg_proc p,
+         LATERAL (SELECT regexp_replace(p.prosrc, '''(?:[^'']|'''')*''|-{2}[^\n]*|/\*(?:[^*]|\*+[^/*])*\*+/', ' ', 'g') AS src) s
+    WHERE p.oid = v_send::oid
+      AND s.src ~* '\mexception\s+when\s+others\s+then\M'
+      AND s.src !~* '\m(?:assert|raise(?!\s+(?:debug|log|info|notice|warning)\M))\M'
   ) THEN
     RETURN NULL;
   END IF;
@@ -472,8 +496,10 @@ COMMENT ON FUNCTION public.dispara_broadcast_change() IS
 --
 -- Lock: CREATE OR REPLACE TRIGGER pega SHARE ROW EXCLUSIVE (bloqueia escrita, não
 -- leitura) até o COMMIT — DROP TRIGGER pegaria ACCESS EXCLUSIVE. E cada trigger só é
--- (re)criada quando a definição muda: a marca 'dispara_broadcast:<md5 da definição>'
--- fica no COMMENT da trigger, então re-executar sem mudança não toca nas tabelas.
+-- (re)criada quando a definição deste arquivo muda ou quando alguém alterou/desabilitou
+-- a trigger à mão: a marca 'dispara_broadcast:<md5 da definição>:<md5 do
+-- pg_get_triggerdef>' fica no COMMENT da trigger, então re-executar sem mudança não
+-- toca nas tabelas (o xmin da linha em pg_trigger não muda: scripts/check-migrations.mjs).
 -- CREATE OR REPLACE também troca eventos, WHEN e nível (ROW/STATEMENT) de uma trigger
 -- de mesmo nome. Nenhuma trigger deixou de existir entre as versões deste arquivo (só
 -- mudaram eventos/WHEN), por isso não há DROP TRIGGER.
@@ -481,28 +507,89 @@ DO $$
 DECLARE
   r record;
   v_send regprocedure;
+  v_realtime oid;
+  v_messages oid;
+  v_fn_owner oid;
+  v_inserter oid;
+  v_search_path text;
   v_definition text;
-  v_marker text;
+  v_spec_md5 text;
+  v_trigger oid;
+  v_enabled "char";
   v_current text;
+  v_marker text;
 BEGIN
-  v_send := to_regprocedure('realtime.send(jsonb,text,text,boolean)');
+  -- Mesma ordem da guarda de dispara_broadcast_change: USAGE antes do to_regprocedure.
+  SELECT n.oid INTO v_realtime FROM pg_catalog.pg_namespace n WHERE n.nspname = 'realtime';
+  IF v_realtime IS NOT NULL AND has_schema_privilege(v_realtime, 'USAGE') THEN
+    v_send := to_regprocedure('realtime.send(jsonb,text,text,boolean)');
+  END IF;
   IF v_send IS NULL THEN
-    RAISE WARNING 'security_hardening: realtime.send indisponível — triggers de broadcast NÃO criadas e o realtime do dashboard fica só no polling. Reaplique esta migration depois que o Realtime estiver ativo (Broadcast from Database).';
+    RAISE WARNING 'security_hardening: realtime.send indisponível (schema realtime ou função ausente, ou % sem USAGE no schema realtime) — triggers de broadcast NÃO criadas e o realtime do dashboard fica só no polling. Reaplique esta migration depois que o Realtime estiver ativo (Broadcast from Database).',
+      current_user;
     RETURN;
   END IF;
-  -- Mesmo critério da guarda de dispara_broadcast_change (fonte com EXCEPTION WHEN OTHERS).
+  -- Mesmo critério da guarda de dispara_broadcast_change (ver o comentário lá).
   IF NOT EXISTS (
-    SELECT 1 FROM pg_catalog.pg_proc p
-    WHERE p.oid = v_send::oid AND p.prosrc ~* '\mexception\s+when\s+others\M'
+    SELECT 1
+    FROM pg_catalog.pg_proc p,
+         LATERAL (SELECT regexp_replace(p.prosrc, '''(?:[^'']|'''')*''|-{2}[^\n]*|/\*(?:[^*]|\*+[^/*])*\*+/', ' ', 'g') AS src) s
+    WHERE p.oid = v_send::oid
+      AND s.src ~* '\mexception\s+when\s+others\s+then\M'
+      AND s.src !~* '\m(?:assert|raise(?!\s+(?:debug|log|info|notice|warning)\M))\M'
   ) THEN
-    RAISE WARNING 'security_hardening: realtime.send não trata os próprios erros (falta o bloco EXCEPTION ... WHEN OTHERS) — triggers de broadcast NÃO criadas: a trigger chama realtime.send fora de bloco de exceção e uma falha no envio derrubaria a escrita do app (preferimos ficar sem realtime; o dashboard fica só no polling). Triggers de uma aplicação anterior não publicam (a função refaz esta checagem a cada evento). Reaplique esta migration quando realtime.send voltar a tratar os próprios erros.';
+    RAISE WARNING 'security_hardening: realtime.send não trata os próprios erros (falta o bloco EXCEPTION ... WHEN OTHERS, ou o fonte relança/lança erro: RAISE;, RAISE EXCEPTION, RAISE sem nível, ASSERT) — triggers de broadcast NÃO criadas: a trigger chama realtime.send fora de bloco de exceção e uma falha no envio derrubaria a escrita do app (preferimos ficar sem realtime; o dashboard fica só no polling). Triggers de uma aplicação anterior não publicam (a função refaz esta checagem a cada evento). Reaplique esta migration quando realtime.send voltar a tratar os próprios erros.';
     RETURN;
   END IF;
-  -- O dono da função (quem roda esta migration) precisa de EXECUTE em realtime.send;
-  -- sem ele a trigger não publica nada (e não derruba a escrita). Avisa uma vez aqui.
-  IF NOT has_function_privilege(v_send::oid, 'EXECUTE') THEN
-    RAISE WARNING 'security_hardening: % sem EXECUTE em realtime.send; o realtime do dashboard fica só no polling.', current_user;
+
+  -- Privilégios do caminho do envio. Quem CHAMA realtime.send é o DONO de
+  -- dispara_broadcast_change (SECURITY DEFINER; pode não ser quem roda esta migration:
+  -- CREATE OR REPLACE FUNCTION mantém o dono). Quem INSERE em realtime.messages é esse
+  -- dono, ou o dono do send se ele for SECURITY DEFINER (no Supabase é SECURITY INVOKER).
+  -- Sem USAGE/EXECUTE a trigger não publica; sem INSERT, ou barrado pelo RLS de
+  -- realtime.messages, o send engole o erro (WARNING ErrorSendingBroadcastMessage a cada
+  -- escrita) e o realtime morre em silêncio. Nenhum dos casos derruba escrita, então as
+  -- triggers são criadas assim mesmo (corrigido o privilégio, o realtime volta sem
+  -- reaplicar) — mas avisa aqui. `npm run db:check -- --verify-only` confere o mesmo.
+  SELECT f.proowner, CASE WHEN s.prosecdef THEN s.proowner ELSE f.proowner END,
+         (SELECT c.oid FROM pg_catalog.pg_class c WHERE c.relnamespace = v_realtime AND c.relname = 'messages')
+    INTO v_fn_owner, v_inserter, v_messages
+  FROM pg_catalog.pg_proc f, pg_catalog.pg_proc s
+  WHERE f.oid = 'public.dispara_broadcast_change()'::regprocedure AND s.oid = v_send::oid;
+
+  IF NOT (has_schema_privilege(v_fn_owner, v_realtime, 'USAGE') AND has_function_privilege(v_fn_owner, v_send::oid, 'EXECUTE')) THEN
+    RAISE WARNING 'security_hardening: % (dono de dispara_broadcast_change) sem USAGE no schema realtime ou sem EXECUTE em realtime.send — as triggers não publicam nada e o realtime do dashboard fica só no polling. Corrija com GRANT USAGE ON SCHEMA realtime TO %; GRANT EXECUTE ON FUNCTION realtime.send(jsonb, text, text, boolean) TO % (não precisa reaplicar esta migration).',
+      v_fn_owner::regrole, v_fn_owner::regrole, v_fn_owner::regrole;
+  ELSIF v_messages IS NULL
+     OR NOT (has_schema_privilege(v_inserter, v_realtime, 'USAGE') AND has_table_privilege(v_inserter, v_messages, 'INSERT')) THEN
+    RAISE WARNING 'security_hardening: % sem INSERT em realtime.messages — realtime.send engole o erro (WARNING ErrorSendingBroadcastMessage a cada escrita) e o realtime do dashboard morre em silêncio (fica só no polling). Corrija com GRANT INSERT ON realtime.messages TO % (não precisa reaplicar esta migration).',
+      v_inserter::regrole, v_inserter::regrole;
+  ELSIF EXISTS (
+    -- RLS ligado em realtime.messages (o Supabase liga, para os canais privados) e nada que
+    -- libere o INSERT de quem insere: superusuário/BYPASSRLS, dono da tabela (sem FORCE) ou
+    -- uma policy PERMISSIVE de INSERT (ou ALL) para ele, PUBLIC ou um role de que ele herda.
+    SELECT 1
+    FROM pg_catalog.pg_class c, pg_catalog.pg_roles a
+    WHERE c.oid = v_messages AND a.oid = v_inserter
+      AND c.relrowsecurity
+      AND NOT a.rolsuper AND NOT a.rolbypassrls
+      AND NOT (pg_has_role(v_inserter, c.relowner, 'USAGE') AND NOT c.relforcerowsecurity)
+      AND NOT EXISTS (
+        SELECT 1 FROM pg_catalog.pg_policy pol
+        WHERE pol.polrelid = c.oid AND pol.polcmd IN ('a', '*') AND pol.polpermissive
+          AND (0::oid = ANY (pol.polroles)
+               OR EXISTS (SELECT 1 FROM unnest(pol.polroles) AS pr(role) WHERE pr.role <> 0 AND pg_has_role(v_inserter, pr.role, 'USAGE')))
+      )
+  ) THEN
+    RAISE WARNING 'security_hardening: realtime.messages tem RLS ligado e % não tem BYPASSRLS nem policy de INSERT — realtime.send engole o erro (WARNING ErrorSendingBroadcastMessage a cada escrita) e o realtime do dashboard morre em silêncio (fica só no polling). Corrija com CREATE POLICY dispara_broadcast_insert ON realtime.messages FOR INSERT TO % WITH CHECK (topic = ''dispara-db'') (não precisa reaplicar esta migration).',
+      v_inserter::regrole, v_inserter::regrole;
   END IF;
+
+  -- pg_get_triggerdef qualifica o nome da função conforme o search_path: as marcas abaixo
+  -- são calculadas (e as triggers criadas) com um search_path canônico — só pg_catalog — e
+  -- o do chamador volta no fim do bloco.
+  v_search_path := current_setting('search_path');
+  PERFORM set_config('search_path', 'pg_catalog', true);
 
   FOR r IN
     SELECT t.table_name, t.trigger_name, t.definition
@@ -675,22 +762,36 @@ BEGIN
     END IF;
 
     v_definition := regexp_replace(btrim(r.definition), '\s+', ' ', 'g');
-    v_marker := 'dispara_broadcast:' || md5(v_definition);
+    v_spec_md5 := md5(v_definition);
 
-    SELECT obj_description(tg.oid, 'pg_trigger') INTO v_current
+    -- Marca no COMMENT: 'dispara_broadcast:<md5 da definição deste arquivo>:<md5 do
+    -- pg_get_triggerdef logo depois de criar>'. A 1ª parte diz que a trigger é a versão
+    -- deste arquivo; a 2ª, que ninguém mexeu nela depois: CREATE OR REPLACE TRIGGER manual
+    -- mantém OID e COMMENT, então só a 1ª parte não provaria nada. Divergiu qualquer uma
+    -- (ou a trigger foi desabilitada), recria — o CREATE OR REPLACE também a reabilita.
+    SELECT tg.oid, obj_description(tg.oid, 'pg_trigger'), tg.tgenabled
+      INTO v_trigger, v_current, v_enabled
     FROM pg_trigger tg
     WHERE tg.tgrelid = to_regclass(format('public.%I', r.table_name))
       AND tg.tgname = r.trigger_name
       AND NOT tg.tgisinternal;
 
-    -- Já existe com esta definição: nenhum lock na tabela.
-    IF v_current IS NOT DISTINCT FROM v_marker THEN
+    -- Intacta, habilitada e com a definição deste arquivo: nenhum lock na tabela.
+    IF v_trigger IS NOT NULL AND v_enabled IN ('O', 'A')
+       AND v_current = 'dispara_broadcast:' || v_spec_md5 || ':' || md5(pg_get_triggerdef(v_trigger)) THEN
       CONTINUE;
     END IF;
 
     EXECUTE format('CREATE OR REPLACE TRIGGER %I %s', r.trigger_name, v_definition);
+    SELECT 'dispara_broadcast:' || v_spec_md5 || ':' || md5(pg_get_triggerdef(tg.oid)) INTO v_marker
+    FROM pg_trigger tg
+    WHERE tg.tgrelid = to_regclass(format('public.%I', r.table_name))
+      AND tg.tgname = r.trigger_name
+      AND NOT tg.tgisinternal;
     EXECUTE format('COMMENT ON TRIGGER %I ON public.%I IS %L', r.trigger_name, r.table_name, v_marker);
   END LOOP;
+
+  PERFORM set_config('search_path', v_search_path, true);
 END $$;
 
 -- postgres_changes não é mais usado: tira as tabelas de public da publicação do Realtime
