@@ -29,7 +29,9 @@ import {
   FLOW_KEYS_ALERT_ID_PREFIX,
   FLOW_KEY_REGEN_COOLDOWN_MS,
   FLOW_KEY_RESYNC_COOLDOWN_MS,
+  FLOW_LAST_KEY_RESYNC_SETTING,
   FLOW_PRIVATE_KEY_SETTING,
+  claimFlowKeyResync,
   decideFlowKeyRecovery,
   derivePublicKeyPem,
   dismissFlowKeyAlerts,
@@ -39,6 +41,7 @@ import {
   isSamePublicKey,
   reportFlowDecryptFailure,
   resetFlowKeyAlertState,
+  resyncFlowPublicKeyIfDue,
   syncFlowPublicKeyWithMeta,
 } from '@/lib/whatsapp/flow-endpoint-keys'
 import { generateKeyPair } from '@/lib/whatsapp/flow-endpoint-crypto'
@@ -183,6 +186,54 @@ describe('syncFlowPublicKeyWithMeta / inspectFlowPublicKey', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe('claimFlowKeyResync / resyncFlowPublicKeyIfDue (cooldown atômico)', () => {
+  function resyncSetting(): string | undefined {
+    return db.rows('settings').find((r) => r.key === FLOW_LAST_KEY_RESYNC_SETTING)?.value as string | undefined
+  }
+
+  it('CENÁRIO DO ACHADO: claims concorrentes (várias instâncias) → só UM ganha a janela', async () => {
+    const results = await Promise.all(Array.from({ length: 20 }, () => claimFlowKeyResync(NOW)))
+    expect(results.filter(Boolean)).toHaveLength(1)
+    expect(resyncSetting()).toBe(String(NOW))
+
+    // Com a linha já existente e o cooldown vencido: de novo, só um.
+    const later = NOW + FLOW_KEY_RESYNC_COOLDOWN_MS
+    const again = await Promise.all(Array.from({ length: 20 }, () => claimFlowKeyResync(later)))
+    expect(again.filter(Boolean)).toHaveLength(1)
+    expect(resyncSetting()).toBe(String(later))
+  })
+
+  it('dentro do cooldown não reivindica; vencido, reivindica', async () => {
+    db = createInMemorySupabase({ settings: [{ key: FLOW_LAST_KEY_RESYNC_SETTING, value: String(NOW) }] })
+    holder.client = db.client
+    await expect(claimFlowKeyResync(NOW + FLOW_KEY_RESYNC_COOLDOWN_MS - 1)).resolves.toBe(false)
+    await expect(claimFlowKeyResync(NOW + FLOW_KEY_RESYNC_COOLDOWN_MS)).resolves.toBe(true)
+  })
+
+  it('valor vazio/legado conta como nunca re-sincronizado', async () => {
+    db = createInMemorySupabase({ settings: [{ key: FLOW_LAST_KEY_RESYNC_SETTING, value: '' }] })
+    holder.client = db.client
+    await expect(claimFlowKeyResync(NOW)).resolves.toBe(true)
+  })
+
+  it('erro do banco ou Supabase ausente → false (fail-closed, nunca libera a Graph)', async () => {
+    db.failNext('settings', 'connection reset')
+    await expect(claimFlowKeyResync(NOW)).resolves.toBe(false)
+    holder.client = null
+    await expect(claimFlowKeyResync(NOW)).resolves.toBe(false)
+  })
+
+  it('single-flight por instância: chamadas concorrentes → uma inspeção na Graph', async () => {
+    vi.mocked(metaGetEncryptionPublicKey).mockResolvedValue({ publicKey: other.publicKey })
+    const attempts = await Promise.all(
+      Array.from({ length: 10 }, () => resyncFlowPublicKeyIfDue({ privateKey: keys.privateKey, now: NOW }))
+    )
+    expect(attempts.filter((a) => a.claimed)).toEqual([{ claimed: true, result: { status: 'resynced' } }])
+    expect(metaGetEncryptionPublicKey).toHaveBeenCalledTimes(1)
+    expect(metaSetEncryptionPublicKey).toHaveBeenCalledTimes(1)
   })
 })
 

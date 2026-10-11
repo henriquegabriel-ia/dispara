@@ -13,11 +13,14 @@
  * diferentes, registrar de novo a NOSSA chave existente. É idempotente, quem chama
  * não escolhe a chave e nada local muda — lixo anônimo provoca no máximo um GET e
  * um SET na Graph por cooldown (que fica numa setting própria, para não atrasar
- * uma regeneração legítima).
+ * uma regeneração legítima). A janela do cooldown é REIVINDICADA de forma atômica
+ * no banco (vale entre instâncias) e há single-flight por instância: uma rajada
+ * concorrente não multiplica as chamadas (ver resyncFlowPublicKeyIfDue).
  */
 
 import { createPublicKey } from 'node:crypto'
 import { settingsDb } from '@/lib/supabase-db'
+import { getSupabaseAdmin } from '@/lib/supabase'
 import { generateKeyPair } from '@/lib/whatsapp/flow-endpoint-crypto'
 import { getWhatsAppCredentials } from '@/lib/whatsapp-credentials'
 import { metaGetEncryptionPublicKey, metaSetEncryptionPublicKey } from '@/lib/meta-flows-api'
@@ -68,7 +71,11 @@ export function decideFlowKeyRecovery(params: {
   signatureVerified: boolean
   trigger: FlowKeyRecoveryTrigger
   lastRegenAt: number
-  /** Só usado sem assinatura verificada (cooldown próprio da re-sincronização). */
+  /**
+   * Só usado sem assinatura verificada (cooldown próprio da re-sincronização). O
+   * endpoint não passa: lá a janela é reivindicada de forma atômica em
+   * resyncFlowPublicKeyIfDue (ler e depois gravar deixava uma rajada passar).
+   */
   lastResyncAt?: number
   now: number
 }): FlowKeyRecoveryDecision {
@@ -254,6 +261,93 @@ export async function syncFlowPublicKeyWithMeta(params?: { privateKey?: string |
 }
 
 // ---------------------------------------------------------------------------
+// Re-sincronização disparada por request NÃO verificada (cooldown atômico)
+// ---------------------------------------------------------------------------
+
+/**
+ * Reivindica a janela de re-sincronização sem assinatura verificada: no máximo uma
+ * por cooldown, inclusive entre instâncias serverless. Ler o timestamp e só depois
+ * gravá-lo (check-then-act) deixava uma rajada concorrente inteira passar — N
+ * requests lixo viravam N GETs (e SETs) na Graph com o token do WABA.
+ *
+ * Quem reivindica é um UPDATE condicional (uma instrução só): com requests
+ * concorrentes o Postgres serializa no lock da linha e reavalia o WHERE, então só
+ * uma recebe a linha de volta. O valor é epoch em ms (13 dígitos até o ano 2286):
+ * com largura fixa a comparação de texto da coluna `value` equivale à numérica;
+ * '0'/vazio = nunca re-sincronizou.
+ *
+ * Fail-closed: erro do banco conta como cooldown (nunca libera a Graph).
+ */
+export async function claimFlowKeyResync(now: number = Date.now()): Promise<boolean> {
+  try {
+    const db = getSupabaseAdmin()
+    if (!db) return false
+
+    // Curto-circuito barato: dentro do cooldown, a rajada só faz SELECT (não escreve).
+    const { data: row, error: readError } = await db
+      .from('settings')
+      .select('value')
+      .eq('key', FLOW_LAST_KEY_RESYNC_SETTING)
+      .maybeSingle()
+    if (readError) throw readError
+    const last = parseInt(String((row as { value?: unknown } | null)?.value ?? ''), 10)
+    if (Number.isFinite(last) && now - last < FLOW_KEY_RESYNC_COOLDOWN_MS) return false
+
+    const updatedAt = new Date(now).toISOString()
+    if (!row) {
+      // Primeira vez: cria a linha "nunca re-sincronizou" sem sobrescrever uma criada
+      // em paralelo (ON CONFLICT DO NOTHING). Quem reivindica é o UPDATE abaixo.
+      const { error: seedError } = await db
+        .from('settings')
+        .upsert(
+          { key: FLOW_LAST_KEY_RESYNC_SETTING, value: '0', updated_at: updatedAt },
+          { onConflict: 'key', ignoreDuplicates: true }
+        )
+      if (seedError) throw seedError
+    }
+
+    // value <= now - cooldown (escrito como < ... + 1): mesma fronteira da decisão.
+    const { data: claimed, error: claimError } = await db
+      .from('settings')
+      .update({ value: String(now), updated_at: updatedAt })
+      .eq('key', FLOW_LAST_KEY_RESYNC_SETTING)
+      .lt('value', String(now - FLOW_KEY_RESYNC_COOLDOWN_MS + 1))
+      .select('key')
+    if (claimError) throw claimError
+    return Array.isArray(claimed) && claimed.length > 0
+  } catch (error) {
+    console.warn('[flow-endpoint] Falha ao reivindicar a re-sincronização da chave (tratada como cooldown):', error)
+    return false
+  }
+}
+
+let resyncInFlight = false
+
+export type FlowKeyResyncAttempt =
+  | { claimed: false }
+  | { claimed: true; result: FlowKeySyncResult }
+
+/**
+ * Re-sincroniza a chave pública com a Meta a partir de uma request NÃO verificada,
+ * no máximo uma vez por cooldown: uma por vez nesta instância (as concorrentes
+ * respondem na hora, sem esperar a Graph nem ir ao banco) e uma por janela entre
+ * instâncias (claimFlowKeyResync). `claimed: false` = cooldown.
+ */
+export async function resyncFlowPublicKeyIfDue(params: {
+  privateKey: string | null
+  now?: number
+}): Promise<FlowKeyResyncAttempt> {
+  if (resyncInFlight) return { claimed: false }
+  resyncInFlight = true
+  try {
+    if (!(await claimFlowKeyResync(params.now ?? Date.now()))) return { claimed: false }
+    return { claimed: true, result: await syncFlowPublicKeyWithMeta({ privateKey: params.privateKey }) }
+  } finally {
+    resyncInFlight = false
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Falhas de decifração: estatística (diagnóstico) e alerta ao dono
 // ---------------------------------------------------------------------------
 
@@ -289,6 +383,7 @@ let lastFlowAlertAt = 0
 export function resetFlowKeyAlertState(): void {
   decryptFailures = []
   lastFlowAlertAt = 0
+  resyncInFlight = false
 }
 
 function pruneDecryptFailures(now: number): void {

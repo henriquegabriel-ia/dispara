@@ -73,6 +73,11 @@ function flowAlerts() {
   return mem.rows('account_alerts').filter((r) => String(r.id).startsWith(FLOW_KEYS_ALERT_ID_PREFIX))
 }
 
+/** Janela de re-sincronização reivindicada no banco (settings, via getSupabaseAdmin). */
+function lastResyncSetting(): string | undefined {
+  return mem.rows('settings').find((r) => r.key === FLOW_LAST_KEY_RESYNC_SETTING)?.value as string | undefined
+}
+
 const APP_SECRET = 'flows-app-secret'
 let keys: { publicKey: string; privateKey: string }
 
@@ -194,10 +199,61 @@ describe('modo unsigned_allowed (sem App Secret)', () => {
     expect(keyWrites()).toEqual([])
     expect(metaSetEncryptionPublicKey).not.toHaveBeenCalled()
     expect(metaGetEncryptionPublicKey).toHaveBeenCalledTimes(1)
-    expect(store.get(FLOW_LAST_KEY_RESYNC_SETTING)).toBeTruthy()
+    expect(Number(lastResyncSetting())).toBeGreaterThan(0)
     // O cooldown da re-sincronização é separado: não empurra o da regeneração.
     expect(store.get(FLOW_LAST_KEY_REGEN_SETTING)).toBeUndefined()
     expect(flowAlerts()).toEqual([])
+  })
+
+  it('CENÁRIO DO ACHADO (concorrência): rajada simultânea de lixo → no máximo 1 GET e 1 SET na Graph', async () => {
+    // Meta sem a nossa chave (pior caso: cada request que passasse faria GET + SET).
+    vi.mocked(metaGetEncryptionPublicKey).mockResolvedValue({ publicKey: null })
+    // Latência no banco, como em produção: abre a janela entre ler e gravar.
+    const slow = () => new Promise((resolve) => setTimeout(resolve, 20))
+    vi.mocked(settingsDb.get).mockImplementation(async (key: string) => {
+      await slow()
+      return store.get(key) ?? null
+    })
+    vi.mocked(settingsDb.set).mockImplementation(async (key: string, value: string) => {
+      await slow()
+      store.set(key, value)
+    })
+
+    const responses = await Promise.all(Array.from({ length: 30 }, () => post(garbageBody())))
+    expect(responses.every((r) => r.status === 421)).toBe(true)
+    expect(metaGetEncryptionPublicKey).toHaveBeenCalledTimes(1)
+    expect(metaSetEncryptionPublicKey).toHaveBeenCalledTimes(1)
+    expect(keyWrites()).toEqual([])
+
+    // Segunda rajada, dentro do cooldown: nenhuma chamada nova.
+    await Promise.all(Array.from({ length: 10 }, () => post(garbageBody())))
+    expect(metaGetEncryptionPublicKey).toHaveBeenCalledTimes(1)
+    expect(metaSetEncryptionPublicKey).toHaveBeenCalledTimes(1)
+  })
+
+  it('janela já reivindicada por OUTRA instância (no banco) → não chama a Graph', async () => {
+    mem = createInMemorySupabase({ settings: [{ key: FLOW_LAST_KEY_RESYNC_SETTING, value: String(Date.now() - 1000) }] })
+    alertsDb.client = mem.client
+
+    expect((await post(garbageBody())).status).toBe(421)
+    expect(metaGetEncryptionPublicKey).not.toHaveBeenCalled()
+  })
+
+  it('cooldown vencido no banco → uma nova re-sincronização reivindica a janela', async () => {
+    mem = createInMemorySupabase({ settings: [{ key: FLOW_LAST_KEY_RESYNC_SETTING, value: String(Date.now() - 11 * 60_000) }] })
+    alertsDb.client = mem.client
+
+    expect((await post(garbageBody())).status).toBe(421)
+    expect(metaGetEncryptionPublicKey).toHaveBeenCalledTimes(1)
+    expect(Number(lastResyncSetting())).toBeGreaterThan(Date.now() - 60_000)
+  })
+
+  it('erro do banco ao reivindicar a janela → trata como cooldown (fail-closed), sem Graph', async () => {
+    mem.failNext('settings', 'connection reset')
+
+    expect((await post(garbageBody())).status).toBe(421)
+    expect(metaGetEncryptionPublicKey).not.toHaveBeenCalled()
+    expect(metaSetEncryptionPublicKey).not.toHaveBeenCalled()
   })
 
   it('CENÁRIO DO ACHADO: chave registrada na Meta diverge → re-registra a chave LOCAL (sem gerar par novo)', async () => {

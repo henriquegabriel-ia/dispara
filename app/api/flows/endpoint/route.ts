@@ -30,17 +30,15 @@ import {
 } from '@/lib/whatsapp/flow-endpoint-crypto'
 import { handleFlowAction } from '@/lib/whatsapp/flow-endpoint-handlers'
 import {
-  FLOW_LAST_KEY_RESYNC_SETTING,
   FLOW_PRIVATE_KEY_SETTING,
   type FlowDecryptKeyStatus,
   type FlowKeyRecoveryTrigger,
   decideFlowKeyRecovery,
   getLastFlowKeyRegenAt,
-  getLastFlowKeyResyncAt,
   isOaepDecryptError,
   reportFlowDecryptFailure,
+  resyncFlowPublicKeyIfDue,
   rotateFlowEndpointKeys,
-  syncFlowPublicKeyWithMeta,
 } from '@/lib/whatsapp/flow-endpoint-keys'
 import {
   META_SIGNATURE_HEADER,
@@ -95,11 +93,13 @@ async function recoverFlowKeys(params: {
   if (params.trigger === 'other_error') return undefined
 
   const now = Date.now()
+  // Sem assinatura verificada, o cooldown da re-sincronização NÃO é decidido aqui
+  // (ler e depois gravar deixava uma rajada concorrente passar): a janela é
+  // reivindicada de forma atômica em resyncFlowPublicKeyIfDue.
   const decision = decideFlowKeyRecovery({
     signatureVerified: params.signatureVerified,
     trigger: params.trigger,
     lastRegenAt: params.signatureVerified ? await getLastFlowKeyRegenAt() : 0,
-    lastResyncAt: !params.signatureVerified && params.trigger === 'oaep_error' ? await getLastFlowKeyResyncAt() : 0,
     now,
   })
   const what = params.trigger === 'missing_key' ? 'Chave privada ausente' : 'OAEP Error'
@@ -117,10 +117,13 @@ async function recoverFlowKeys(params: {
       keyStatus = 'unconfirmed'
     }
   } else if (decision === 'resync') {
-    // Consome o cooldown ANTES de chamar a Graph: lixo em rajada não multiplica chamadas.
-    await settingsDb.set(FLOW_LAST_KEY_RESYNC_SETTING, String(now))
-    const result = await syncFlowPublicKeyWithMeta({ privateKey: params.privateKey })
-    if (result.status === 'in_sync') {
+    // Só quem reivindica a janela (atômica no banco, vale entre instâncias; e uma por
+    // vez nesta instância) fala com a Graph: lixo em rajada não multiplica chamadas.
+    const attempt = await resyncFlowPublicKeyIfDue({ privateKey: params.privateKey, now })
+    const result = attempt.claimed ? attempt.result : null
+    if (!result) {
+      console.log(`[flow-endpoint] ⏳ ${what}, mas a re-sincronização da chave está em cooldown.`)
+    } else if (result.status === 'in_sync') {
       // A Meta já tem a nossa chave: a falha não é de chave nossa (lixo/forja, ou o
       // cliente com chave em cache — o 421 faz ele rebuscar). Nada a consertar.
       keyStatus = 'in_sync'
