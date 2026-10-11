@@ -195,30 +195,6 @@ export function useCampaignRealtime({
     debouncedRefetch()
   }, [debouncedRefetch, telemetryEnabled])
 
-  // Handle campaign_contacts updates
-  const handleContactUpdate = useCallback((payload: RealtimePayload) => {
-    if (!mountedRef.current) return
-
-    if (telemetryEnabled) {
-      const receivedAt = Date.now()
-      const commitTimestamp = String(payload?.commit_timestamp || '')
-      const commitTs = Date.parse(commitTimestamp)
-      if (Number.isFinite(commitTs)) {
-        pendingDbTelemetryRef.current = {
-          table: 'campaign_contacts',
-          eventType: String(payload?.eventType || '*'),
-          commitTimestamp,
-          commitTs,
-          receivedAt,
-        }
-        telemetryTickRef.current += 1
-        setTelemetryTick(telemetryTickRef.current)
-      }
-    }
-
-    debouncedRefetch()
-  }, [debouncedRefetch, telemetryEnabled])
-
   // Computa "até paint" (useEffect roda após render/paint)
   useEffect(() => {
     if (!telemetryEnabled) return
@@ -319,11 +295,12 @@ export function useCampaignRealtime({
 
     channelRef.current = channel
 
-    // Subscribe to campaign table updates
+    // Subscribe to campaign table updates (broadcast `dispara-db`: só status/contadores)
     subscribeToTable(channel, 'campaigns', 'UPDATE', handleCampaignUpdate, `id=eq.${campaignId}`)
 
-    // Subscribe to campaign_contacts for message progress
-    subscribeToTable(channel, 'campaign_contacts', '*', handleContactUpdate, `campaign_id=eq.${campaignId}`)
+    // campaign_contacts não tem trigger de broadcast (volume do disparo em massa):
+    // o progresso por mensagem vem do broadcast 'campaign_progress' abaixo
+    // (lib/realtime-broadcast-server.ts) e dos contadores em campaigns.
 
     // Subscribe to ephemeral Broadcast progress (smooth UI without DB round-trips)
     subscribeToBroadcast<CampaignProgressBroadcastPayload>(channel, 'campaign_progress', (msg) => {
@@ -447,7 +424,7 @@ export function useCampaignRealtime({
         setIsActuallyConnected(false)
       }
     }
-  }, [shouldConnect, campaignId, debounceTime, handleCampaignUpdate, handleContactUpdate, debouncedRefetch, telemetryEnabled])
+  }, [shouldConnect, campaignId, debounceTime, handleCampaignUpdate, debouncedRefetch, telemetryEnabled])
 
   // Show refresh button when not connected
   const showRefreshButton = !shouldConnect || hasTimedOut

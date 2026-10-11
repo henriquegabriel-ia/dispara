@@ -12,25 +12,24 @@
  * - Debounced invalidations to batch rapid updates
  * - Automatic cleanup on unmount
  * - Reduced Supabase connection overhead
+ *
+ * Os eventos chegam por Broadcast from Database no canal compartilhado
+ * `dispara-db` (lib/supabase-realtime.ts). `event.new`/`event.old` trazem SÓ
+ * colunas whitelisted (ids, status, contadores, timestamps), sem PII — o canal
+ * é público. Use o evento como sinal e busque o resto pela API autenticada.
  */
 
 import { createContext, useContext, useEffect, useMemo, useRef, useCallback, type ReactNode } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { getSupabaseBrowser } from '@/lib/supabase'
+import { onDbChangesStatus, subscribeToDbChanges } from '@/lib/supabase-realtime'
+import { toRealtimeEvent, type RealtimeEvent } from '@/lib/realtime-db-change'
 import { debounce } from '@/lib/utils'
 
 // =============================================================================
 // TYPES
 // =============================================================================
 
-type RealtimeEventType = 'INSERT' | 'UPDATE' | 'DELETE' | '*'
-
-interface RealtimeEvent {
-  table: string
-  eventType: RealtimeEventType
-  new: Record<string, unknown> | null
-  old: Record<string, unknown> | null
-}
+export type { RealtimeEvent }
 
 type SubscriptionCallback = (event: RealtimeEvent) => void
 
@@ -80,8 +79,6 @@ export function CentralizedRealtimeProvider({
   const queryClient = useQueryClient()
   const subscribersRef = useRef<Map<string, Set<SubscriptionCallback>>>(new Map())
   const isConnectedRef = useRef(false)
-  // Tipo do channel do Supabase Realtime
-  const channelRef = useRef<ReturnType<NonNullable<ReturnType<typeof getSupabaseBrowser>>['channel']> | null>(null)
 
   // Notify all subscribers for a table
   const notifySubscribers = useCallback((table: string, event: RealtimeEvent) => {
@@ -117,62 +114,46 @@ export function CentralizedRealtimeProvider({
     debouncedFlush()
   }, [debouncedFlush])
 
-  // Setup realtime channel
+  // Setup realtime subscription (canal compartilhado `dispara-db`)
   useEffect(() => {
-    const supabase = getSupabaseBrowser()
-    if (!supabase) {
-      // Supabase não configurado - normal durante setup wizard ou se env vars ausentes
-      return
-    }
+    const tableSet = new Set(tables)
 
-    // Create a single channel for all tables
-    const channel = supabase.channel('centralized-realtime-v1')
-    channelRef.current = channel
+    // Sem Supabase configurado (wizard de setup / env ausente) o hub devolve no-op.
+    const unsubscribe = subscribeToDbChanges((dbEvent) => {
+      const table = dbEvent.table
+      if (!tableSet.has(table)) return
 
-    // Subscribe to each table
-    tables.forEach(table => {
-      channel.on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table },
-        (payload) => {
-          const event: RealtimeEvent = {
-            table,
-            eventType: payload.eventType as RealtimeEventType,
-            new: payload.new as Record<string, unknown> | null,
-            old: payload.old as Record<string, unknown> | null,
-          }
+      const event: RealtimeEvent = toRealtimeEvent(dbEvent)
 
-          // Notify subscribers
-          notifySubscribers(table, event)
+      // Notify subscribers
+      notifySubscribers(table, event)
 
-          // Default behavior: invalidate related queries
-          debouncedInvalidate([table])
+      // Default behavior: invalidate related queries
+      debouncedInvalidate([table])
 
-          // Also invalidate stats queries
-          if (table === 'contacts') {
-            debouncedInvalidate(['contactStats'])
-            debouncedInvalidate(['contactTags'])
-          }
-          if (table === 'campaigns') {
-            debouncedInvalidate(['campaignStats'])
-          }
-          // T072: Invalidate inbox queries on inbox table changes
-          if (table === 'inbox_conversations') {
-            debouncedInvalidate(['inbox-conversations'])
-            debouncedInvalidate(['inbox-unread-count'])
-          }
-          if (table === 'inbox_messages') {
-            debouncedInvalidate(['inbox-messages'])
-            // Also invalidate unread count when new messages arrive
-            debouncedInvalidate(['inbox-unread-count'])
-          }
-        }
-      )
+      // Also invalidate stats queries
+      if (table === 'contacts') {
+        debouncedInvalidate(['contactStats'])
+        debouncedInvalidate(['contactTags'])
+      }
+      if (table === 'campaigns') {
+        debouncedInvalidate(['campaignStats'])
+      }
+      // T072: Invalidate inbox queries on inbox table changes
+      if (table === 'inbox_conversations') {
+        debouncedInvalidate(['inbox-conversations'])
+        debouncedInvalidate(['inbox-unread-count'])
+      }
+      if (table === 'inbox_messages') {
+        debouncedInvalidate(['inbox-messages'])
+        // Also invalidate unread count when new messages arrive
+        debouncedInvalidate(['inbox-unread-count'])
+      }
     })
 
-    // Activate channel
+    // Connection status (canal compartilhado)
     let hasLoggedError = false
-    channel.subscribe((status) => {
+    const unsubscribeStatus = onDbChangesStatus((status) => {
       isConnectedRef.current = status === 'SUBSCRIBED'
       if (status === 'SUBSCRIBED') {
         hasLoggedError = false // Reset para logar novamente se reconectar e falhar depois
@@ -183,13 +164,11 @@ export function CentralizedRealtimeProvider({
       }
     })
 
-    // Cleanup
+    // Cleanup (o canal compartilhado continua aberto para os demais assinantes)
     return () => {
       debouncedFlush.cancel?.()
-      if (channelRef.current) {
-        supabase.removeChannel(channelRef.current)
-        channelRef.current = null
-      }
+      unsubscribe()
+      unsubscribeStatus()
       isConnectedRef.current = false
     }
   }, [tables.join(','), notifySubscribers, debouncedInvalidate, debouncedFlush])

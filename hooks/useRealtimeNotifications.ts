@@ -10,53 +10,74 @@
 import { useEffect, useRef, useCallback } from 'react'
 import { toast } from 'sonner'
 import { createRealtimeChannel, subscribeToTable, activateChannel, removeChannel } from '@/lib/supabase-realtime'
+import { campaignService } from '@/services/campaignService'
 import type { RealtimePayload, RealtimeTable } from '@/types'
 
 type ToastType = 'success' | 'info' | 'warning' | 'error'
 
 interface NotificationConfig {
     table: RealtimeTable
-    getMessage: (payload: RealtimePayload) => string | null
+    getMessage: (payload: RealtimePayload) => string | null | Promise<string | null>
     type?: ToastType
+}
+
+type CampaignFinalStatus = 'Concluído' | 'Falhou'
+
+/**
+ * Detecta a TRANSIÇÃO real de uma campanha para um estado final a partir do evento
+ * realtime (só colunas whitelisted: id, status, completed_at...). Updates de contadores
+ * (delivered/read) após a conclusão não são transição — senão viram spam.
+ */
+export function getCampaignFinalTransition(
+    payload: RealtimePayload
+): { id: string; status: CampaignFinalStatus } | null {
+    if (payload.eventType !== 'UPDATE') return null
+
+    const data = payload.new as Record<string, unknown> | null
+    if (!data) return null
+    const id = data.id
+    if (typeof id !== 'string' || !id) return null
+
+    const oldData = (payload.old as Record<string, unknown> | null) ?? null
+
+    // Realtime payload normalmente traz colunas do Postgres (snake_case).
+    const newStatus = data.status
+    const oldStatus = oldData?.status
+
+    const newCompletedAt = (data.completed_at ?? data.completedAt) as unknown
+    const oldCompletedAt = (oldData?.completed_at ?? oldData?.completedAt) as unknown
+
+    if (newStatus === 'Concluído') {
+        const statusTransition = oldStatus !== 'Concluído'
+        const completedAtTransition = (oldCompletedAt == null) && (newCompletedAt != null)
+
+        if (!statusTransition && !completedAtTransition) return null
+        return { id, status: 'Concluído' }
+    }
+    if (newStatus === 'Falhou') {
+        const statusTransition = oldStatus !== 'Falhou'
+        if (!statusTransition) return null
+        return { id, status: 'Falhou' }
+    }
+    return null
 }
 
 const DEFAULT_NOTIFICATIONS: NotificationConfig[] = [
     {
         table: 'campaigns',
-        getMessage: (payload) => {
-            const data = payload.new as Record<string, unknown> | null
-            if (!data) return null
+        getMessage: async (payload) => {
+            const transition = getCampaignFinalTransition(payload)
+            if (!transition) return null
 
-            const oldData = (payload.old as Record<string, unknown> | null) ?? null
+            // O broadcast não traz o nome (canal público, sem dados de negócio) e aceita
+            // eventos forjados: busca pela API autenticada, que também confirma o status.
+            const campaign = await campaignService.getById(transition.id).catch(() => undefined)
+            if (!campaign || campaign.status !== transition.status) return null
 
-            // Realtime payload normalmente traz colunas do Postgres (snake_case).
-            const newStatus = data.status
-            const oldStatus = oldData?.status
-
-            const newCompletedAt = (data.completed_at ?? data.completedAt) as unknown
-            const oldCompletedAt = (oldData?.completed_at ?? oldData?.completedAt) as unknown
-
-            if (payload.eventType === 'UPDATE') {
-                // Só notificar quando houver TRANSIÇÃO real para o estado final.
-                // Caso contrário, updates de contadores (delivered/read) após conclusão viram spam.
-                if (newStatus === 'Concluído') {
-                    const statusTransition = oldStatus !== 'Concluído'
-                    const completedAtTransition = (oldCompletedAt == null) && (newCompletedAt != null)
-
-                    if (!statusTransition && !completedAtTransition) return null
-
-                    const name = (data.name as string | undefined) ?? 'Sem nome'
-                    return `Campanha "${name}" concluída!`
-                }
-                if (newStatus === 'Falhou') {
-                    const statusTransition = oldStatus !== 'Falhou'
-                    if (!statusTransition) return null
-
-                    const name = (data.name as string | undefined) ?? 'Sem nome'
-                    return `Campanha "${name}" falhou`
-                }
-            }
-            return null
+            const name = campaign.name || 'Sem nome'
+            return transition.status === 'Concluído'
+                ? `Campanha "${name}" concluída!`
+                : `Campanha "${name}" falhou`
         },
         // Tipo é inferido no handler (Concluído=success, Falhou=error)
     },
@@ -91,6 +112,7 @@ export function useRealtimeNotifications({
     const channelRef = useRef<ReturnType<typeof createRealtimeChannel> | null>(null)
     const mountedRef = useRef(true)
     const notifiedRef = useRef<Set<string>>(new Set())
+    const pendingRef = useRef<Set<string>>(new Set())
 
     const inferType = useCallback((config: NotificationConfig, payload: RealtimePayload): ToastType => {
         if (config.type) return config.type
@@ -120,14 +142,25 @@ export function useRealtimeNotifications({
         return `campaign:${id}:${status}`
     }, [])
 
-    const handleEvent = useCallback((config: NotificationConfig, payload: RealtimePayload) => {
+    const handleEvent = useCallback(async (config: NotificationConfig, payload: RealtimePayload) => {
         if (!mountedRef.current) return
 
-        const message = config.getMessage(payload)
-        if (!message) return
-
         // Dedupe extra para proteger contra múltiplas subscriptions/reconnect/StrictMode.
+        // `pending` evita buscar a mesma campanha 2x enquanto a primeira busca não volta.
         const key = dedupeKey(config, payload)
+        if (key && (notifiedRef.current.has(key) || pendingRef.current.has(key))) return
+
+        let message: string | null
+        if (key) pendingRef.current.add(key)
+        try {
+            message = await config.getMessage(payload)
+        } catch {
+            message = null
+        } finally {
+            if (key) pendingRef.current.delete(key)
+        }
+        if (!message || !mountedRef.current) return
+
         if (key) {
             if (notifiedRef.current.has(key)) return
             notifiedRef.current.add(key)
@@ -171,7 +204,7 @@ export function useRealtimeNotifications({
         // Subscribe to each configured table
         notifications.forEach((config) => {
             subscribeToTable(channel, config.table, '*', (payload) => {
-                handleEvent(config, payload)
+                void handleEvent(config, payload)
             })
         })
 
