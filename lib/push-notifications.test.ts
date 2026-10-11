@@ -2,8 +2,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 /**
- * Envio de push: só para o dono e para atendentes com token ativo e não expirado.
- * Atendente desativado/expirado/removido não recebe nome do contato nem prévia.
+ * Envio de push: só para o dono e para atendentes com token ativo, não expirado e
+ * com permissão de visualizar (canView). Atendente desativado/expirado/removido ou
+ * sem canView não recebe nome do contato nem prévia.
  */
 
 type QueryResult = { data: unknown; error: unknown }
@@ -14,9 +15,13 @@ const mocks = vi.hoisted(() => {
     tokens: { data: [], error: null },
     tokenIds: [],
   }
+  const select = vi.fn()
   const from = vi.fn((table: string) => {
     const builder: Record<string, unknown> = {}
-    builder.select = vi.fn(() => builder)
+    builder.select = vi.fn((columns: string) => {
+      select(columns)
+      return builder
+    })
     builder.in = vi.fn((_column: string, ids: unknown[]) => {
       state.tokenIds = ids
       return builder
@@ -36,6 +41,7 @@ const mocks = vi.hoisted(() => {
   return {
     state,
     from,
+    select,
     sendNotification: vi.fn(),
     setVapidDetails: vi.fn(),
   }
@@ -70,13 +76,20 @@ const SUBSCRIPTIONS = [
   sub('https://push.example/expired', 'att-expired'),
   sub('https://push.example/deleted', 'att-deleted'),
   sub('https://push.example/future', 'att-future'),
+  sub('https://push.example/no-view', 'att-no-view'),
+  sub('https://push.example/no-permissions', 'att-no-permissions'),
 ]
 
+const CAN_VIEW = { canView: true, canReply: true, canHandoff: false }
+
 const TOKENS = [
-  { id: 'att-active', is_active: true, expires_at: null },
-  { id: 'att-revoked', is_active: false, expires_at: null },
-  { id: 'att-expired', is_active: true, expires_at: new Date(NOW - 1_000).toISOString() },
-  { id: 'att-future', is_active: true, expires_at: new Date(NOW + 60_000).toISOString() },
+  { id: 'att-active', is_active: true, expires_at: null, permissions: CAN_VIEW },
+  { id: 'att-revoked', is_active: false, expires_at: null, permissions: CAN_VIEW },
+  { id: 'att-expired', is_active: true, expires_at: new Date(NOW - 1_000).toISOString(), permissions: CAN_VIEW },
+  { id: 'att-future', is_active: true, expires_at: new Date(NOW + 60_000).toISOString(), permissions: CAN_VIEW },
+  // Dono tirou o canView (PATCH /api/attendants/:id) e manteve o atendente ativo
+  { id: 'att-no-view', is_active: true, expires_at: null, permissions: { canView: false, canReply: false, canHandoff: false } },
+  { id: 'att-no-permissions', is_active: true, expires_at: null, permissions: null },
 ]
 
 const client = () => ({ from: mocks.from }) as unknown as SupabaseClient
@@ -100,7 +113,7 @@ afterEach(() => {
 })
 
 describe('loadDeliverablePushSubscriptions', () => {
-  it('dono sempre; atendente só com token ativo e não expirado', async () => {
+  it('dono sempre; atendente só com token ativo, não expirado e com canView', async () => {
     const result = await loadDeliverablePushSubscriptions(client())
 
     expect(result.map((s) => s.endpoint)).toEqual([
@@ -109,7 +122,44 @@ describe('loadDeliverablePushSubscriptions', () => {
       'https://push.example/future',
     ])
     expect(result[0]).toEqual({ endpoint: 'https://push.example/owner', keys: KEYS })
-    expect(mocks.state.tokenIds).toEqual(['att-active', 'att-revoked', 'att-expired', 'att-deleted', 'att-future'])
+    expect(mocks.state.tokenIds).toEqual([
+      'att-active',
+      'att-revoked',
+      'att-expired',
+      'att-deleted',
+      'att-future',
+      'att-no-view',
+      'att-no-permissions',
+    ])
+  })
+
+  // Cenário do achado: o subscribe exige canView, mas o envio só olhava is_active/expires_at.
+  // O dono tira o canView e mantém o atendente ativo → o aparelho seguia recebendo
+  // nome do contato e prévia (que a PWA já responde com 403).
+  it('atendente ativo que perdeu o canView não recebe mais push', async () => {
+    mocks.state.subscriptions = {
+      data: [sub('https://push.example/owner', null), sub('https://push.example/no-view', 'att-no-view')],
+      error: null,
+    }
+
+    const result = await loadDeliverablePushSubscriptions(client())
+
+    expect(result.map((s) => s.endpoint)).toEqual(['https://push.example/owner'])
+    expect(mocks.select).toHaveBeenCalledWith(expect.stringContaining('permissions'))
+  })
+
+  it('permissions em formato inesperado conta como sem canView (fail-closed)', async () => {
+    mocks.state.tokens = {
+      data: [
+        { id: 'att-active', is_active: true, expires_at: null, permissions: 'canView' },
+        { id: 'att-future', is_active: true, expires_at: null, permissions: { canView: 'true' } },
+      ],
+      error: null,
+    }
+
+    const result = await loadDeliverablePushSubscriptions(client())
+
+    expect(result.map((s) => s.endpoint)).toEqual(['https://push.example/owner'])
   })
 
   it('erro ao checar os tokens: envia só para o dono (fail-closed)', async () => {
@@ -134,7 +184,7 @@ describe('loadDeliverablePushSubscriptions', () => {
 describe('broadcastPushNotification', () => {
   // Cenário do achado: atendente desativado continuava recebendo o push de
   // sendNewMessageNotification (nome do contato + prévia de 100 caracteres).
-  it('não envia para o aparelho de atendente desativado/expirado/removido', async () => {
+  it('não envia para o aparelho de atendente desativado/expirado/removido/sem canView', async () => {
     const result = await broadcastPushNotification({ title: 'Maria', body: 'Oi, tudo bem?' })
 
     const endpoints = mocks.sendNotification.mock.calls.map(([subscription]) => subscription.endpoint)

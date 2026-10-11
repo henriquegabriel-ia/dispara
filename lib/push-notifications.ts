@@ -73,14 +73,23 @@ interface AttendantTokenStatus {
   id: unknown
   is_active: unknown
   expires_at: unknown
+  permissions: unknown
 }
 
 // =============================================================================
 // Destinatários
 // =============================================================================
 
-function isAttendantTokenActive(token: AttendantTokenStatus, now: number): boolean {
+/** Mesma normalização de lib/attendant-auth.ts: só `canView === true` vale. */
+function canViewConversations(permissions: unknown): boolean {
+  return !!permissions && typeof permissions === 'object' && (permissions as { canView?: unknown }).canView === true
+}
+
+function isAttendantTokenDeliverable(token: AttendantTokenStatus, now: number): boolean {
   if (token.is_active !== true) return false
+  // O push leva nome do contato e prévia da mensagem: sem canView, o atendente não
+  // pode ver isso na PWA (GET /api/attendant/conversations → 403), então não recebe.
+  if (!canViewConversations(token.permissions)) return false
   if (!token.expires_at) return true
   const expiresAt = new Date(String(token.expires_at)).getTime()
   return Number.isNaN(expiresAt) || expiresAt > now
@@ -89,8 +98,9 @@ function isAttendantTokenActive(token: AttendantTokenStatus, now: number): boole
 /**
  * Subscriptions que podem receber push agora:
  * - do dono (attendant_token_id NULL): sempre;
- * - de atendente: só com o token ativo e não expirado. Atendente desativado,
- *   expirado ou removido não recebe mais nome do contato nem prévia da mensagem.
+ * - de atendente: só com o token ativo, não expirado e com permissão de visualizar
+ *   (canView). Atendente desativado, expirado, removido ou que perdeu o canView não
+ *   recebe mais nome do contato nem prévia da mensagem.
  * Se não der para checar os tokens (erro de banco), envia só para o dono (fail-closed).
  */
 export async function loadDeliverablePushSubscriptions(supabase: SupabaseClient): Promise<PushSubscriptionData[]> {
@@ -108,11 +118,11 @@ export async function loadDeliverablePushSubscriptions(supabase: SupabaseClient)
     ...new Set(rows.map((row) => row.attendant_token_id).filter((id): id is string => !!id)),
   ]
 
-  const activeAttendantIds = new Set<string>()
+  const deliverableAttendantIds = new Set<string>()
   if (attendantIds.length > 0) {
     const { data: tokens, error: tokensError } = await supabase
       .from('attendant_tokens')
-      .select('id, is_active, expires_at')
+      .select('id, is_active, expires_at, permissions')
       .in('id', attendantIds)
 
     if (tokensError) {
@@ -120,13 +130,13 @@ export async function loadDeliverablePushSubscriptions(supabase: SupabaseClient)
     } else {
       const now = Date.now()
       for (const token of (tokens ?? []) as AttendantTokenStatus[]) {
-        if (isAttendantTokenActive(token, now)) activeAttendantIds.add(String(token.id))
+        if (isAttendantTokenDeliverable(token, now)) deliverableAttendantIds.add(String(token.id))
       }
     }
   }
 
   return rows
-    .filter((row) => !row.attendant_token_id || activeAttendantIds.has(row.attendant_token_id))
+    .filter((row) => !row.attendant_token_id || deliverableAttendantIds.has(row.attendant_token_id))
     .map(({ endpoint, keys }) => ({ endpoint, keys }))
 }
 
@@ -171,7 +181,7 @@ export async function sendPushNotification(
 
 /**
  * Envia notificação para todas as subscriptions ativas
- * (dono + atendentes com token ativo; ver loadDeliverablePushSubscriptions)
+ * (dono + atendentes com token ativo e canView; ver loadDeliverablePushSubscriptions)
  */
 export async function broadcastPushNotification(
   payload: PushPayload
