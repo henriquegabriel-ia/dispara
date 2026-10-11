@@ -10,8 +10,9 @@ import {
   type SendMessageParams,
   type UpdateConversationParams,
 } from '@/services/inboxService'
-import type { InboxConversation, InboxMessage, ConversationMode, DeliveryStatus } from '@/types'
+import type { InboxConversation, InboxMessage, ConversationMode } from '@/types'
 import { CACHE, REALTIME } from '@/lib/constants'
+import { createRealtimeInvalidator } from '@/lib/realtime-invalidation'
 import { useRealtimeQuery } from './useRealtimeQuery'
 import {
   createRealtimeChannel,
@@ -26,34 +27,6 @@ const MESSAGES_KEY = 'inbox-messages'
 // Query key builders
 export const getConversationQueryKey = (id: string) => [CONVERSATION_KEY, id]
 export const getMessagesQueryKey = (conversationId: string) => [MESSAGES_KEY, conversationId]
-
-const DELIVERY_STATUSES: readonly DeliveryStatus[] = ['pending', 'sent', 'delivered', 'read', 'failed'] as const
-
-export interface MessageStatusUpdate {
-  id: string
-  conversation_id: string
-  patch: Pick<InboxMessage, 'delivery_status'>
-}
-
-/**
- * Extrai do payload realtime (canal público, colunas whitelisted) só o que dá para
- * aplicar no cache com segurança: o status de entrega de uma mensagem.
- * Qualquer coisa fora do formato esperado é ignorada.
- */
-export function pickMessageStatusUpdate(
-  row: Record<string, unknown> | null | undefined
-): MessageStatusUpdate | null {
-  if (!row) return null
-  const { id, conversation_id: conversationId, delivery_status: deliveryStatus } = row
-  if (typeof id !== 'string' || typeof conversationId !== 'string') return null
-  if (typeof deliveryStatus !== 'string') return null
-  if (!(DELIVERY_STATUSES as readonly string[]).includes(deliveryStatus)) return null
-  return {
-    id,
-    conversation_id: conversationId,
-    patch: { delivery_status: deliveryStatus as DeliveryStatus },
-  }
-}
 
 // =============================================================================
 // Conversation Detail Hook
@@ -232,61 +205,21 @@ export function useMessages(conversationId: string | null) {
 
     channelRef.current = channel
 
-    // Subscribe to INSERT events (new messages)
-    subscribeToTable(
-      channel,
-      'inbox_messages',
-      'INSERT',
-      (payload) => {
-        // Only refetch if the message is for this conversation
-        const newRecord = payload.new as { conversation_id?: string }
-        if (newRecord?.conversation_id === conversationId) {
-          // Invalidate to trigger refetch
-          queryClient.invalidateQueries({
-            queryKey: getMessagesQueryKey(conversationId),
-          })
-        }
-      },
-      `conversation_id=eq.${conversationId}`
-    )
+    // O canal `dispara-db` é público (qualquer um emite nele): o evento é só um SINAL.
+    // Nova mensagem (INSERT) e mudança de status de entrega (UPDATE) invalidam a lista
+    // e o status real vem da API autenticada — nunca do payload (um UPDATE forjado com
+    // delivery_status 'read' mostraria "lida" numa mensagem que o contato não leu).
+    // O invalidador limita a taxa (debounce + maxWait) e não cancela o fetch em curso.
+    const invalidator = createRealtimeInvalidator(queryClient, { waitMs: REALTIME.debounceDefault })
+    const invalidateMessages = () => {
+      invalidator.invalidate(getMessagesQueryKey(conversationId))
+    }
+
+    // Subscribe to INSERT events (new messages) — filtro por conversa no hub
+    subscribeToTable(channel, 'inbox_messages', 'INSERT', invalidateMessages, `conversation_id=eq.${conversationId}`)
 
     // Also subscribe to UPDATE events (delivery status changes)
-    // O broadcast traz só colunas whitelisted (sem conteúdo): aplica apenas os campos
-    // de status de entrega; falha precisa do failure_reason → refetch pela API.
-    subscribeToTable(
-      channel,
-      'inbox_messages',
-      'UPDATE',
-      (payload) => {
-        const statusUpdate = pickMessageStatusUpdate(payload.new)
-        if (!statusUpdate || statusUpdate.conversation_id !== conversationId) return
-
-        if (statusUpdate.patch.delivery_status === 'failed') {
-          queryClient.invalidateQueries({
-            queryKey: getMessagesQueryKey(conversationId),
-          })
-          return
-        }
-
-        // Update the specific message in cache (optimistic)
-        queryClient.setQueryData(
-          getMessagesQueryKey(conversationId),
-          (old: typeof messagesQuery.data) => {
-            if (!old) return old
-            return {
-              ...old,
-              pages: old.pages.map((page) => ({
-                ...page,
-                messages: page.messages.map((m) =>
-                  m.id === statusUpdate.id ? { ...m, ...statusUpdate.patch } : m
-                ),
-              })),
-            }
-          }
-        )
-      },
-      `conversation_id=eq.${conversationId}`
-    )
+    subscribeToTable(channel, 'inbox_messages', 'UPDATE', invalidateMessages, `conversation_id=eq.${conversationId}`)
 
     // Activate the channel
     activateChannel(channel).catch((err) => {
@@ -295,6 +228,7 @@ export function useMessages(conversationId: string | null) {
 
     // Cleanup on unmount or conversationId change
     return () => {
+      invalidator.cancel()
       if (channelRef.current) {
         removeChannel(channelRef.current)
         channelRef.current = null

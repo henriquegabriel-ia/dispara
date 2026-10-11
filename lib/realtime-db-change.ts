@@ -7,7 +7,13 @@
  *
  * Importante: qualquer pessoa com a chave publishable consegue ouvir E emitir mensagens
  * nesse canal. Trate o evento como um SINAL ("algo mudou em X") e busque os dados reais
- * pelas APIs autenticadas. Nunca renderize conteúdo vindo do payload sem validar.
+ * pelas APIs autenticadas:
+ * - NUNCA escreva valores do payload no cache ou no estado (setQueryData/setState com
+ *   contador, status de entrega etc.) — invalide a query (lib/realtime-invalidation.ts);
+ * - use os campos só para decidir SE invalidar (filtro, tabela, transição a confirmar
+ *   pela API), nunca para renderizar;
+ * - conte com rajadas (legítimas ou forjadas): o hub em lib/supabase-realtime.ts
+ *   coalesce por tabela e o invalidador limita a taxa de refetch.
  */
 
 export const DB_CHANGES_TOPIC = 'dispara-db'
@@ -38,7 +44,11 @@ export interface DbChangeEvent {
   eventType: DbChangeEventType
   /** Colunas whitelisted da linha nova (INSERT/UPDATE); null em DELETE e em triggers por statement. */
   new: Record<string, unknown> | null
-  /** Colunas whitelisted da linha antiga (UPDATE/DELETE); null em INSERT e em triggers por statement. */
+  /**
+   * Só as chaves da linha antiga (UPDATE/DELETE): id + coluna de filtro/transição
+   * (ex.: conversation_id, project_id; status/completed_at em campaigns).
+   * null em INSERT e em triggers por statement.
+   */
   old: Record<string, unknown> | null
   commit_timestamp: string | null
 }

@@ -141,6 +141,42 @@ describe('CentralizedRealtimeProvider (broadcast dispara-db)', () => {
     expect(invalidateSpy).not.toHaveBeenCalled()
   })
 
+  it('sob flood (eventos a cada 100ms, forjáveis no canal público) ainda invalida periodicamente', () => {
+    vi.useFakeTimers()
+    try {
+      const queryClient = new QueryClient()
+      const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries').mockResolvedValue()
+      const onEvent = vi.fn()
+      render(
+        <QueryClientProvider client={queryClient}>
+          <CentralizedRealtimeProvider>
+            <Listener table="inbox_conversations" onEvent={onEvent} />
+          </CentralizedRealtimeProvider>
+        </QueryClientProvider>
+      )
+
+      for (let elapsed = 0; elapsed < 3000; elapsed += 100) {
+        emit({ table: 'inbox_conversations', eventType: 'UPDATE', new: { id: `conv_${elapsed}` }, old: null })
+        act(() => {
+          vi.advanceTimersByTime(100)
+        })
+      }
+
+      const listInvalidations = invalidateSpy.mock.calls.filter(
+        (call) => (call[0] as { queryKey: unknown[] }).queryKey[0] === 'inbox-conversations'
+      )
+      // Debounce só-trailing ficava adiado para sempre (0 invalidações durante o flood)
+      expect(listInvalidations.length).toBeGreaterThanOrEqual(2)
+      // ...e o flood não vira uma invalidação por evento
+      expect(listInvalidations.length).toBeLessThanOrEqual(4)
+      // Os assinantes recebem lotes por janela, não os 30 eventos um a um na hora
+      expect(onEvent.mock.calls.length).toBeLessThanOrEqual(30)
+    } finally {
+      __resetDbChangesHubForTests()
+      vi.useRealTimers()
+    }
+  })
+
   it('para de entregar após desmontar (sem remover o canal compartilhado)', () => {
     const onEvent = vi.fn()
     const { unmount } = setup(onEvent)

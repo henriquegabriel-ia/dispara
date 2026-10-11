@@ -2,6 +2,7 @@ import { useEffect, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { AccountAlert } from '@/app/api/account/alerts/route'
 import { subscribeToDbChanges } from '@/lib/supabase-realtime'
+import { createRealtimeInvalidator } from '@/lib/realtime-invalidation'
 
 interface AlertsResponse {
   alerts: AccountAlert[]
@@ -39,14 +40,21 @@ export function useAccountAlerts() {
 
   // Realtime: mantém o banner/alertas em sincronia sem depender apenas de polling.
   // O broadcast `dispara-db` traz só id/type/code/dismissed (sem message/details) e o
-  // canal é público, então o evento só dispara um refetch pela API autenticada.
+  // canal é público, então o evento só dispara um refetch pela API autenticada —
+  // com limite de taxa (debounce + maxWait, sem cancelar o fetch em curso): um flood
+  // de eventos forjados não vira um GET /api/account/alerts por evento.
   useEffect(() => {
-    return subscribeToDbChanges(
+    const invalidator = createRealtimeInvalidator(queryClient)
+    const unsubscribe = subscribeToDbChanges(
       () => {
-        queryClient.invalidateQueries({ queryKey: ['account-alerts'] })
+        invalidator.invalidate(['account-alerts'])
       },
       { table: 'account_alerts' }
     )
+    return () => {
+      unsubscribe()
+      invalidator.cancel()
+    }
   }, [queryClient])
 
   const { data, isLoading, error, refetch } = useQuery({

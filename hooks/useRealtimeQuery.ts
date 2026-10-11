@@ -9,7 +9,7 @@
 
 import { useEffect, useMemo, useCallback, useRef } from 'react'
 import { useQuery, useQueryClient, UseQueryOptions, QueryKey } from '@tanstack/react-query'
-import { debounce } from '@/lib/utils'
+import { createRealtimeInvalidator } from '@/lib/realtime-invalidation'
 import { createRealtimeChannel, subscribeToTable, activateChannel, removeChannel } from '@/lib/supabase-realtime'
 import type { RealtimeTable, RealtimeEventType, RealtimePayload } from '@/types'
 
@@ -52,6 +52,9 @@ export interface UseRealtimeQueryOptions<TData, TError = Error>
     /**
      * Custom handler for Realtime updates
      * If not provided, will invalidate the query
+     *
+     * O canal `dispara-db` é público (eventos forjáveis): use o payload só como
+     * sinal. Nunca escreva valores dele no cache (setQueryData) — invalide.
      */
     onRealtimeUpdate?: (
         payload: RealtimePayload,
@@ -97,15 +100,17 @@ export function useRealtimeQuery<TData = unknown, TError = Error>({
         ...queryOptions,
     })
 
-    // Debounced invalidation
-    const debouncedInvalidate = useMemo(
-        () =>
-            debounce(() => {
-                if (mountedRef.current) {
-                    queryClient.invalidateQueries({ queryKey })
-                }
-            }, debounceMs),
-        [queryClient, queryKey, debounceMs]
+    // queryKey costuma ser um array literal (nova referência a cada render): guarda a
+    // última num ref para o invalidador e a assinatura não serem recriados a cada render
+    // (o cleanup cancelava a invalidação pendente).
+    const queryKeyRef = useRef(queryKey)
+    queryKeyRef.current = queryKey
+
+    // Debounced invalidation (com maxWait: sob rajada ainda invalida a cada ~1s, e não
+    // cancela o fetch em curso — ver lib/realtime-invalidation.ts)
+    const invalidator = useMemo(
+        () => createRealtimeInvalidator(queryClient, { waitMs: debounceMs }),
+        [queryClient, debounceMs]
     )
 
     // Handler for Realtime events
@@ -118,10 +123,10 @@ export function useRealtimeQuery<TData = unknown, TError = Error>({
                 onRealtimeUpdate(payload, queryClient)
             } else {
                 // Default: invalidate query (triggers refetch)
-                debouncedInvalidate()
+                invalidator.invalidate(queryKeyRef.current)
             }
         },
-        [onRealtimeUpdate, queryClient, debouncedInvalidate]
+        [onRealtimeUpdate, queryClient, invalidator]
     )
 
     // Setup Realtime subscription
@@ -153,14 +158,14 @@ export function useRealtimeQuery<TData = unknown, TError = Error>({
         // Cleanup
         return () => {
             mountedRef.current = false
-            debouncedInvalidate.cancel?.()
+            invalidator.cancel()
 
             if (channelRef.current) {
                 removeChannel(channelRef.current)
                 channelRef.current = null
             }
         }
-    }, [table, filter, events.join(','), handleRealtimeEvent])
+    }, [table, filter, events.join(','), handleRealtimeEvent, invalidator])
 
     return query
 }
