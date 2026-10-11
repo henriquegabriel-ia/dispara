@@ -4,6 +4,14 @@
  * Validates and sanitizes condition expressions before evaluation.
  * This prevents arbitrary code execution while allowing useful comparisons.
  *
+ * Segurança: a FRONTEIRA real é o parser/interpretador de AST restrita em
+ * lib/builder/condition-evaluator.ts — o executor não usa mais new Function.
+ * validateConditionExpression termina parseando a expressão com ele, então
+ * "válida" significa "a AST restrita aceita". As checagens por regex abaixo
+ * ficam como camada extra (mensagens de erro estáveis), mas NÃO são suficientes
+ * sozinhas: como mascaram o conteúdo das strings, deixavam passar acessos por
+ * colchete como __v0["constructor"]["constructor"](...)() (RCE).
+ *
  * Allowed syntax:
  * - Template variables: {{@nodeId:Label.field}} (replaced with safe __v0, __v1, etc.)
  * - Comparison operators: ===, !==, ==, !=, >, <, >=, <=
@@ -21,7 +29,12 @@
  * - Property assignment
  * - Array/object literals ([1,2,3], {key: value})
  * - Comments
+ * - constructor/__proto__/prototype em QUALQUER forma (ponto, colchete, string
+ *   com escapes constructor, template literal)
+ * - Chamada de qualquer coisa que não seja um método da whitelist via ponto
  */
+
+import { parseConditionExpression } from "@/lib/builder/condition-evaluator";
 
 // Dangerous patterns that should never appear in conditions
 const DANGEROUS_PATTERNS = [
@@ -363,6 +376,15 @@ export function validateConditionExpression(
     return identifierCheck;
   }
 
+  // Fonte de verdade: a expressão ORIGINAL (sem máscara) tem que ser aceita
+  // pela gramática restrita do avaliador — é exatamente a AST que o executor
+  // interpreta. Fecha os bypasses por colchete/escapes que o mascaramento
+  // deixava passar.
+  const parsed = parseConditionExpression(expression);
+  if (!parsed.ok) {
+    return { valid: false, error: parsed.error };
+  }
+
   return { valid: true };
 }
 
@@ -406,6 +428,112 @@ export function preValidateConditionExpression(
   }
 
   return { valid: true };
+}
+
+// ─── Validação de condições do GRAFO (rotas PATCH/publish/rollback/create) ────
+
+// Mesmos padrões que o executor (workflow-executor.workflow.ts) usa para trocar
+// as referências por __vN antes de validar/avaliar.
+const NODE_REF_PATTERN = /\{\{@([^:]+):([^}]+)\}\}/g;
+const RUN_VAR_REF_PATTERN = /\{\{\s*var\.([a-zA-Z0-9_.-]+)\s*\}\}/g;
+
+/** actionType do nó de condição avaliado pelo executor. */
+const CONDITION_ACTION_TYPE = "Condition";
+
+/**
+ * Valida uma expressão de Condition CRUA (ainda com {{@id:Label.campo}} e
+ * {{var.chave}}) exatamente como o executor fará em runtime: preValidate na
+ * original, troca das referências por __vN e validate na transformada.
+ */
+export function validateRawConditionExpression(
+  expression: string
+): ValidationResult {
+  const pre = preValidateConditionExpression(expression);
+  if (!pre.valid) {
+    return pre;
+  }
+  let counter = 0;
+  const toVar = (): string => {
+    const name = `__v${counter}`;
+    counter += 1;
+    return name;
+  };
+  const simulated = expression
+    .replace(NODE_REF_PATTERN, toVar)
+    .replace(RUN_VAR_REF_PATTERN, toVar);
+  return validateConditionExpression(simulated);
+}
+
+export type WorkflowConditionIssue = {
+  nodeId: string;
+  label: string;
+  error: string;
+};
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+/**
+ * Revalida TODAS as condições de um grafo cru (nodes do executor). Devolve a
+ * lista de problemas (vazia = ok). Só nós `actionType: "Condition"` têm a
+ * expressão avaliada pelo executor; condição booleana ou ausente segue a
+ * semântica antiga (Boolean(valor)) e não é erro.
+ */
+export function findInvalidWorkflowConditions(
+  nodes: unknown
+): WorkflowConditionIssue[] {
+  if (!Array.isArray(nodes)) {
+    return [];
+  }
+  const issues: WorkflowConditionIssue[] = [];
+  for (const rawNode of nodes) {
+    const node = asRecord(rawNode);
+    const data = asRecord(node?.data);
+    const config = asRecord(data?.config);
+    if (!config || config.actionType !== CONDITION_ACTION_TYPE) {
+      continue;
+    }
+    const nodeId = typeof node?.id === "string" ? node.id : String(node?.id ?? "");
+    const label = typeof data?.label === "string" ? data.label : "";
+    const condition = config.condition;
+    if (
+      condition === undefined ||
+      condition === null ||
+      typeof condition === "boolean"
+    ) {
+      continue;
+    }
+    if (typeof condition !== "string") {
+      issues.push({
+        nodeId,
+        label,
+        error: "Condition must be a string expression or a boolean",
+      });
+      continue;
+    }
+    const result = validateRawConditionExpression(condition);
+    if (!result.valid) {
+      issues.push({ nodeId, label, error: result.error });
+    }
+  }
+  return issues;
+}
+
+/** Mensagem única (pt-BR) para a resposta 400 das rotas do builder. */
+export function describeWorkflowConditionIssues(
+  issues: WorkflowConditionIssue[]
+): string {
+  if (issues.length === 0) {
+    return "";
+  }
+  const [first] = issues;
+  const name = first.label || first.nodeId || "sem id";
+  const extra =
+    issues.length > 1 ? ` (e mais ${issues.length - 1} condição(ões) inválida(s))` : "";
+  return `Condição inválida no nó "${name}": ${first.error}${extra}`;
 }
 
 /**

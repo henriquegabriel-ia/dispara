@@ -7,6 +7,7 @@ import {
   preValidateConditionExpression,
   validateConditionExpression,
 } from "@/lib/builder/condition-validator";
+import { evaluateSafeExpression } from "@/lib/builder/condition-evaluator";
 import {
   getActionLabel,
   getStepImporter,
@@ -166,10 +167,12 @@ type ConditionEvalResult = {
 
 /**
  * Evaluate condition expression with template variable replacement
- * Uses Function constructor to evaluate user-defined conditions dynamically
  *
- * Security: Expressions are validated before evaluation to prevent code injection.
- * Only comparison operators, logical operators, and whitelisted methods are allowed.
+ * Security: a expressão NÃO é executada como código (sem new Function/eval).
+ * Ela é parseada para uma AST de um subconjunto restrito de JS e interpretada
+ * por lib/builder/condition-evaluator.ts: só variáveis __vN, literais,
+ * operadores de comparação/lógicos/aritméticos, leitura de propriedades
+ * próprias de dados e métodos da whitelist. Qualquer erro → condição falsa.
  */
 function evaluateConditionExpression(
   conditionExpression: unknown,
@@ -244,16 +247,9 @@ function evaluateConditionExpression(
         return { result: false, resolvedValues };
       }
 
-      const varNames = Object.keys(evalContext);
-      const varValues = Object.values(evalContext);
-
-      // Safe to evaluate - expression has been validated
-      // Only contains: variables (__v0, __v1), operators, literals, and whitelisted methods
-      const evalFunc = new Function(
-        ...varNames,
-        `return (${transformedExpression});`
-      );
-      const result = evalFunc(...varValues);
+      // Interpretador de AST restrita — nunca gera/executa código (o antigo
+      // new Function permitia RCE via __v0["constructor"]["constructor"](...)).
+      const result = evaluateSafeExpression(transformedExpression, evalContext);
       return { result: Boolean(result), resolvedValues };
     } catch (error) {
       console.error("[Condition] Failed to evaluate condition:", error);

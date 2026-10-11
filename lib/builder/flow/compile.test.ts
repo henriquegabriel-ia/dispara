@@ -251,10 +251,12 @@ describe("compileFlow — cenário principal (keywords → whatsapp → pergunta
     expect(conditions.length).toBe(5);
     for (const node of conditions) {
       let counter = 0;
-      const simulated = String(node.data.config.condition).replace(
-        /\{\{@([^:]+):([^}]+)\}\}/g,
-        () => `__v${counter++}`
-      );
+      // Mesma substituição do executor: {{@id:...}} E {{var.*}} viram __vN.
+      // (O validador antigo aceitava {{var.*}} cru por acidente; o parser da
+      // AST restrita não aceita texto que não é expressão.)
+      const simulated = String(node.data.config.condition)
+        .replace(/\{\{@([^:]+):([^}]+)\}\}/g, () => `__v${counter++}`)
+        .replace(/\{\{\s*var\.[a-zA-Z0-9_.-]+\s*\}\}/g, () => `__v${counter++}`);
       const result = validateConditionExpression(simulated);
       expect(result, `expressão inválida no node ${node.id}: ${simulated}`).toEqual({
         valid: true,

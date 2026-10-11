@@ -3,7 +3,12 @@ import {
   validateConditionExpression,
   preValidateConditionExpression,
   sanitizeForDisplay,
+  validateRawConditionExpression,
+  findInvalidWorkflowConditions,
+  describeWorkflowConditionIssues,
 } from './condition-validator'
+import { compileFlow } from './flow/compile'
+import type { Flow, Step } from './flow/types'
 
 // ─── validateConditionExpression ─────────────────────────────────────────────
 
@@ -641,5 +646,131 @@ describe('sanitizeForDisplay', () => {
   it('deve lidar com & (não mencionado no código, mas verifica ausência)', () => {
     // O código NÃO escapa & — verificamos o comportamento real
     expect(sanitizeForDisplay('a & b')).toBe('a & b')
+  })
+})
+
+// ─── Bypass por colchete/escapes (achado crítico da auditoria 2026-10-11) ─────
+
+describe('validateConditionExpression — bypass do sandbox por colchete (RCE)', () => {
+  const payloads = [
+    '__v0["constructor"]["constructor"]("return process.version")()',
+    '""["constructor"]["constructor"]("return process.version")()',
+    "''['constructor']['constructor']('return 1')()",
+    '__v0["\\u0063onstructor"]',
+    "__v0['\\x63onstructor']",
+    '__v0["__proto__"]',
+    "__v0['prototype']",
+    '__v0[0]["constructor"]',
+    '__v0["includes"]("x")',
+    '__v0.toString()["constructor"]',
+    '(__v0)["constructor"]',
+  ]
+
+  for (const payload of payloads) {
+    it(`rejeita: ${payload}`, () => {
+      expect(validateConditionExpression(payload).valid).toBe(false)
+      expect(validateRawConditionExpression(payload.replace(/__v0/g, '{{@n:L.f}}')).valid).toBe(false)
+    })
+  }
+})
+
+// ─── Validação do grafo cru (PATCH/publish/rollback/create) ───────────────────
+
+function conditionNode(id: string, condition: unknown, label = id) {
+  return {
+    id,
+    type: 'action',
+    position: { x: 0, y: 0 },
+    data: { type: 'action', label, config: { actionType: 'Condition', condition } },
+  }
+}
+
+describe('validateRawConditionExpression', () => {
+  it('aceita referências {{@id:Label.campo}} e {{var.chave}} como o executor', () => {
+    expect(validateRawConditionExpression('{{@ask__var:Resposta.value}} === "Sim"')).toEqual({ valid: true })
+    expect(validateRawConditionExpression('{{var.reply_ask}}.includes("urgente")')).toEqual({ valid: true })
+    expect(
+      validateRawConditionExpression('!({{var.reply_ask}}.includes("a")) && !({{@__trigger:Gatilho.message}} === "b")')
+    ).toEqual({ valid: true })
+  })
+
+  it('rejeita keyword perigosa fora de string na expressão crua', () => {
+    expect(validateRawConditionExpression('process.env.X').valid).toBe(false)
+  })
+})
+
+describe('findInvalidWorkflowConditions', () => {
+  it('não acusa nada num grafo compilado pela UI', () => {
+    const cond: Step = {
+      id: 'cond',
+      type: 'condition',
+      name: 'Condição',
+      config: {},
+      next: null,
+      branches: [
+        { id: 'b1', label: 'Urgente', child: null, operator: 'contains', value: 'urgente "já"' },
+        { id: 'b2', label: 'Igual', child: null, operator: 'equals', value: 'Sim, quero' },
+        { id: 'b3', label: 'Não contém', child: null, operator: 'not_contains', value: 'spam' },
+        { id: 'b4', label: 'None', child: null, locked: true },
+      ],
+    }
+    const ask: Step = {
+      id: 'ask',
+      type: 'interactive',
+      name: 'Pergunta',
+      config: { message: 'Escolha' },
+      next: cond,
+      branches: [
+        { id: 'i1', label: 'Vendas', child: null },
+        { id: 'i2', label: 'Suporte', child: null },
+      ],
+    }
+    const flow: Flow = {
+      schemaVersion: 1,
+      id: 'f1',
+      name: 'Fluxo',
+      trigger: { label: 'Palavras-chave', keywords: ['oi'] },
+      root: ask,
+    }
+    const compiled = compileFlow(flow)
+    const conditionCount = compiled.nodes.filter((n) => n.data.config?.actionType === 'Condition').length
+    expect(conditionCount).toBeGreaterThan(0)
+    expect(findInvalidWorkflowConditions(compiled.nodes)).toEqual([])
+  })
+
+  it('acusa a condição maliciosa injetada no grafo cru', () => {
+    const issues = findInvalidWorkflowConditions([
+      conditionNode('ok', '{{@__trigger:Gatilho.message}}.includes("oi")'),
+      conditionNode('evil', '{{@__trigger:Gatilho.message}}["constructor"]["constructor"]("return process")()', 'Maliciosa'),
+    ])
+    expect(issues).toHaveLength(1)
+    expect(issues[0].nodeId).toBe('evil')
+    expect(issues[0].label).toBe('Maliciosa')
+    expect(describeWorkflowConditionIssues(issues)).toContain('Condição inválida no nó "Maliciosa"')
+  })
+
+  it('aceita condição booleana/ausente (semântica antiga) e rejeita tipo inválido/vazia', () => {
+    expect(findInvalidWorkflowConditions([conditionNode('a', true), conditionNode('b', undefined)])).toEqual([])
+    const issues = findInvalidWorkflowConditions([conditionNode('c', { x: 1 }), conditionNode('d', '')])
+    expect(issues.map((i) => i.nodeId)).toEqual(['c', 'd'])
+  })
+
+  it('ignora nós que não são Condition e entradas não-array', () => {
+    expect(findInvalidWorkflowConditions(null)).toEqual([])
+    expect(
+      findInvalidWorkflowConditions([
+        { id: 'x', data: { type: 'action', config: { actionType: 'HTTP Request', condition: '__v0["constructor"]' } } },
+        null,
+        'lixo',
+      ])
+    ).toEqual([])
+  })
+
+  it('mensagem agrega a contagem quando há várias condições inválidas', () => {
+    const issues = findInvalidWorkflowConditions([
+      conditionNode('a', 'this'),
+      conditionNode('b', 'globalThis'),
+    ])
+    expect(describeWorkflowConditionIssues(issues)).toContain('e mais 1')
   })
 })
