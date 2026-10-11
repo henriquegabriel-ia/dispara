@@ -1,9 +1,39 @@
 #!/usr/bin/env node
 /**
- * Testa as migrations do Supabase num Postgres 17 REAL (PGlite = Postgres compilado
- * para WebAssembly, roda dentro do Node — sem Docker, sem instalar nada).
+ * Harness das migrations do Supabase num Postgres 17 REAL (PGlite = Postgres compilado para
+ * WebAssembly, roda dentro do Node — sem Docker, sem instalar nada) + verificação SOMENTE
+ * LEITURA do estado de segurança de um banco que já existe.
  *
+ * USO
  *   npm run db:check
+ *     Todos os cenários abaixo num PGlite. É o passo do CI.
+ *
+ *   DB_CHECK_URL='postgresql://postgres:<senha>@db.<ref>.supabase.co:5432/postgres?sslmode=verify-full&sslrootcert=<ca>.crt' \
+ *     npm run db:check -- --verify-only
+ *     Banco REAL (produção/staging), SOMENTE LEITURA: tudo roda numa única transação
+ *     BEGIN READ ONLY … ROLLBACK (lock_timeout 2s, statement_timeout 30s) e as sondagens
+ *     "como anon" usam SET LOCAL ROLE dentro de um SAVEPOINT desfeito com ROLLBACK TO. Nada
+ *     é escrito e nenhuma migration é aplicada. Confere: privilégios de anon/authenticated
+ *     (tabelas, views, sequences, funções), RLS, policies, search_path das SECURITY DEFINER,
+ *     publicação supabase_realtime, a premissa do realtime.send, o snapshot EXATO das
+ *     triggers de broadcast (e se elas e dispara_broadcast_change estão na versão deste
+ *     repositório), grants de service_role, default privileges (objetos futuros) e o job do
+ *     pg_cron (inclusive EXECUTE de cron.job.username em dispara_cron_tick()). Imprime um
+ *     relatório e sai com código 1 se algo falhar.
+ *     - Connection string do Supabase (configurações de Database do projeto), role postgres,
+ *       senha URL-encoded. Conexão direta ou pooler (até o transaction pooler serve: é uma
+ *       transação só).
+ *     - TLS: o certificado do Supabase é de CA própria; baixe-o nas configurações de
+ *       Database (SSL) e aponte `sslrootcert`. O `pg` trata `sslmode=require` como
+ *       verify-full; sem o certificado, `sslmode=no-verify` cifra mas não confere o servidor.
+ *     - É o jeito de conferir um banco em que o installer PULOU as migrations (ele pula
+ *       quando `settings` já existe) ou em que a migration de hardening foi aplicada à mão.
+ *
+ *   npm run db:check -- --verify-only            (sem DB_CHECK_URL)
+ *     O mesmo relatório contra um PGlite com todas as migrations (autoteste rápido).
+ *
+ *   Também é importável: lib/realtime-db-change.contract.test.ts usa as funções exportadas
+ *   (main() só roda quando este arquivo é executado direto).
  *
  * O que é simulado do Supabase (o PGlite é Postgres puro):
  *  - roles anon / authenticated / service_role (BYPASSRLS) e um dono NÃO-superusuário
@@ -12,26 +42,41 @@
  *  - os default privileges do Supabase (tudo que o dono cria em `public` nasce com
  *    GRANT para anon/authenticated/service_role) — é isso que torna o REVOKE relevante;
  *  - schemas `extensions` (vector, uuid-ossp), `realtime` (messages + send, igual ao
- *    Supabase, com o bloco EXCEPTION interno), `vault`, `cron` e `net` (stubs);
+ *    Supabase, com o bloco EXCEPTION interno), `vault`, `cron` e `net` (stubs). O
+ *    cron.schedule é SECURITY INVOKER e grava current_user em cron.job.username, como o
+ *    pg_cron (o job roda como esse usuário);
  *  - a publicação `supabase_realtime`.
  *
- * Cenários:
+ * Cenários (npm run db:check):
+ *  0. estáticos: RPCs chamadas pelo código × SERVER_RPCS; snapshot das triggers deste
+ *     arquivo × definições da migration;
  *  1. instalação nova: todas as migrations em ordem, cada arquivo numa única chamada
- *     (transação implícita), igual a lib/installer/migrations.ts — mas sem engolir erro;
+ *     (transação implícita), igual a lib/installer/migrations.ts — mas sem engolir erro
+ *     nem WARNING; depois o relatório do --verify-only (somente leitura);
  *  2. upgrade: banco no estado de produção (todas menos a de hardening) + dados → aplica
- *     a migration de hardening → confere dados e garantias;
+ *     a migration de hardening → confere dados e garantias. Controle do --verify-only: ele
+ *     aponta o vazamento ANTES e passa inteiro DEPOIS, sem consumir XID;
  *  3. idempotência: reaplica a migration de hardening (não pode falhar nem recriar triggers);
- *  4. resiliência: escrita nunca falha se o realtime quebrar (send ausente/sem permissão);
- *     WHEN de templates/flows/itens de projeto (reescrita sem mudança visível não publica);
- *  5. realtime indisponível na instalação: sem realtime.send, ou com um send sem o próprio
- *     EXCEPTION WHEN OTHERS, a migration aplica, avisa (WARNING) e não cria triggers;
- *     reaplicar com o Realtime ativo cria; send trocado depois não derruba escrita.
+ *  4. realtime e resiliência: snapshot exato das triggers; matriz INSERT/UPDATE/DELETE por
+ *     tabela (Δ de eventos, chaves exatas de new/old, PII semeada em toda coluna texto/jsonb
+ *     fora da whitelist); RPCs reais como service_role; throttle de campaigns (lado
+ *     positivo); disparo simulado de 50 contatos pela sequência real do app (realtime.messages
+ *     cresce O(1), não O(contatos)); qualquer WARNING de dispara_broadcast_change ou
+ *     ErrorSendingBroadcastMessage numa escrita FALHA o check (com controle positivo);
+ *     escrita nunca falha se o realtime quebrar; objetos futuros; pg_cron;
+ *  5. realtime indisponível na instalação: bootstrap sem realtime.send, ou com um send sem
+ *     o próprio EXCEPTION WHEN OTHERS → a migration aplica, avisa (WARNING) e não cria
+ *     triggers; criar o send depois e reaplicar SÓ a hardening cria; send trocado depois
+ *     não derruba escrita;
+ *  6. --verify-only pelo protocolo de rede: o cliente `pg` (o mesmo do modo real) contra o
+ *     PGlite servido num socket local, com controle negativo.
  *
  * Sai com código 1 se qualquer verificação falhar.
  */
 
+import { createHash } from 'node:crypto'
 import { readdirSync, readFileSync } from 'node:fs'
-import { join, dirname } from 'node:path'
+import { join, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { PGlite } from '@electric-sql/pglite'
 import { vector } from '@electric-sql/pglite/vector'
@@ -40,8 +85,8 @@ import { uuid_ossp } from '@electric-sql/pglite/contrib/uuid_ossp'
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 // DB_CHECK_MIGRATIONS_DIR permite testar uma cópia (ex.: testes de mutação do próprio harness)
 const MIGRATIONS_DIR = process.env.DB_CHECK_MIGRATIONS_DIR || join(ROOT, 'supabase', 'migrations')
-const HARDENING = '20261011000000_security_hardening.sql'
-const OWNER = 'supabase_owner'
+export const HARDENING = '20261011000000_security_hardening.sql'
+export const OWNER = 'supabase_owner'
 
 // RPCs que o código servidor chama com .rpc() (service_role). Mantido em sincronia por
 // verifyRpcList(), que falha se o código passar a chamar uma RPC fora desta lista.
@@ -56,7 +101,87 @@ const SERVER_RPCS = [
 // RPCs chamadas pelo código mas que (sabidamente) não existem no schema — o código tem fallback.
 const KNOWN_MISSING_RPCS = new Set(['get_ab_variant_metrics', 'get_db_size'])
 
+// ---------------------------------------------------------------------------
+// Contrato do realtime (Broadcast from Database): o que cada tabela pode publicar
+// ---------------------------------------------------------------------------
+
+/**
+ * Snapshot EXATO das triggers de broadcast (tabela.nome: momento eventos nível [WHEN]).
+ * Qualquer trigger a mais, a menos ou diferente — inclusive em campaign_contacts — falha.
+ * Mudou a migration? Atualize aqui (verifyTriggerSnapshotMatchesMigration compara os dois).
+ */
+export const EXPECTED_BROADCAST_TRIGGERS = [
+  'account_alerts.dispara_realtime_broadcast: AFTER INSERT OR UPDATE OR DELETE FOR EACH ROW',
+  'campaigns.dispara_realtime_broadcast: AFTER INSERT OR DELETE FOR EACH ROW',
+  'campaigns.dispara_realtime_broadcast_update: AFTER UPDATE FOR EACH ROW WHEN',
+  'contacts.dispara_realtime_broadcast: AFTER INSERT OR UPDATE OR DELETE FOR EACH STATEMENT',
+  'flow_submissions.dispara_realtime_broadcast: AFTER INSERT FOR EACH ROW',
+  'flows.dispara_realtime_broadcast: AFTER INSERT OR DELETE FOR EACH ROW',
+  'flows.dispara_realtime_broadcast_update: AFTER UPDATE FOR EACH ROW WHEN',
+  'inbox_conversations.dispara_realtime_broadcast: AFTER DELETE FOR EACH ROW',
+  'inbox_conversations.dispara_realtime_broadcast_update: AFTER UPDATE FOR EACH ROW WHEN',
+  'inbox_messages.dispara_realtime_broadcast: AFTER INSERT FOR EACH ROW WHEN',
+  'inbox_messages.dispara_realtime_broadcast_delete: AFTER DELETE FOR EACH STATEMENT',
+  'inbox_messages.dispara_realtime_broadcast_update: AFTER UPDATE FOR EACH ROW WHEN',
+  'template_project_items.dispara_realtime_broadcast: AFTER INSERT OR DELETE FOR EACH ROW',
+  'template_project_items.dispara_realtime_broadcast_update: AFTER UPDATE FOR EACH ROW WHEN',
+  'template_projects.dispara_realtime_broadcast: AFTER INSERT OR UPDATE OR DELETE FOR EACH ROW',
+  'templates.dispara_realtime_broadcast: AFTER INSERT OR DELETE FOR EACH ROW',
+  'templates.dispara_realtime_broadcast_update: AFTER UPDATE FOR EACH ROW WHEN',
+]
+
+/**
+ * Whitelist EXATA das chaves de `new` e `old` por tabela (projeção de
+ * dispara_broadcast_change). Coluna a mais ou a menos no payload falha o check.
+ */
+export const BROADCAST_PAYLOAD_KEYS = {
+  campaigns: {
+    new: ['id', 'status', 'total_recipients', 'sent', 'delivered', 'read', 'failed', 'skipped',
+      'auto_reply_sent_count', 'quick_reply_match_count', 'fallback_sent_count', 'folder_id', 'flow_id',
+      'ab_test_enabled', 'scheduled_date', 'started_at', 'first_dispatch_at', 'last_sent_at', 'completed_at',
+      'cancelled_at', 'created_at', 'updated_at'],
+    old: ['id', 'status', 'completed_at'],
+  },
+  templates: {
+    new: ['id', 'status', 'category', 'language', 'parameter_format', 'fetched_at', 'created_at', 'updated_at'],
+    old: ['id'],
+  },
+  flows: {
+    new: ['id', 'status', 'meta_status', 'meta_flow_id', 'meta_last_checked_at', 'meta_published_at', 'created_at', 'updated_at'],
+    old: ['id'],
+  },
+  inbox_conversations: {
+    new: ['id', 'contact_id', 'ai_agent_id', 'status', 'mode', 'priority', 'unread_count', 'total_messages',
+      'last_message_at', 'automation_paused_until', 'human_mode_expires_at', 'created_at', 'updated_at'],
+    old: ['id'],
+  },
+  inbox_messages: {
+    new: ['id', 'conversation_id', 'direction', 'message_type', 'source_type', 'delivery_status', 'created_at',
+      'delivered_at', 'read_at', 'failed_at'],
+    old: ['id', 'conversation_id'],
+  },
+  account_alerts: { new: ['id', 'type', 'code', 'dismissed', 'created_at'], old: ['id'] },
+  template_projects: { new: ['id', 'status', 'template_count', 'approved_count', 'created_at', 'updated_at'], old: ['id'] },
+  template_project_items: {
+    new: ['id', 'project_id', 'status', 'meta_status', 'category', 'language', 'submitted_at', 'created_at', 'updated_at'],
+    old: ['id', 'project_id'],
+  },
+  flow_submissions: { new: ['id', 'campaign_id', 'flow_id', 'flow_local_id', 'created_at'], old: ['id', 'campaign_id'] },
+  // trigger por STATEMENT: new = old = null
+  contacts: { new: [], old: [] },
+}
+
+/** Eventos de trigger por STATEMENT (new/old nulos). */
+const STATEMENT_LEVEL_EVENTS = { contacts: ['INSERT', 'UPDATE', 'DELETE'], inbox_messages: ['DELETE'] }
+
 const PII_KEYS = ['phone', 'name', 'email', 'content', 'body', 'custom_fields', 'text', 'message', 'contact_name', 'last_message_preview']
+export const PII_VALUES = ['5511987654321', 'Maria Teste', 'maria@teste.com', 'mensagem secreta do cliente']
+const PII_SQL = `'Maria Teste <maria@teste.com> +5511987654321: mensagem secreta do cliente'`
+const PII_JSONB_SQL = `jsonb_build_object('nome', 'Maria Teste', 'telefone', '5511987654321', 'email', 'maria@teste.com', 'texto', 'mensagem secreta do cliente')`
+
+const BROADCAST_WARNING_RE = /dispara_broadcast_change|ErrorSendingBroadcastMessage/
+// Mesmo critério da migration (pg_proc.prosrc de realtime.send precisa do próprio handler)
+const SEND_HANDLER_REGEX = String.raw`\mexception\s+when\s+others\M`
 
 // realtime.send como no Supabase: o INSERT em realtime.messages fica num bloco
 // EXCEPTION WHEN OTHERS próprio (a migration de hardening exige isso para criar as triggers).
@@ -87,7 +212,14 @@ $fn$`
 // ---------------------------------------------------------------------------
 // Bootstrap "Supabase" (roda como superusuário, antes das migrations)
 // ---------------------------------------------------------------------------
-const SUPABASE_BOOTSTRAP = `
+function supabaseBootstrapSql({ realtimeSend = 'safe' } = {}) {
+  const send = {
+    safe: `${REALTIME_SEND_SQL};`,
+    unsafe: `${REALTIME_SEND_UNSAFE_SQL};`,
+    none: '-- sem realtime.send (projeto sem Broadcast from Database)',
+  }[realtimeSend]
+  if (send === undefined) throw new Error(`realtimeSend inválido: ${realtimeSend}`)
+  return `
 CREATE ROLE anon NOLOGIN NOINHERIT;
 CREATE ROLE authenticated NOLOGIN NOINHERIT;
 CREATE ROLE service_role NOLOGIN NOINHERIT BYPASSRLS;
@@ -119,10 +251,13 @@ CREATE TABLE realtime.messages (
   private boolean DEFAULT false,
   updated_at timestamp NOT NULL DEFAULT now(),
   inserted_at timestamp NOT NULL DEFAULT now(),
-  id uuid NOT NULL DEFAULT gen_random_uuid()
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  -- só do harness (não existe no Supabase): ordem de chegada dos eventos
+  harness_seq bigserial
 );
 GRANT SELECT, INSERT ON realtime.messages TO ${OWNER}, service_role;
-${REALTIME_SEND_SQL};
+GRANT USAGE ON SEQUENCE realtime.messages_harness_seq_seq TO ${OWNER}, service_role;
+${send}
 CREATE FUNCTION realtime.topic() RETURNS text LANGUAGE sql STABLE AS $fn$
   SELECT nullif(current_setting('realtime.topic', true), '')::text
 $fn$;
@@ -146,17 +281,20 @@ $fn$;
 GRANT USAGE ON SCHEMA vault TO ${OWNER};
 GRANT SELECT ON vault.secrets, vault.decrypted_secrets TO ${OWNER};
 
--- pg_cron (stub)
+-- pg_cron (stub). Como no pg_cron: cron.schedule grava o usuário que agendou
+-- (current_user) em cron.job.username, e o job roda como ESSE usuário. SECURITY INVOKER
+-- de propósito: um stub SECURITY DEFINER gravaria o dono do stub, não quem agendou.
 CREATE SCHEMA cron;
-CREATE TABLE cron.job (jobid bigserial PRIMARY KEY, schedule text NOT NULL, command text NOT NULL, jobname text UNIQUE, username text DEFAULT current_user, active boolean DEFAULT true);
+CREATE TABLE cron.job (jobid bigserial PRIMARY KEY, schedule text NOT NULL, command text NOT NULL, jobname text UNIQUE, username text NOT NULL DEFAULT current_user, active boolean DEFAULT true);
 CREATE FUNCTION cron.schedule(job_name text, schedule text, command text) RETURNS bigint
-LANGUAGE sql SECURITY DEFINER AS $fn$
-  INSERT INTO cron.job (jobname, schedule, command) VALUES (job_name, schedule, command)
-  ON CONFLICT (jobname) DO UPDATE SET schedule = EXCLUDED.schedule, command = EXCLUDED.command
+LANGUAGE sql SECURITY INVOKER AS $fn$
+  INSERT INTO cron.job (jobname, schedule, command, username) VALUES (job_name, schedule, command, current_user)
+  ON CONFLICT (jobname) DO UPDATE SET schedule = EXCLUDED.schedule, command = EXCLUDED.command, username = EXCLUDED.username
   RETURNING jobid
 $fn$;
 GRANT USAGE ON SCHEMA cron TO ${OWNER};
-GRANT SELECT ON cron.job TO ${OWNER};
+GRANT SELECT, INSERT, UPDATE ON cron.job TO ${OWNER};
+GRANT USAGE ON SEQUENCE cron.job_jobid_seq TO ${OWNER};
 
 -- pg_net (stub: só enfileira)
 CREATE SCHEMA net;
@@ -180,32 +318,157 @@ SELECT 990001, 'pg_cron', 10, 'cron'::regnamespace, false, '1.6' WHERE NOT EXIST
 INSERT INTO pg_catalog.pg_extension (oid, extname, extowner, extnamespace, extrelocatable, extversion)
 SELECT 990002, 'pg_net', 10, 'net'::regnamespace, false, '0.14' WHERE NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_net');
 `
+}
 
 // ---------------------------------------------------------------------------
-// Infra de verificação
+// Relatório
 // ---------------------------------------------------------------------------
-const results = []
-let currentScenario = ''
+let reporter = { results: [], scenario: '', silent: false }
 
 function check(name, ok, detail = '') {
-  results.push({ scenario: currentScenario, name, ok: !!ok, detail })
-  const mark = ok ? '  ✓' : '  ✗'
-  console.log(`${mark} ${name}${!ok && detail ? `\n      ${detail}` : ''}`)
+  reporter.results.push({ scenario: reporter.scenario, name, ok: !!ok, detail })
+  if (reporter.silent) return
+  console.log(`${ok ? '  ✓' : '  ✗'} ${name}${!ok && detail ? `\n      ${detail}` : ''}`)
+}
+
+function info(message) {
+  if (!reporter.silent) console.log(`  · ${message}`)
 }
 
 function scenario(title) {
-  currentScenario = title
-  console.log(`\n▶ ${title}`)
+  reporter.scenario = title
+  if (!reporter.silent) console.log(`\n▶ ${title}`)
 }
 
-function listMigrations() {
+/** Roda verificações sem imprimir e devolve os resultados (para controles do próprio harness). */
+async function captureChecks(fn) {
+  const outer = reporter
+  reporter = { results: [], scenario: outer.scenario, silent: true }
+  try {
+    await fn()
+    return reporter.results
+  } finally {
+    reporter = outer
+  }
+}
+
+function printSummary() {
+  const failed = reporter.results.filter((r) => !r.ok)
+  console.log(`\n${reporter.results.length - failed.length}/${reporter.results.length} verificações passaram`)
+  if (failed.length) {
+    console.log('\nFALHAS:')
+    for (const f of failed) console.log(` - [${f.scenario}] ${f.name}${f.detail ? `: ${f.detail}` : ''}`)
+  }
+  return failed.length === 0 ? 0 : 1
+}
+
+// ---------------------------------------------------------------------------
+// Executores de SQL: a mesma interface para o PGlite (in-process) e o pg (banco real),
+// para que as verificações de estado sejam as mesmas nos dois.
+//   query(sql, params?) → linhas · exec(sql) → vários comandos, sem parâmetros
+//   notices: NOTICE/WARNING recebidos, em ordem · inTx: dentro da transação READ ONLY
+// ---------------------------------------------------------------------------
+function noticeFrom(n) {
+  return { severity: n.severity, message: n.message, where: n.where ?? null }
+}
+
+export function pgliteExecutor(db) {
+  const ex = {
+    kind: 'pglite',
+    db,
+    notices: [],
+    broadcastCursor: 0,
+    inTx: false,
+    async query(sql, params = []) {
+      return (await db.query(sql, params, { onNotice: (n) => ex.notices.push(noticeFrom(n)) })).rows
+    },
+    async exec(sql) {
+      await db.exec(sql, { onNotice: (n) => ex.notices.push(noticeFrom(n)) })
+    },
+    async close() {
+      await db.close()
+    },
+  }
+  return ex
+}
+
+export async function pgExecutor(connectionString) {
+  const { default: pg } = await import('pg')
+  const client = new pg.Client({ connectionString, application_name: 'dispara-db-check', connectionTimeoutMillis: 15000 })
+  const ex = {
+    kind: 'pg',
+    client,
+    notices: [],
+    broadcastCursor: 0,
+    inTx: false,
+    async query(sql, params = []) {
+      return (await client.query(sql, params)).rows
+    },
+    async exec(sql) {
+      await client.query(sql)
+    },
+    async close() {
+      await client.end()
+    },
+  }
+  client.on('notice', (n) => ex.notices.push(noticeFrom(n)))
+  client.on('error', (error) => console.error(`[pg] ${error.message}`))
+  await client.connect()
+  return ex
+}
+
+/** Consulta que pode falhar sem abortar a transação (SAVEPOINT quando dentro de uma). */
+async function tryQuery(ex, sql, params = []) {
+  if (!ex.inTx) {
+    try {
+      return { rows: await ex.query(sql, params) }
+    } catch (error) {
+      return { error }
+    }
+  }
+  await ex.exec('SAVEPOINT dispara_try')
+  try {
+    const rows = await ex.query(sql, params)
+    await ex.exec('RELEASE SAVEPOINT dispara_try')
+    return { rows }
+  } catch (error) {
+    await ex.exec('ROLLBACK TO SAVEPOINT dispara_try; RELEASE SAVEPOINT dispara_try')
+    return { error }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Banco "Supabase" no PGlite
+// ---------------------------------------------------------------------------
+export function listMigrations() {
   return readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql') && !f.startsWith('.')).sort()
 }
 
-async function createSupabaseLikeDb() {
+export function readMigration(file) {
+  return readFileSync(join(MIGRATIONS_DIR, file), 'utf8')
+}
+
+/** @param {{ realtimeSend?: 'safe' | 'unsafe' | 'none' }} [options] */
+export async function createSupabaseLikeDb(options = {}) {
   const db = await PGlite.create({ extensions: { vector, uuid_ossp } })
-  await db.exec(SUPABASE_BOOTSTRAP)
-  return db
+  const ex = pgliteExecutor(db)
+  await ex.exec(supabaseBootstrapSql(options))
+  return ex
+}
+
+/** Banco "Supabase" com todas as migrations aplicadas (instalação nova). Volta como superusuário. */
+export async function createMigratedDb(options = {}) {
+  const ex = await createSupabaseLikeDb(options)
+  await asOwner(ex)
+  for (const file of listMigrations()) {
+    const r = await applyMigration(ex, file)
+    if (!r.ok) {
+      await ex.close()
+      throw new Error(`${file}: ${r.error}`)
+    }
+  }
+  await asSuperuser(ex)
+  return ex
 }
 
 /**
@@ -214,37 +477,81 @@ async function createSupabaseLikeDb() {
  * volta ao superusuário. Com SET ROLE, current_user = dono: objetos nascem dele, default
  * privileges sem FOR ROLE valem para ele e as permissões são checadas sem superusuário.
  */
-async function asOwner(db) {
-  await db.exec(`SET ROLE ${OWNER}; SET search_path = "$user", public, extensions;`)
+export async function asOwner(ex) {
+  await ex.exec(`SET ROLE ${OWNER}; SET search_path = "$user", public, extensions;`)
 }
 
-async function asSuperuser(db) {
-  await db.exec(`RESET ROLE; SET search_path = "$user", public, extensions;`)
+export async function asSuperuser(ex) {
+  await ex.exec(`RESET ROLE; SET search_path = "$user", public, extensions;`)
 }
 
 /** Aplica um arquivo como o installer: uma única chamada (transação implícita). */
-async function applyMigration(db, file) {
-  const sql = readFileSync(join(MIGRATIONS_DIR, file), 'utf8')
-  const warnings = []
+export async function applyMigration(ex, file) {
+  const start = ex.notices.length
+  let error = null
   try {
-    await db.exec(sql, {
-      onNotice: (n) => {
-        if (n.severity === 'WARNING') warnings.push(n.message)
-      },
-    })
-    return { ok: true, warnings }
+    await ex.exec(readMigration(file))
+  } catch (e) {
+    error = e.message
+  }
+  const warnings = ex.notices.slice(start).filter((n) => n.severity === 'WARNING').map((n) => n.message)
+  return error ? { ok: false, error, warnings } : { ok: true, warnings }
+}
+
+/** Aplica todas (como o dono); null se alguma falhar (já registrada como check). */
+async function applyAll(ex, files, label) {
+  await asOwner(ex)
+  const results = {}
+  for (const file of files) {
+    const r = await applyMigration(ex, file)
+    results[file] = r
+    if (!r.ok) {
+      check(`${label}: aplica ${file}`, false, r.error)
+      await asSuperuser(ex)
+      return null
+    }
+  }
+  await asSuperuser(ex)
+  return results
+}
+
+/** Executa como uma role (autocommit) e devolve o erro (ou null se passou). */
+async function runAsRole(ex, role, sql) {
+  try {
+    await ex.exec(`SET ROLE ${role}; ${sql}`)
+    return null
   } catch (error) {
-    return { ok: false, error: error.message, warnings }
+    return error
+  } finally {
+    await ex.exec('RESET ROLE')
   }
 }
 
-async function rows(db, sql, params) {
-  return (await db.query(sql, params)).rows
+/** Executa como uma role e devolve o código de erro (ou null se passou). */
+export async function tryAsRole(ex, role, sql) {
+  const error = await runAsRole(ex, role, sql)
+  return error ? error.code || error.message : null
+}
+
+/** Escrita do app (como service_role, autocommit). Falha = exceção com o SQL. */
+export async function writeAs(ex, role, sql) {
+  const error = await runAsRole(ex, role, sql)
+  if (error) throw new Error(`escrita como ${role} falhou (${error.code ?? '?'} ${error.message}): ${oneLine(sql).slice(0, 200)}`)
+}
+
+/** Consulta como uma role (autocommit, uma requisição do app). */
+export async function queryAs(ex, role, sql, params = []) {
+  await ex.exec(`SET ROLE ${role}`)
+  try {
+    return await ex.query(sql, params)
+  } finally {
+    await ex.exec('RESET ROLE')
+  }
 }
 
 /** Monta `public.fn(NULL::tipo, ...)` a partir dos tipos reais dos argumentos. */
-async function nullCallFor(db, name) {
-  const fns = await rows(db, `
+async function nullCallFor(ex, name) {
+  const fns = await ex.query(`
     SELECT oidvectortypes(p.proargtypes) AS types FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
     WHERE n.nspname = 'public' AND p.proname = $1 LIMIT 1`, [name])
   if (fns.length === 0) return null
@@ -252,125 +559,428 @@ async function nullCallFor(db, name) {
   return `public.${name}(${types.map((t) => `NULL::${t}`).join(', ')})`
 }
 
-/** Executa como uma role e devolve o código de erro (ou null se passou). */
-async function tryAsRole(db, role, sql) {
+/**
+ * Sondagem "como role" que não deixa rastro: dentro da transação READ ONLY, SET LOCAL ROLE
+ * num SAVEPOINT desfeito com ROLLBACK TO. Devolve { code } (null = passou) ou { skipped }.
+ */
+async function probeAsRole(ex, role, sql) {
+  if (!ex.inTx) throw new Error('probeAsRole só roda dentro da transação somente leitura (runVerifyOnly)')
+  await ex.exec('SAVEPOINT dispara_probe')
   try {
-    await db.exec(`SET ROLE ${role}; ${sql}`)
-    return null
-  } catch (error) {
-    return error.code || error.message
+    try {
+      await ex.exec(`SET LOCAL ROLE ${role}`)
+    } catch (error) {
+      return { skipped: `${error.code ?? ''} ${error.message}`.trim() }
+    }
+    try {
+      await ex.exec(sql)
+      return { code: null }
+    } catch (error) {
+      return { code: error.code || error.message }
+    }
   } finally {
-    await db.exec('RESET ROLE')
+    await ex.exec('ROLLBACK TO SAVEPOINT dispara_probe; RELEASE SAVEPOINT dispara_probe')
   }
 }
 
-// ---------------------------------------------------------------------------
-// Verificações de segurança
-// ---------------------------------------------------------------------------
-async function verifyPrivileges(db) {
-  const tables = await rows(db, `
-    SELECT c.relname, c.relkind, c.relrowsecurity
-    FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-    WHERE n.nspname = 'public' AND c.relkind IN ('r','p','v','m')
-    ORDER BY c.relname`)
-  check(`há tabelas/views em public (${tables.length})`, tables.length > 20)
+function checkDenied(name, probe) {
+  if (probe.skipped) {
+    info(`${name}: não verificável por sondagem (SET ROLE recusado: ${probe.skipped}); os privilégios acima continuam valendo`)
+    return
+  }
+  check(name, probe.code === '42501', `resultado: ${probe.code ?? 'PASSOU (vazamento!)'}`)
+}
 
+// ---------------------------------------------------------------------------
+// Utilitários
+// ---------------------------------------------------------------------------
+const sleep = (ms) => new Promise((resolveSleep) => setTimeout(resolveSleep, ms))
+
+function oneLine(sql) {
+  return sql.replace(/\s+/g, ' ').trim()
+}
+
+function countBy(items, keyFn) {
+  const out = {}
+  for (const item of items) {
+    const key = keyFn(item)
+    out[key] = (out[key] ?? 0) + 1
+  }
+  return out
+}
+
+function sameList(a, b) {
+  return a.length === b.length && a.every((v, i) => v === b[i])
+}
+
+function listDiff(actual, expected) {
+  const missing = expected.filter((x) => !actual.includes(x))
+  const extra = actual.filter((x) => !expected.includes(x))
+  return [missing.length ? `faltam: ${missing.join('; ')}` : '', extra.length ? `sobram: ${extra.join('; ')}` : '']
+    .filter(Boolean)
+    .join(' | ')
+}
+
+function summarizeEvents(events) {
+  return events.map((e) => `${e.payload?.table}/${e.payload?.eventType}`).join(', ') || '(nenhum)'
+}
+
+// Corpo de função comparável entre checkout CRLF/LF e o SQL editor (espaço no fim da linha)
+const normalizeSource = (s) => (s ?? '').replace(/\r\n/g, '\n').replace(/[ \t]+$/gm, '').trim()
+
+// ---------------------------------------------------------------------------
+// Triggers de broadcast: snapshot e versão
+// ---------------------------------------------------------------------------
+/** @type {ReadonlyArray<[number, string]>} bits de pg_trigger.tgtype */
+const TRIGGER_EVENT_BITS = [[4, 'INSERT'], [16, 'UPDATE'], [8, 'DELETE'], [32, 'TRUNCATE']]
+
+/** `tabela.nome: AFTER INSERT OR DELETE FOR EACH ROW [WHEN]` a partir de pg_trigger.tgtype. */
+export function describeTrigger({ table, name, tgtype, hasWhen }) {
+  const timing = tgtype & 2 ? 'BEFORE' : tgtype & 64 ? 'INSTEAD OF' : 'AFTER'
+  const events = TRIGGER_EVENT_BITS.filter(([bit]) => tgtype & bit).map(([, event]) => event)
+  return `${table}.${name}: ${timing} ${events.join(' OR ')} FOR EACH ${tgtype & 1 ? 'ROW' : 'STATEMENT'}${hasWhen ? ' WHEN' : ''}`
+}
+
+/**
+ * Definições das triggers como a migration as cria (tuplas do VALUES do bloco DO), com a
+ * marca 'dispara_broadcast:<md5>' que ela grava no COMMENT (mesma normalização:
+ * btrim de espaços + \s+ → ' ').
+ */
+export function parseBroadcastTriggerDefinitions(sql) {
+  const out = []
+  for (const m of sql.matchAll(/\(\s*'([a-z_]+)'\s*,\s*'([a-z_]+)'\s*,\s*\$d\$([\s\S]*?)\$d\$\s*\)/g)) {
+    const [, table, name, raw] = m
+    const definition = raw.replace(/^ +| +$/g, '').replace(/\s+/g, ' ')
+    const head = /^(BEFORE|AFTER|INSTEAD OF) (.+?) ON public\.([a-z_]+) FOR EACH (ROW|STATEMENT)( WHEN )?/.exec(definition)
+    const events = head ? head[2].split(' OR ') : []
+    const tgtype = (head?.[4] === 'ROW' ? 1 : 0) | (head?.[1] === 'BEFORE' ? 2 : 0) | (head?.[1] === 'INSTEAD OF' ? 64 : 0)
+      | TRIGGER_EVENT_BITS.reduce((acc, [bit, event]) => (events.includes(event) ? acc | bit : acc), 0)
+    out.push({
+      table,
+      name,
+      definition,
+      marker: `dispara_broadcast:${createHash('md5').update(definition).digest('hex')}`,
+      description: describeTrigger({ table, name, tgtype, hasWhen: Boolean(head?.[5]) }),
+      onTable: head?.[3] ?? null,
+    })
+  }
+  return out
+}
+
+/** Corpo (prosrc) de dispara_broadcast_change como está na migration. */
+function parseBroadcastFunctionSource(sql) {
+  const m = /CREATE OR REPLACE FUNCTION public\.dispara_broadcast_change\(\)[\s\S]*?\nAS \$\$([\s\S]*?)\$\$;/.exec(sql)
+  return m ? m[1] : null
+}
+
+export async function readBroadcastTriggers(ex) {
+  return ex.query(`
+    SELECT n.nspname AS schema, c.relname AS "table", t.tgname AS name, t.tgtype::int AS tgtype,
+           (t.tgqual IS NOT NULL) AS "hasWhen", t.tgenabled::text AS enabled,
+           pn.nspname || '.' || p.proname AS fn, obj_description(t.oid, 'pg_trigger') AS marker, t.oid::text AS oid
+    FROM pg_trigger t
+    JOIN pg_class c ON c.oid = t.tgrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    JOIN pg_proc p ON p.oid = t.tgfoid
+    JOIN pg_namespace pn ON pn.oid = p.pronamespace
+    WHERE NOT t.tgisinternal
+      AND (t.tgname LIKE 'dispara_realtime%' OR (pn.nspname = 'public' AND p.proname = 'dispara_broadcast_change'))
+    ORDER BY c.relname, t.tgname`)
+}
+
+function describeDbTriggers(triggers) {
+  return triggers.map((t) => (t.schema === 'public' ? describeTrigger(t) : `${t.schema}.${describeTrigger(t)}`)).sort()
+}
+
+const EXPECTED_SORTED = [...EXPECTED_BROADCAST_TRIGGERS].sort()
+
+function verifyTriggerSnapshotMatchesMigration() {
+  const defs = parseBroadcastTriggerDefinitions(readMigration(HARDENING))
+  const described = defs.map((d) => d.description).sort()
+  check(`snapshot das triggers no harness = definições da migration (${defs.length})`,
+    sameList(described, EXPECTED_SORTED) && defs.every((d) => d.onTable === d.table), listDiff(described, EXPECTED_SORTED))
+}
+
+// ---------------------------------------------------------------------------
+// Verificações de ESTADO (somente leitura: rodam igual no PGlite e num banco real)
+// ---------------------------------------------------------------------------
+const NOT_EXTENSION_REL = `NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid AND d.deptype = 'e')`
+const NOT_EXTENSION_PROC = `NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e')`
+
+async function verifyPrivileges(ex) {
+  const [{ relations }] = await ex.query(`
+    SELECT count(*)::int AS relations FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public' AND c.relkind IN ('r','p','v','m','f') AND ${NOT_EXTENSION_REL}`)
+  check(`há tabelas/views em public (${relations})`, relations > 20)
+
+  // has_any_column_privilege também pega GRANT por coluna (has_table_privilege não)
+  const leaks = await ex.query(`
+    SELECT r.role, c.relname, p.priv
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    CROSS JOIN (VALUES ('anon'), ('authenticated')) AS r(role)
+    CROSS JOIN (VALUES ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE'), ('TRUNCATE'), ('REFERENCES'), ('TRIGGER')) AS p(priv)
+    WHERE n.nspname = 'public' AND c.relkind IN ('r','p','v','m','f') AND ${NOT_EXTENSION_REL}
+      AND CASE WHEN p.priv IN ('SELECT', 'INSERT', 'UPDATE', 'REFERENCES')
+               THEN has_any_column_privilege(r.role, c.oid, p.priv)
+               ELSE has_table_privilege(r.role, c.oid, p.priv) END
+    ORDER BY 1, 2, 3`)
   for (const role of ['anon', 'authenticated']) {
-    const leaks = []
-    for (const t of tables) {
-      for (const priv of ['SELECT', 'INSERT', 'UPDATE', 'DELETE']) {
-        const [{ has }] = await rows(db, `SELECT has_table_privilege($1, $2, $3) AS has`, [role, `public."${t.relname}"`, priv])
-        if (has) leaks.push(`${t.relname}:${priv}`)
-      }
-    }
-    check(`${role} sem nenhum privilégio de tabela/view em public`, leaks.length === 0, leaks.slice(0, 15).join(', '))
+    const mine = leaks.filter((l) => l.role === role).map((l) => `${l.relname}:${l.priv}`)
+    check(`${role} sem nenhum privilégio de tabela/view em public`, mine.length === 0, mine.slice(0, 15).join(', '))
   }
 
-  const noRls = tables.filter((t) => t.relkind === 'r' && !t.relrowsecurity).map((t) => t.relname)
-  check('RLS habilitado em todas as tabelas de public', noRls.length === 0, noRls.join(', '))
+  // OFFSET 0 impede o planner de avaliar has_sequence_privilege antes do filtro por relkind
+  const seqLeaks = await ex.query(`
+    SELECT r.role, s.relname, p.priv FROM (
+      SELECT c.oid, c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'public' AND c.relkind = 'S' AND ${NOT_EXTENSION_REL} OFFSET 0
+    ) s
+    CROSS JOIN (VALUES ('anon'), ('authenticated')) AS r(role)
+    CROSS JOIN (VALUES ('USAGE'), ('SELECT'), ('UPDATE')) AS p(priv)
+    WHERE has_sequence_privilege(r.role, s.oid, p.priv)`)
+  check('anon/authenticated sem privilégio em nenhuma sequence de public', seqLeaks.length === 0,
+    seqLeaks.map((s) => `${s.role}:${s.relname}:${s.priv}`).slice(0, 10).join(', '))
 
-  const anonPolicies = await rows(db, `SELECT tablename, policyname FROM pg_policies WHERE schemaname='public' AND ('anon' = ANY(roles) OR 'authenticated' = ANY(roles) OR 'public' = ANY(roles)) AND qual = 'true'`)
-  check('nenhuma policy USING (true) para anon/authenticated/public', anonPolicies.length === 0,
-    anonPolicies.map((p) => `${p.tablename}.${p.policyname}`).join(', '))
+  const noRls = await ex.query(`
+    SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public' AND c.relkind IN ('r','p') AND NOT c.relrowsecurity AND ${NOT_EXTENSION_REL}`)
+  check('RLS habilitado em todas as tabelas de public', noRls.length === 0, noRls.map((t) => t.relname).join(', '))
 
-  const fns = await rows(db, `
-    SELECT p.oid::regprocedure::text AS sig, p.proname, p.prosecdef
-    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-    LEFT JOIN pg_depend d ON d.objid = p.oid AND d.deptype = 'e'
-    WHERE n.nspname = 'public' AND d.objid IS NULL`)
+  const openPolicies = await ex.query(`
+    SELECT tablename, policyname FROM pg_policies
+    WHERE schemaname = 'public' AND ('anon' = ANY(roles) OR 'authenticated' = ANY(roles) OR 'public' = ANY(roles))
+      AND (qual = 'true' OR with_check = 'true')`)
+  check('nenhuma policy USING/WITH CHECK (true) para anon/authenticated/public', openPolicies.length === 0,
+    openPolicies.map((p) => `${p.tablename}.${p.policyname}`).join(', '))
+
+  const [{ functions }] = await ex.query(`
+    SELECT count(*)::int AS functions FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public' AND ${NOT_EXTENSION_PROC}`)
+  const execLeaks = await ex.query(`
+    SELECT r.role, p.oid::regprocedure::text AS sig
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    CROSS JOIN (VALUES ('anon'), ('authenticated')) AS r(role)
+    WHERE n.nspname = 'public' AND ${NOT_EXTENSION_PROC} AND has_function_privilege(r.role, p.oid, 'EXECUTE')
+    ORDER BY 1, 2`)
   for (const role of ['anon', 'authenticated']) {
-    const exec = []
-    for (const f of fns) {
-      const [{ has }] = await rows(db, `SELECT has_function_privilege($1, $2, 'EXECUTE') AS has`, [role, f.sig])
-      if (has) exec.push(f.sig)
-    }
-    check(`${role} sem EXECUTE em nenhuma função de public (${fns.length} funções)`, exec.length === 0, exec.slice(0, 10).join(', '))
+    const mine = execLeaks.filter((l) => l.role === role).map((l) => l.sig)
+    check(`${role} sem EXECUTE em nenhuma função de public (${functions} funções)`, mine.length === 0, mine.slice(0, 10).join(', '))
   }
 
-  const definerNoPath = await rows(db, `
+  const definerNoPath = await ex.query(`
     SELECT p.oid::regprocedure::text AS sig FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-    WHERE n.nspname = 'public' AND p.prosecdef
+    WHERE n.nspname = 'public' AND p.prosecdef AND ${NOT_EXTENSION_PROC}
       AND NOT EXISTS (SELECT 1 FROM unnest(coalesce(p.proconfig, '{}')) c WHERE c LIKE 'search_path=%')`)
   check('toda função SECURITY DEFINER de public fixa o search_path', definerNoPath.length === 0, definerNoPath.map((f) => f.sig).join(', '))
 
-  // Tentativa real como anon (equivalente ao PostgREST com a chave pública)
-  for (const t of ['contacts', 'inbox_messages', 'inbox_conversations', 'campaigns', 'settings']) {
-    const err = await tryAsRole(db, 'anon', `SELECT * FROM public.${t} LIMIT 1`)
-    check(`anon: SELECT em ${t} é negado`, err === '42501', `resultado: ${err ?? 'PASSOU (vazamento!)'}`)
-  }
-  for (const fn of ['claim_campaign_batch', 'try_lock_campaign_dispatch', 'dispara_cron_tick']) {
-    const call = await nullCallFor(db, fn)
-    if (!call) continue
-    const rpcErr = await tryAsRole(db, 'anon', `SELECT ${call}`)
-    check(`anon: RPC ${fn} é negada`, rpcErr === '42501', `resultado: ${rpcErr ?? 'PASSOU (vazamento!)'}`)
+  // Objetos de outro dono: ali o REVOKE/ALTER da migration pode ter virado WARNING
+  const foreign = await ex.query(`
+    WITH app AS (SELECT relowner FROM pg_class WHERE oid = to_regclass('public.campaigns'))
+    SELECT c.relname AS name, pg_get_userbyid(c.relowner) AS owner FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace, app
+    WHERE n.nspname = 'public' AND c.relkind IN ('r','p','v','m','f','S') AND c.relowner <> app.relowner AND ${NOT_EXTENSION_REL}
+    UNION ALL
+    SELECT p.oid::regprocedure::text, pg_get_userbyid(p.proowner) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace, app
+    WHERE n.nspname = 'public' AND p.proowner <> app.relowner AND ${NOT_EXTENSION_PROC}`)
+  if (foreign.length) {
+    info(`aviso: objetos de public com outro dono (os REVOKE/ALTER da migration podem ter virado WARNING; os checks acima valem mesmo assim): ${foreign.map((f) => `${f.name} (${f.owner})`).slice(0, 10).join(', ')}`)
   }
 
-  const pubTables = await rows(db, `SELECT schemaname, tablename FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public'`)
-  check('tabelas de public fora da publicação supabase_realtime (postgres_changes desligado)', pubTables.length === 0,
-    pubTables.map((p) => p.tablename).join(', '))
+  // Tentativa real como anon/authenticated (equivalente ao PostgREST com a chave pública)
+  for (const t of ['contacts', 'inbox_messages', 'inbox_conversations', 'campaigns', 'settings']) {
+    checkDenied(`anon: SELECT em ${t} é negado`, await probeAsRole(ex, 'anon', `SELECT * FROM public.${t} LIMIT 1`))
+  }
+  checkDenied('authenticated: SELECT em contacts é negado', await probeAsRole(ex, 'authenticated', `SELECT * FROM public.contacts LIMIT 1`))
+  for (const fn of ['claim_campaign_batch', 'try_lock_campaign_dispatch', 'dispara_cron_tick']) {
+    const call = await nullCallFor(ex, fn)
+    if (!call) continue
+    checkDenied(`anon: RPC ${fn} é negada`, await probeAsRole(ex, 'anon', `SELECT ${call}`))
+  }
+
+  const pubs = await ex.query(`
+    SELECT p.puballtables, coalesce((SELECT array_agg(pt.tablename::text ORDER BY pt.tablename) FROM pg_publication_tables pt
+                                     WHERE pt.pubname = p.pubname AND pt.schemaname = 'public'), '{}') AS tables
+    FROM pg_publication p WHERE p.pubname = 'supabase_realtime'`)
+  if (pubs.length === 0) info('publicação supabase_realtime não existe (nada a conferir)')
+  else {
+    check('tabelas de public fora da publicação supabase_realtime (postgres_changes desligado)',
+      !pubs[0].puballtables && pubs[0].tables.length === 0, pubs[0].puballtables ? 'FOR ALL TABLES' : pubs[0].tables.join(', '))
+  }
 }
 
-async function verifyServiceRole(db) {
-  const tables = await rows(db, `
-    SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-    WHERE n.nspname = 'public' AND c.relkind IN ('r','p')`)
-  const missing = []
-  for (const t of tables) {
-    for (const priv of ['SELECT', 'INSERT', 'UPDATE', 'DELETE']) {
-      const [{ has }] = await rows(db, `SELECT has_table_privilege('service_role', $1, $2) AS has`, [`public."${t.relname}"`, priv])
-      if (!has) missing.push(`${t.relname}:${priv}`)
-    }
-  }
-  check('service_role com SELECT/INSERT/UPDATE/DELETE em todas as tabelas', missing.length === 0, missing.slice(0, 15).join(', '))
+async function verifyServiceRole(ex) {
+  const missing = await ex.query(`
+    SELECT c.relname, p.priv FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+    CROSS JOIN (VALUES ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE')) AS p(priv)
+    WHERE n.nspname = 'public' AND c.relkind IN ('r','p') AND ${NOT_EXTENSION_REL}
+      AND NOT has_table_privilege('service_role', c.oid, p.priv)`)
+  check('service_role com SELECT/INSERT/UPDATE/DELETE em todas as tabelas', missing.length === 0,
+    missing.map((m) => `${m.relname}:${m.priv}`).slice(0, 15).join(', '))
 
-  // OFFSET 0 impede o planner de avaliar has_sequence_privilege antes do filtro por relkind
-  const seqMissing = await rows(db, `
+  const views = await ex.query(`
+    SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public' AND c.relkind IN ('v','m') AND ${NOT_EXTENSION_REL}
+      AND NOT has_table_privilege('service_role', c.oid, 'SELECT')`)
+  check('service_role com SELECT em todas as views de public', views.length === 0, views.map((v) => v.relname).join(', '))
+
+  const seqMissing = await ex.query(`
     SELECT s.relname FROM (
       SELECT c.oid, c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-      WHERE n.nspname = 'public' AND c.relkind = 'S' OFFSET 0
+      WHERE n.nspname = 'public' AND c.relkind = 'S' AND ${NOT_EXTENSION_REL} OFFSET 0
     ) s WHERE NOT has_sequence_privilege('service_role', s.oid, 'USAGE')`)
   check('service_role com USAGE em todas as sequences', seqMissing.length === 0, seqMissing.map((s) => s.relname).join(', '))
 
+  const noExec = await ex.query(`
+    SELECT p.oid::regprocedure::text AS sig FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public' AND ${NOT_EXTENSION_PROC} AND NOT has_function_privilege('service_role', p.oid, 'EXECUTE')`)
+  check('service_role com EXECUTE em todas as funções de public', noExec.length === 0, noExec.map((f) => f.sig).slice(0, 10).join(', '))
+
+  const rpcRows = await ex.query(`
+    SELECT p.proname, p.oid::regprocedure::text AS sig, has_function_privilege('service_role', p.oid, 'EXECUTE') AS has
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public' AND p.proname = ANY($1::text[])`, [SERVER_RPCS])
   const rpcProblems = []
   for (const name of SERVER_RPCS) {
-    const fns = await rows(db, `SELECT p.oid::regprocedure::text AS sig FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.proname = $1`, [name])
-    if (fns.length === 0) {
-      if (!KNOWN_MISSING_RPCS.has(name)) rpcProblems.push(`${name}: não existe`)
-      continue
-    }
-    for (const f of fns) {
-      const [{ has }] = await rows(db, `SELECT has_function_privilege('service_role', $1, 'EXECUTE') AS has`, [f.sig])
-      if (!has) rpcProblems.push(`${f.sig}: sem EXECUTE para service_role`)
-    }
+    const fns = rpcRows.filter((r) => r.proname === name)
+    if (fns.length === 0 && !KNOWN_MISSING_RPCS.has(name)) rpcProblems.push(`${name}: não existe`)
+    for (const f of fns) if (!f.has) rpcProblems.push(`${f.sig}: sem EXECUTE para service_role`)
   }
   check(`service_role executa todas as RPCs usadas pelo servidor (${SERVER_RPCS.length})`, rpcProblems.length === 0, rpcProblems.join('; '))
   for (const name of KNOWN_MISSING_RPCS) {
-    const [{ c }] = await rows(db, `SELECT count(*)::int AS c FROM pg_proc WHERE proname = $1`, [name])
-    if (c === 0) console.log(`  · aviso: RPC ${name} é chamada pelo código mas não existe no schema (o código tem fallback)`)
+    if (!rpcRows.some((r) => r.proname === name)) info(`aviso: RPC ${name} é chamada pelo código mas não existe no schema (o código tem fallback)`)
   }
 
-  const svcRead = await tryAsRole(db, 'service_role', `SELECT count(*) FROM public.contacts; SELECT count(*) FROM public.settings;`)
-  check('service_role lê contacts/settings (BYPASSRLS)', svcRead === null, `erro: ${svcRead}`)
+  const svcRead = await probeAsRole(ex, 'service_role', `SELECT 1 FROM public.contacts LIMIT 1; SELECT 1 FROM public.settings LIMIT 1;`)
+  if (svcRead.skipped) info(`service_role: leitura não verificável por sondagem (${svcRead.skipped})`)
+  else check('service_role lê contacts/settings (BYPASSRLS)', svcRead.code === null, `erro: ${svcRead.code}`)
+}
+
+/**
+ * Default privileges (objetos FUTUROS): o dono das tabelas do app não pode dar nada a
+ * anon/authenticated em public. O EXECUTE de PUBLIC em função nova é default GLOBAL do
+ * Postgres (não aparece aqui): a defesa é o REVOKE explícito em cada migration.
+ */
+async function verifyDefaultPrivileges(ex) {
+  const [app] = await ex.query(`SELECT pg_get_userbyid(relowner) AS owner FROM pg_class WHERE oid = to_regclass('public.campaigns')`)
+  const rows = await ex.query(`
+    SELECT pg_get_userbyid(d.defaclrole) AS role, coalesce(n.nspname, '(global)') AS schema, d.defaclobjtype::text AS objtype,
+           CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END AS grantee, a.privilege_type AS priv
+    FROM pg_default_acl d
+    LEFT JOIN pg_namespace n ON n.oid = d.defaclnamespace
+    CROSS JOIN LATERAL aclexplode(d.defaclacl) AS a
+    WHERE n.nspname = 'public' OR d.defaclnamespace = 0`)
+  const KINDS = { r: 'tabelas', S: 'sequences', f: 'funções' }
+  const leaks = rows.filter((r) => ['anon', 'authenticated'].includes(r.grantee) && KINDS[r.objtype])
+  const own = leaks.filter((r) => r.role === app?.owner)
+  check(`default privileges de ${app?.owner ?? '(dono de campaigns)'} em public não abrem objetos futuros para anon/authenticated`,
+    Boolean(app) && own.length === 0, own.map((r) => `${KINDS[r.objtype]}→${r.grantee}:${r.priv}`).slice(0, 10).join(', '))
+  const others = [...new Set(leaks.filter((r) => r.role !== app?.owner).map((r) => `${r.role} (${KINDS[r.objtype]}→${r.grantee})`))]
+  if (others.length) {
+    info(`aviso: default privileges de OUTROS roles ainda abrem para anon/authenticated o que ELES criarem em public: ${others.slice(0, 8).join(', ')}`)
+  }
+}
+
+async function readRealtimeSendState(ex) {
+  const rows = await ex.query(`
+    SELECT p.prosrc ~* $1 AS handles,
+           has_function_privilege(coalesce((SELECT pg_get_userbyid(f.proowner) FROM pg_proc f
+                                            WHERE f.oid = to_regprocedure('public.dispara_broadcast_change()')), current_user),
+                                  p.oid, 'EXECUTE') AS owner_can_execute
+    FROM pg_proc p WHERE p.oid = to_regprocedure('realtime.send(jsonb,text,text,boolean)')`, [SEND_HANDLER_REGEX])
+  return rows.length === 0
+    ? { exists: false, handlesErrors: false, ownerCanExecute: false }
+    : { exists: true, handlesErrors: rows[0].handles === true, ownerCanExecute: rows[0].owner_can_execute === true }
+}
+
+async function verifyBroadcastTriggers(ex) {
+  const migrationSql = readMigration(HARDENING)
+  const send = await readRealtimeSendState(ex)
+  const triggers = await readBroadcastTriggers(ex)
+  check('realtime.send existe e trata os próprios erros (EXCEPTION WHEN OTHERS: premissa da migration)',
+    send.exists && send.handlesErrors,
+    send.exists
+      ? 'realtime.send sem EXCEPTION WHEN OTHERS: a migration não cria triggers e as existentes não publicam (dashboard só no polling)'
+      : 'realtime.send ausente: ative Broadcast from Database e REAPLIQUE a migration de hardening (dashboard só no polling)')
+
+  const described = describeDbTriggers(triggers)
+  check(`snapshot exato das triggers de broadcast (${EXPECTED_SORTED.length}, nenhuma em campaign_contacts)`,
+    sameList(described, EXPECTED_SORTED),
+    `${listDiff(described, EXPECTED_SORTED)}${triggers.length === 0 && send.exists && send.handlesErrors ? ' — triggers ausentes com o Realtime ativo: reaplique a migration de hardening' : ''}`)
+  check('nenhuma trigger de broadcast em campaign_contacts (volume do disparo)', !triggers.some((t) => t.table === 'campaign_contacts'))
+  if (triggers.length) {
+    const wrong = triggers.filter((t) => !['O', 'A'].includes(t.enabled) || t.fn !== 'public.dispara_broadcast_change')
+    check('triggers de broadcast habilitadas e chamando public.dispara_broadcast_change()', wrong.length === 0,
+      wrong.map((t) => `${t.table}.${t.name} (tgenabled=${t.enabled}, ${t.fn})`).join(', '))
+    const defs = new Map(parseBroadcastTriggerDefinitions(migrationSql).map((d) => [`${d.table}.${d.name}`, d.marker]))
+    const stale = triggers.filter((t) => defs.get(`${t.table}.${t.name}`) !== t.marker).map((t) => `${t.table}.${t.name}`)
+    check('triggers na versão deste repositório (marca md5 da definição no COMMENT)', stale.length === 0,
+      `desatualizadas: ${stale.join(', ')} — reaplique a migration de hardening`)
+    check('o dono de dispara_broadcast_change tem EXECUTE em realtime.send', send.ownerCanExecute)
+  }
+
+  const fn = await ex.query(`SELECT prosrc FROM pg_proc WHERE oid = to_regprocedure('public.dispara_broadcast_change()')`)
+  const expectedSrc = parseBroadcastFunctionSource(migrationSql)
+  check('dispara_broadcast_change existe e está na versão deste repositório (corpo da função)',
+    fn.length === 1 && expectedSrc !== null && normalizeSource(fn[0].prosrc) === normalizeSource(expectedSrc),
+    fn.length === 0 ? 'função ausente: a migration de hardening não foi aplicada' : 'corpo diferente do arquivo: reaplique a migration de hardening')
+}
+
+async function verifyCronState(ex) {
+  const jobs = await tryQuery(ex, `SELECT jobname, username, command, active FROM cron.job WHERE jobname = 'dispara-cron-tick'`)
+  if (jobs.error) {
+    check('pg_cron: job dispara-cron-tick agendado', false, `cron.job ilegível (${jobs.error.code ?? ''} ${jobs.error.message}) — pg_cron habilitado?`)
+    return
+  }
+  const job = jobs.rows[0]
+  check('pg_cron: job dispara-cron-tick agendado, ativo e chamando public.dispara_cron_tick()',
+    job && job.active !== false && /dispara_cron_tick\(\)/.test(job.command), jobs.rows.length ? JSON.stringify(jobs.rows) : 'nenhum job visível (no Supabase, cron.job só mostra os jobs do usuário conectado: conecte como quem agendou, em geral postgres)')
+  if (!job) return
+  const can = await tryQuery(ex, `SELECT has_function_privilege($1, 'public.dispara_cron_tick()', 'EXECUTE') AS can`, [job.username])
+  check(`pg_cron: o usuário do job (${job.username}) tem EXECUTE em dispara_cron_tick() — o REVOKE de PUBLIC não para o relógio`,
+    can.rows?.[0]?.can === true, can.error?.message ?? 'sem EXECUTE: o job falha a cada minuto')
+  const secrets = await tryQuery(ex, `SELECT name FROM vault.secrets WHERE name IN ('app_base_url', 'cron_secret')`)
+  if (secrets.error) info(`vault: não foi possível listar os secrets (${secrets.error.message})`)
+  else {
+    const absent = ['app_base_url', 'cron_secret'].filter((n) => !secrets.rows.some((r) => r.name === n))
+    if (absent.length) info(`aviso: Vault sem ${absent.join(' e ')} — o tick não faz nada até o installer gravá-los`)
+  }
+}
+
+async function verifyStateChecks(ex) {
+  await verifyPrivileges(ex)
+  await verifyServiceRole(ex)
+  await verifyDefaultPrivileges(ex)
+  await verifyBroadcastTriggers(ex)
+  await verifyCronState(ex)
+}
+
+/**
+ * O modo --verify-only: verificações de estado numa transação READ ONLY desfeita no fim
+ * (nada é escrito, nem por engano: o próprio Postgres recusaria com 25006).
+ */
+export async function runVerifyOnly(ex) {
+  await ex.exec('BEGIN READ ONLY')
+  ex.inTx = true
+  try {
+    await ex.exec(`SET LOCAL lock_timeout = '2s'; SET LOCAL statement_timeout = '30s'`)
+    const [{ ro }] = await ex.query(`SELECT current_setting('transaction_read_only') AS ro`)
+    check('somente leitura: a verificação roda numa transação READ ONLY (desfeita no fim)', ro === 'on', `transaction_read_only=${ro}`)
+    await verifyStateChecks(ex)
+  } finally {
+    ex.inTx = false
+    try {
+      await ex.exec('ROLLBACK')
+    } catch (error) {
+      console.error(`ROLLBACK falhou: ${error.message}`)
+    }
+  }
+}
+
+/** Próximo XID a ser atribuído: não muda se ninguém escreveu nada. */
+async function nextXid(ex) {
+  const [{ xmax }] = await ex.query(`SELECT pg_snapshot_xmax(pg_current_snapshot())::text AS xmax`)
+  return xmax
 }
 
 function verifyRpcList() {
@@ -393,18 +1003,39 @@ function verifyRpcList() {
 }
 
 // ---------------------------------------------------------------------------
-// Verificações do realtime (triggers de broadcast)
+// Realtime: eventos, contrato do payload e WARNINGs
 // ---------------------------------------------------------------------------
-async function realtimeCount(db) {
-  const [{ c }] = await rows(db, `SELECT count(*)::int AS c FROM realtime.messages`)
-  return c
+export async function realtimeMaxSeq(ex) {
+  const [{ s }] = await ex.query(`SELECT coalesce(max(harness_seq), 0)::int AS s FROM realtime.messages`)
+  return s
 }
 
-async function lastMessages(db, n = 5) {
-  return rows(db, `SELECT topic, event, private, payload FROM realtime.messages ORDER BY inserted_at DESC, id LIMIT $1`, [n])
+export async function realtimeEventsSince(ex, seq) {
+  return ex.query(`
+    SELECT harness_seq::int AS seq, topic, event, private, payload FROM realtime.messages
+    WHERE harness_seq > $1 ORDER BY harness_seq`, [seq])
 }
 
-function findPii(payload, piiValues) {
+async function delta(ex, fn) {
+  const before = await realtimeMaxSeq(ex)
+  const result = await fn()
+  return { result, events: await realtimeEventsSince(ex, before) }
+}
+
+/** WARNINGs de broadcast desde a última chamada (avança o cursor). */
+export function takeBroadcastWarnings(ex) {
+  const fresh = ex.notices.slice(ex.broadcastCursor)
+  ex.broadcastCursor = ex.notices.length
+  return fresh.filter((n) => n.severity === 'WARNING' && BROADCAST_WARNING_RE.test(n.message))
+}
+
+function checkNoBroadcastWarnings(ex, label) {
+  const warnings = takeBroadcastWarnings(ex)
+  check(`[${label}] nenhum WARNING de dispara_broadcast_change/ErrorSendingBroadcastMessage nas escritas`, warnings.length === 0,
+    [...new Set(warnings.map((w) => w.message))].slice(0, 5).join(' | '))
+}
+
+export function findPii(payload, piiValues = PII_VALUES) {
   const hits = []
   const visit = (v, path) => {
     if (v && typeof v === 'object') {
@@ -420,79 +1051,123 @@ function findPii(payload, piiValues) {
   return hits
 }
 
-async function verifyRealtime(db, label) {
-  // Escreve como service_role (o que o app faz) — os triggers rodam como o dono.
-  const write = async (sql) => {
-    const err = await tryAsRole(db, 'service_role', sql)
-    if (err) throw new Error(`escrita falhou (${err}): ${sql.slice(0, 120)}`)
+/** Problemas do payload frente ao contrato (chaves exatas por tabela, escalares, null por statement). */
+export function validatePayloadShape(payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return ['payload não é objeto']
+  const problems = []
+  const top = Object.keys(payload).sort().join(',')
+  if (top !== 'commit_timestamp,eventType,new,old,table') problems.push(`chaves do topo: ${top}`)
+  const spec = BROADCAST_PAYLOAD_KEYS[payload.table]
+  if (!spec) return [...problems, `tabela fora do contrato: ${payload.table}`]
+  if (!['INSERT', 'UPDATE', 'DELETE'].includes(payload.eventType)) problems.push(`eventType inválido: ${payload.eventType}`)
+  if (typeof payload.commit_timestamp !== 'string') problems.push('commit_timestamp ausente')
+  const statementLevel = (STATEMENT_LEVEL_EVENTS[payload.table] ?? []).includes(payload.eventType)
+  const expected = {
+    new: statementLevel || payload.eventType === 'DELETE' ? null : spec.new,
+    old: statementLevel || payload.eventType === 'INSERT' ? null : spec.old,
   }
-  const piiValues = ['5511987654321', 'Maria Teste', 'maria@teste.com', 'mensagem secreta do cliente']
+  for (const side of ['new', 'old']) {
+    const actual = payload[side]
+    if (expected[side] === null) {
+      if (actual !== null) problems.push(`${payload.table} ${payload.eventType}: ${side} deveria ser null`)
+      continue
+    }
+    if (!actual || typeof actual !== 'object' || Array.isArray(actual)) {
+      problems.push(`${payload.table} ${payload.eventType}: ${side} não é objeto`)
+      continue
+    }
+    const keys = Object.keys(actual).sort()
+    const want = [...expected[side]].sort()
+    if (!sameList(keys, want)) problems.push(`${payload.table}.${side}: ${listDiff(keys, want)}`)
+    for (const [k, v] of Object.entries(actual)) {
+      if (v !== null && typeof v === 'object') problems.push(`${payload.table}.${side}.${k} não é escalar`)
+    }
+  }
+  return problems
+}
 
-  const before = await realtimeCount(db)
-  await write(`INSERT INTO public.campaigns (id, name, status) VALUES ('rt_c1', 'Campanha RT', 'Rascunho')`)
-  let after = await realtimeCount(db)
-  check(`[${label}] INSERT em campaigns publica 1 evento`, after === before + 1, `antes=${before} depois=${after}`)
-  const [msg] = await lastMessages(db, 1)
+/** Todos os eventos desde `sinceSeq`: tópico/evento públicos, contrato exato e nenhuma PII. */
+async function verifyAllPayloads(ex, label, sinceSeq = 0) {
+  const events = await realtimeEventsSince(ex, sinceSeq)
+  const shape = events.flatMap((e) => validatePayloadShape(e.payload).map((p) => `#${e.seq} ${p}`))
+  const channel = events.filter((e) => e.topic !== 'dispara-db' || e.event !== 'db_change' || e.private !== false)
+  check(`[${label}] os ${events.length} eventos seguem o contrato (dispara-db/db_change público; chaves exatas de new/old por tabela)`,
+    events.length > 0 && shape.length === 0 && channel.length === 0,
+    [...shape.slice(0, 6), ...channel.slice(0, 3).map((e) => `#${e.seq} canal ${e.topic}/${e.event}/private=${e.private}`)].join(' | ') || 'nenhum evento')
+  const pii = events.flatMap((e) => findPii(e.payload).map((h) => `${e.payload?.table}: ${h}`))
+  check(`[${label}] nenhum dos ${events.length} eventos contém PII`, pii.length === 0, [...new Set(pii)].slice(0, 10).join('; '))
+}
+
+/**
+ * Joga OLD.updated_at da campanha para fora da janela de 2s do throttle. Como superusuário,
+ * com session_replication_role = replica: nem o BEFORE set_updated_at nem as triggers de
+ * broadcast disparam.
+ */
+export async function ageCampaignWindow(ex, campaignId, seconds = 10) {
+  await asSuperuser(ex)
+  await ex.exec(`SET session_replication_role = replica;
+    UPDATE public.campaigns SET updated_at = now() - make_interval(secs => ${Number(seconds)}) WHERE id = '${campaignId.replace(/'/g, "''")}';
+    SET session_replication_role = origin;`)
+}
+
+/** Espera o começo de uma janela de 2s (o throttle compara floor(epoch/2)). */
+async function alignToThrottleWindow() {
+  const offset = Date.now() % 2000
+  if (offset > 1000) await sleep(2000 - offset + 20)
+}
+
+// ---------------------------------------------------------------------------
+// Verificações com escrita (só no PGlite)
+// ---------------------------------------------------------------------------
+async function verifyRealtime(ex, label) {
+  // Escreve como service_role (o que o app faz) — os triggers rodam como o dono.
+  const write = (sql) => writeAs(ex, 'service_role', sql)
+
+  const { events: inserted } = await delta(ex, () => write(`INSERT INTO public.campaigns (id, name, status) VALUES ('rt_c1', 'Campanha RT', 'Rascunho')`))
+  check(`[${label}] INSERT em campaigns publica 1 evento`, inserted.length === 1, `eventos=${inserted.length}`)
+  const [msg] = inserted
   check(`[${label}] evento no tópico público dispara-db/db_change`,
     msg && msg.topic === 'dispara-db' && msg.event === 'db_change' && msg.private === false, JSON.stringify(msg ?? {}))
   check(`[${label}] payload traz table/eventType`, msg?.payload?.table === 'campaigns' && msg?.payload?.eventType === 'INSERT', JSON.stringify(msg?.payload ?? {}))
 
   // Mudança de status sempre publica
-  const s0 = await realtimeCount(db)
-  await write(`UPDATE public.campaigns SET status = 'Enviando' WHERE id = 'rt_c1'`)
-  check(`[${label}] mudança de status de campanha publica`, (await realtimeCount(db)) === s0 + 1)
+  const { events: statusEvents } = await delta(ex, () => write(`UPDATE public.campaigns SET status = 'Enviando' WHERE id = 'rt_c1'`))
+  check(`[${label}] mudança de status de campanha publica`, statusEvents.length === 1)
 
   // Rajada de contadores na mesma janela: no máximo 1 evento
-  const b0 = await realtimeCount(db)
-  for (let i = 0; i < 10; i++) {
-    await write(`SELECT public.increment_campaign_stat('rt_c1'::text, 'delivered'::text)`)
-  }
-  const burst = (await realtimeCount(db)) - b0
-  check(`[${label}] 10 incrementos de contador seguidos geram ≤ 1 evento (throttle)`, burst <= 1, `eventos=${burst}`)
+  const { events: burst } = await delta(ex, async () => {
+    for (let i = 0; i < 10; i++) await write(`SELECT public.increment_campaign_stat('rt_c1'::text, 'delivered'::text)`)
+  })
+  check(`[${label}] 10 incrementos de contador seguidos geram ≤ 1 evento (throttle)`, burst.length <= 1, `eventos=${burst.length}`)
 
   // Update só de lock não publica
-  const l0 = await realtimeCount(db)
-  const lockCols = await rows(db, `SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='campaigns' AND column_name LIKE 'dispatch_lock%'`)
-  if (lockCols.length > 0) {
-    await write(`UPDATE public.campaigns SET ${lockCols[0].column_name} = ${lockCols[0].column_name} WHERE id = 'rt_c1'`)
-    check(`[${label}] UPDATE só de dispatch_lock_* não publica`, (await realtimeCount(db)) === l0, `eventos=${(await realtimeCount(db)) - l0}`)
-  }
+  const { events: lockEvents } = await delta(ex, () => write(`UPDATE public.campaigns SET dispatch_lock_until = dispatch_lock_until WHERE id = 'rt_c1'`))
+  check(`[${label}] UPDATE só de dispatch_lock_* não publica`, lockEvents.length === 0, `eventos=${lockEvents.length}`)
 
   // Contatos (statement-level, sem linha)
-  const c0 = await realtimeCount(db)
-  await write(`INSERT INTO public.contacts (id, phone, name, email) VALUES ('rt_ct1', '5511987654321', 'Maria Teste', 'maria@teste.com')`)
-  check(`[${label}] INSERT em contacts publica sinal`, (await realtimeCount(db)) >= c0 + 1)
+  const { events: contactEvents } = await delta(ex, () =>
+    write(`INSERT INTO public.contacts (id, phone, name, email) VALUES ('rt_ct1', '5511987654321', 'Maria Teste', 'maria@teste.com')`))
+  check(`[${label}] INSERT em contacts publica 1 sinal`, contactEvents.length === 1)
 
   // Inbox: mensagem recebida publica; cópia de template de campanha não
   await write(`INSERT INTO public.inbox_conversations (id, phone, contact_id) VALUES ('11111111-1111-1111-1111-111111111111', '5511987654321', 'rt_ct1')`)
-  const i0 = await realtimeCount(db)
-  await write(`INSERT INTO public.inbox_messages (conversation_id, direction, content) VALUES ('11111111-1111-1111-1111-111111111111', 'inbound', 'mensagem secreta do cliente')`)
-  check(`[${label}] mensagem recebida no inbox publica`, (await realtimeCount(db)) === i0 + 1, `eventos=${(await realtimeCount(db)) - i0}`)
-  const hasPayloadCol = (await rows(db, `SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='inbox_messages' AND column_name='payload'`)).length > 0
-  if (hasPayloadCol) {
-    const t0 = await realtimeCount(db)
-    await write(`INSERT INTO public.inbox_messages (conversation_id, direction, content, payload) VALUES ('11111111-1111-1111-1111-111111111111', 'outbound', 'template', '{"type":"campaign_template"}'::jsonb)`)
-    check(`[${label}] cópia de template de campanha no inbox NÃO publica (volume do disparo)`, (await realtimeCount(db)) === t0, `eventos=${(await realtimeCount(db)) - t0}`)
-  }
+  const { events: inbound } = await delta(ex, () =>
+    write(`INSERT INTO public.inbox_messages (conversation_id, direction, content) VALUES ('11111111-1111-1111-1111-111111111111', 'inbound', 'mensagem secreta do cliente')`))
+  check(`[${label}] mensagem recebida no inbox publica`, inbound.length === 1, `eventos=${inbound.length}`)
+  const { events: copy } = await delta(ex, () =>
+    write(`INSERT INTO public.inbox_messages (conversation_id, direction, content, payload) VALUES ('11111111-1111-1111-1111-111111111111', 'outbound', 'template', '{"type":"campaign_template"}'::jsonb)`))
+  check(`[${label}] cópia de template de campanha no inbox NÃO publica (volume do disparo)`, copy.length === 0, `eventos=${copy.length}`)
 
-  await verifyRealtimeUpdateFilters(db, label, write)
-
-  // Nenhum payload com PII
-  const all = await rows(db, `SELECT payload FROM realtime.messages`)
-  const leaks = all.flatMap((m) => findPii(m.payload, piiValues).map((h) => `${m.payload?.table}: ${h}`))
-  check(`[${label}] nenhum payload de broadcast contém PII (${all.length} eventos)`, leaks.length === 0, [...new Set(leaks)].slice(0, 10).join('; '))
+  await verifyRealtimeUpdateFilters(ex, label, write)
+  checkNoBroadcastWarnings(ex, label)
 }
 
 /**
  * WHEN do UPDATE de templates / flows / template_project_items: reescrita sem mudança
  * visível (sync da Meta, salvar/checar flow, sync de projeto) não publica.
  */
-async function verifyRealtimeUpdateFilters(db, label, write) {
-  const delta = async (sql) => {
-    const before = await realtimeCount(db)
-    await write(sql)
-    return (await realtimeCount(db)) - before
-  }
+async function verifyRealtimeUpdateFilters(ex, label, write) {
+  const count = async (sql) => (await delta(ex, () => write(sql))).events.length
 
   // templates: syncTemplatesToLocalDb faz upsert de TODOS (onConflict name,language) com
   // fetched_at/updated_at novos a cada GET /api/templates
@@ -505,30 +1180,29 @@ async function verifyRealtimeUpdateFilters(db, label, write) {
       category = EXCLUDED.category, status = EXCLUDED.status, parameter_format = EXCLUDED.parameter_format,
       components = EXCLUDED.components, spec_hash = EXCLUDED.spec_hash,
       fetched_at = EXCLUDED.fetched_at, updated_at = EXCLUDED.updated_at`
-  let n = await delta(templateSync(false))
+  let n = await count(templateSync(false))
   check(`[${label}] templates: 1º sync (20 novos) publica 20 INSERTs`, n === 20, `eventos=${n}`)
-  n = await delta(templateSync(false))
+  n = await count(templateSync(false))
   check(`[${label}] templates: sync sem mudança real (upsert dos 20) não publica`, n === 0, `eventos=${n}`)
-  n = await delta(templateSync(true))
-  check(`[${label}] templates: sync com 1 status mudado publica só 1 UPDATE`, n === 1, `eventos=${n}`)
-  const [tpl] = await lastMessages(db, 1)
-  check(`[${label}] templates: o UPDATE publicado traz id/status (sem PII)`,
-    tpl?.payload?.table === 'templates' && tpl?.payload?.eventType === 'UPDATE' && tpl?.payload?.new?.status === 'REJECTED' && !!tpl?.payload?.new?.id,
-    JSON.stringify(tpl?.payload ?? {}))
-  n = await delta(`UPDATE public.templates SET header_media_preview_url = 'https://exemplo.test/assinada?t=' || md5(random()::text), header_media_preview_updated_at = now() WHERE name = 'rt_tpl_2'`)
+  const rejected = await delta(ex, () => write(templateSync(true)))
+  const tpl = rejected.events[0]
+  check(`[${label}] templates: sync com 1 status mudado publica só 1 UPDATE (com id/status)`,
+    rejected.events.length === 1 && tpl?.payload?.eventType === 'UPDATE' && tpl?.payload?.new?.status === 'REJECTED' && !!tpl?.payload?.new?.id,
+    `eventos=${rejected.events.length} ${JSON.stringify(tpl?.payload ?? {})}`)
+  n = await count(`UPDATE public.templates SET header_media_preview_url = 'https://exemplo.test/assinada?t=' || md5(random()::text), header_media_preview_updated_at = now() WHERE name = 'rt_tpl_2'`)
   check(`[${label}] templates: URL assinada do preview regravada pelo disparo não publica`, n === 0, `eventos=${n}`)
-  n = await delta(`UPDATE public.templates SET components = '[{"type":"BODY","text":"novo"}]'::jsonb WHERE name = 'rt_tpl_3'`)
+  n = await count(`UPDATE public.templates SET components = '[{"type":"BODY","text":"novo"}]'::jsonb WHERE name = 'rt_tpl_3'`)
   check(`[${label}] templates: conteúdo (components) mudado publica`, n === 1, `eventos=${n}`)
-  n = await delta(`DELETE FROM public.templates WHERE name = 'rt_tpl_20'`)
+  n = await count(`DELETE FROM public.templates WHERE name = 'rt_tpl_20'`)
   check(`[${label}] templates: DELETE publica`, n === 1, `eventos=${n}`)
 
   // flows: salvar sem mudança e checar status na Meta só mexem em updated_at/meta_last_checked_at
   await write(`INSERT INTO public.flows (id, name) VALUES ('rt_fl1', 'Fluxo RT')`)
-  n = await delta(`UPDATE public.flows SET updated_at = now(), meta_last_checked_at = now() WHERE id = 'rt_fl1'`)
+  n = await count(`UPDATE public.flows SET updated_at = now(), meta_last_checked_at = now() WHERE id = 'rt_fl1'`)
   check(`[${label}] flows: UPDATE só de updated_at/meta_last_checked_at não publica`, n === 0, `eventos=${n}`)
-  n = await delta(`UPDATE public.flows SET spec = '{"form":{"fields":[{"id":"nome"}]}}'::jsonb WHERE id = 'rt_fl1'`)
+  n = await count(`UPDATE public.flows SET spec = '{"form":{"fields":[{"id":"nome"}]}}'::jsonb WHERE id = 'rt_fl1'`)
   check(`[${label}] flows: spec mudado publica`, n === 1, `eventos=${n}`)
-  n = await delta(`UPDATE public.flows SET meta_status = 'PUBLISHED', meta_flow_id = '123', meta_last_checked_at = now() WHERE id = 'rt_fl1'`)
+  n = await count(`UPDATE public.flows SET meta_status = 'PUBLISHED', meta_flow_id = '123', meta_last_checked_at = now() WHERE id = 'rt_fl1'`)
   check(`[${label}] flows: status na Meta mudado publica`, n === 1, `eventos=${n}`)
 
   // template_project_items: o sync de projeto regrava meta_id/meta_status de todos os itens
@@ -536,64 +1210,718 @@ async function verifyRealtimeUpdateFilters(db, label, write) {
     INSERT INTO public.template_projects (id, title) VALUES ('rt_tp1', 'Projeto RT');
     INSERT INTO public.template_project_items (id, project_id, name, content, meta_id, meta_status)
     SELECT 'rt_tpi' || g, 'rt_tp1', 'item_rt_' || g, 'Olá {{1}}', 'meta_' || g, 'PENDING' FROM generate_series(1, 10) AS g`)
-  n = await delta(`UPDATE public.template_project_items SET meta_id = meta_id, meta_status = meta_status WHERE project_id = 'rt_tp1'`)
+  n = await count(`UPDATE public.template_project_items SET meta_id = meta_id, meta_status = meta_status WHERE project_id = 'rt_tp1'`)
   check(`[${label}] template_project_items: sync sem mudança (10 itens) não publica`, n === 0, `eventos=${n}`)
-  n = await delta(`UPDATE public.template_project_items SET meta_status = 'APPROVED' WHERE id = 'rt_tpi1'`)
-  const [item] = await lastMessages(db, 1)
+  const item = await delta(ex, () => write(`UPDATE public.template_project_items SET meta_status = 'APPROVED' WHERE id = 'rt_tpi1'`))
+  const itemPayload = item.events[0]?.payload
   check(`[${label}] template_project_items: meta_status mudado publica 1 evento com project_id (filtro do detalhe)`,
-    n === 1 && item?.payload?.new?.project_id === 'rt_tp1' && item?.payload?.old?.project_id === 'rt_tp1',
-    `eventos=${n} ${JSON.stringify(item?.payload ?? {})}`)
+    item.events.length === 1 && itemPayload?.new?.project_id === 'rt_tp1' && itemPayload?.old?.project_id === 'rt_tp1',
+    `eventos=${item.events.length} ${JSON.stringify(itemPayload ?? {})}`)
 }
 
-async function verifyRealtimeResilience(db) {
-  const write = async (sql) => tryAsRole(db, 'service_role', sql)
+// --- B. Matriz por tabela ---------------------------------------------------
+const MX_CONV_1 = '33333333-3333-3333-3333-333333333331'
+const MX_CONV_2 = '33333333-3333-3333-3333-333333333332'
+const MX_MSG_1 = '44444444-4444-4444-4444-444444444441'
+const MX_MSG_2 = '44444444-4444-4444-4444-444444444442'
 
-  // 1) realtime.messages recusando INSERT: realtime.send engole, a escrita segue
-  await asSuperuser(db)
-  await db.exec(`ALTER TABLE realtime.messages ADD CONSTRAINT harness_block CHECK (false) NOT VALID`)
+/**
+ * Por tabela com trigger: INSERT, UPDATEs (que publicam e que não publicam) e DELETE como
+ * service_role, com o Δ de eventos esperado. `where` = linha onde a PII é semeada.
+ * Passo com `expect: null` é preparo (não conta, mas os eventos entram no contrato/PII).
+ */
+function matrixSpecs() {
+  return [
+    {
+      table: 'account_alerts', where: `id = 'mx_al1'`,
+      insert: `INSERT INTO public.account_alerts (id, type, code, message, details) VALUES ('mx_al1', 'payment', 131042, ${PII_SQL}, ${PII_JSONB_SQL})`,
+      insertExpect: 1,
+      steps: [
+        { label: 'UPDATE de dismissed', op: 'UPDATE', expect: 1, sql: `UPDATE public.account_alerts SET dismissed = true WHERE id = 'mx_al1'` },
+        { label: 'UPDATE sem mudança (sem WHEN: publica)', op: 'UPDATE', expect: 1, sql: `UPDATE public.account_alerts SET dismissed = dismissed WHERE id = 'mx_al1'` },
+        { label: 'DELETE', op: 'DELETE', expect: 1, sql: `DELETE FROM public.account_alerts WHERE id = 'mx_al1'` },
+      ],
+    },
+    {
+      table: 'template_projects', where: `id = 'mx_tp1'`,
+      insert: `INSERT INTO public.template_projects (id, title, prompt, user_id) VALUES ('mx_tp1', ${PII_SQL}, ${PII_SQL}, 'mx_user')`,
+      insertExpect: 1,
+      steps: [
+        { label: 'UPDATE de status', op: 'UPDATE', expect: 1, sql: `UPDATE public.template_projects SET status = 'submitted' WHERE id = 'mx_tp1'` },
+        { label: 'UPDATE de contadores', op: 'UPDATE', expect: 1, sql: `UPDATE public.template_projects SET template_count = 3, approved_count = 1 WHERE id = 'mx_tp1'` },
+        { label: 'DELETE', op: 'DELETE', expect: 1, sql: `DELETE FROM public.template_projects WHERE id = 'mx_tp1'` },
+        { label: '(preparo) projeto com 3 itens', expect: null, sql: `
+            INSERT INTO public.template_projects (id, title) VALUES ('mx_tp9', 'Projeto com itens');
+            INSERT INTO public.template_project_items (id, project_id, name, content)
+            SELECT 'mx_tp9_i' || g, 'mx_tp9', 'item_' || g, ${PII_SQL} FROM generate_series(1, 3) AS g` },
+        { label: 'DELETE do projeto com 3 itens (cascata publica o projeto e cada item)', expect: 4,
+          sql: `DELETE FROM public.template_projects WHERE id = 'mx_tp9'` },
+      ],
+    },
+    {
+      table: 'template_project_items', where: `id = 'mx_tpi1'`,
+      setup: [`INSERT INTO public.template_projects (id, title) VALUES ('mx_tp2', 'Projeto matriz')`],
+      insert: `INSERT INTO public.template_project_items (id, project_id, name, content, header, buttons) VALUES ('mx_tpi1', 'mx_tp2', 'item_matriz', ${PII_SQL}, ${PII_JSONB_SQL}, jsonb_build_array(${PII_JSONB_SQL}))`,
+      insertExpect: 1,
+      steps: [
+        { label: 'UPDATE de meta_status', op: 'UPDATE', expect: 1, sql: `UPDATE public.template_project_items SET meta_status = 'APPROVED' WHERE id = 'mx_tpi1'` },
+        { label: 'UPDATE só de updated_at', op: 'UPDATE', expect: 0, sql: `UPDATE public.template_project_items SET updated_at = now() WHERE id = 'mx_tpi1'` },
+        { label: 'DELETE', op: 'DELETE', expect: 1, sql: `DELETE FROM public.template_project_items WHERE id = 'mx_tpi1'` },
+      ],
+    },
+    {
+      table: 'templates', where: `id = 'mx_tpl1'`,
+      insert: `INSERT INTO public.templates (id, name, language, category, status, components) VALUES ('mx_tpl1', 'mx_template', 'pt_BR', 'MARKETING', 'APPROVED', jsonb_build_array(jsonb_build_object('type', 'BODY', 'text', ${PII_SQL})))`,
+      insertExpect: 1,
+      steps: [
+        { label: 'UPDATE de status', op: 'UPDATE', expect: 1, sql: `UPDATE public.templates SET status = 'PAUSED' WHERE id = 'mx_tpl1'` },
+        { label: 'UPDATE só de fetched_at/spec_hash/updated_at (sync)', op: 'UPDATE', expect: 0,
+          sql: `UPDATE public.templates SET fetched_at = now(), spec_hash = md5(random()::text), updated_at = now() WHERE id = 'mx_tpl1'` },
+        { label: 'UPDATE só de header_media_preview_*', op: 'UPDATE', expect: 0,
+          sql: `UPDATE public.templates SET header_media_preview_url = 'https://exemplo.test/x', header_media_preview_expires_at = now(), header_media_preview_updated_at = now() WHERE id = 'mx_tpl1'` },
+        { label: 'DELETE', op: 'DELETE', expect: 1, sql: `DELETE FROM public.templates WHERE id = 'mx_tpl1'` },
+      ],
+    },
+    {
+      table: 'flows', where: `id = 'mx_fl1'`,
+      insert: `INSERT INTO public.flows (id, name, spec, flow_json) VALUES ('mx_fl1', ${PII_SQL}, ${PII_JSONB_SQL}, ${PII_JSONB_SQL})`,
+      insertExpect: 1,
+      steps: [
+        { label: 'UPDATE de status', op: 'UPDATE', expect: 1, sql: `UPDATE public.flows SET status = 'PUBLISHED' WHERE id = 'mx_fl1'` },
+        { label: 'UPDATE só de updated_at/meta_last_checked_at', op: 'UPDATE', expect: 0,
+          sql: `UPDATE public.flows SET updated_at = now(), meta_last_checked_at = now() WHERE id = 'mx_fl1'` },
+        { label: 'DELETE', op: 'DELETE', expect: 1, sql: `DELETE FROM public.flows WHERE id = 'mx_fl1'` },
+      ],
+    },
+    {
+      table: 'flow_submissions', where: `id = 'mx_fs1'`,
+      setup: [`INSERT INTO public.campaigns (id, name) VALUES ('mx_c_fs', 'Campanha com flow'); INSERT INTO public.flows (id, name) VALUES ('mx_fl_fs', 'Flow da campanha')`],
+      insert: `INSERT INTO public.flow_submissions (id, message_id, from_phone, response_json_raw, response_json, campaign_id, flow_id, flow_local_id)
+               VALUES ('mx_fs1', 'wamid.mx_fs1', '5511987654321', ${PII_SQL}, ${PII_JSONB_SQL}, 'mx_c_fs', 'meta_flow_1', 'mx_fl_fs')`,
+      insertExpect: 1,
+      steps: [
+        { label: 'UPDATE de mapped_data (sem trigger de UPDATE)', op: 'UPDATE', expect: 0,
+          sql: `UPDATE public.flow_submissions SET mapped_data = ${PII_JSONB_SQL}, mapped_at = now() WHERE id = 'mx_fs1'` },
+        { label: 'DELETE do flow (o SET NULL em flow_submissions não publica)', op: 'DELETE', table: 'flows', expect: 1,
+          sql: `DELETE FROM public.flows WHERE id = 'mx_fl_fs'` },
+        { label: 'DELETE (sem trigger de DELETE)', op: 'DELETE', expect: 0, sql: `DELETE FROM public.flow_submissions WHERE id = 'mx_fs1'` },
+      ],
+    },
+    {
+      table: 'inbox_conversations', where: `id = '${MX_CONV_1}'`,
+      insert: `INSERT INTO public.inbox_conversations (id, phone, last_message_preview, handoff_summary, automation_paused_by)
+               VALUES ('${MX_CONV_1}', '5511987654321', ${PII_SQL}, ${PII_SQL}, 'Maria Teste')`,
+      insertExpect: 0,
+      steps: [
+        { label: 'contador de saída (increment_conversation_counters outbound)', op: 'UPDATE', expect: 0,
+          sql: `SELECT public.increment_conversation_counters('${MX_CONV_1}'::uuid, 'outbound', ${PII_SQL})` },
+        { label: 'UPDATE de status (fechar)', op: 'UPDATE', expect: 1, sql: `UPDATE public.inbox_conversations SET status = 'closed' WHERE id = '${MX_CONV_1}'` },
+        { label: 'UPDATE de prioridade', op: 'UPDATE', expect: 1, sql: `UPDATE public.inbox_conversations SET priority = 'high' WHERE id = '${MX_CONV_1}'` },
+        { label: 'modo humano (mode/human_mode_expires_at)', op: 'UPDATE', expect: 1,
+          sql: `UPDATE public.inbox_conversations SET mode = 'human', human_mode_expires_at = now() + interval '1 hour' WHERE id = '${MX_CONV_1}'` },
+        { label: 'UPDATE só de last_message_preview/updated_at', op: 'UPDATE', expect: 0,
+          sql: `UPDATE public.inbox_conversations SET last_message_preview = ${PII_SQL}, updated_at = now() WHERE id = '${MX_CONV_1}'` },
+        { label: '(preparo) 1 mensagem na conversa', expect: null,
+          sql: `INSERT INTO public.inbox_messages (conversation_id, direction, content) VALUES ('${MX_CONV_1}', 'inbound', ${PII_SQL})` },
+        { label: 'DELETE da conversa (1 por linha + 1 do DELETE em cascata das mensagens, por statement)', expect: 2,
+          sql: `DELETE FROM public.inbox_conversations WHERE id = '${MX_CONV_1}'` },
+      ],
+    },
+    {
+      table: 'inbox_messages', where: `id = '${MX_MSG_1}'`,
+      setup: [`INSERT INTO public.inbox_conversations (id, phone) VALUES ('${MX_CONV_2}', '5511987654321')`],
+      insert: `INSERT INTO public.inbox_messages (id, conversation_id, direction, content, media_url, ai_sources, payload)
+               VALUES ('${MX_MSG_1}', '${MX_CONV_2}', 'inbound', ${PII_SQL}, 'https://exemplo.test/midia.jpg', ${PII_JSONB_SQL}, ${PII_JSONB_SQL})`,
+      insertExpect: 1,
+      steps: [
+        { label: 'status de entrega mudou', op: 'UPDATE', expect: 1, sql: `UPDATE public.inbox_messages SET delivery_status = 'delivered', delivered_at = now() WHERE id = '${MX_MSG_1}'` },
+        { label: 'mesmo status de novo (webhook repetido)', op: 'UPDATE', expect: 0, sql: `UPDATE public.inbox_messages SET delivery_status = 'delivered' WHERE id = '${MX_MSG_1}'` },
+        { label: 'cópia de template de campanha (INSERT)', op: 'INSERT', expect: 0,
+          sql: `INSERT INTO public.inbox_messages (id, conversation_id, direction, content, message_type, delivery_status, payload)
+                VALUES ('${MX_MSG_2}', '${MX_CONV_2}', 'outbound', ${PII_SQL}, 'template', 'sent',
+                        jsonb_build_object('type', 'campaign_template', 'campaign_id', 'mx', 'resolved_values', jsonb_build_object('1', 'Maria Teste')))` },
+        { label: 'status da cópia de template (webhook)', op: 'UPDATE', expect: 0,
+          sql: `UPDATE public.inbox_messages SET delivery_status = 'read', read_at = now() WHERE id = '${MX_MSG_2}'` },
+        { label: 'DELETE de 2 mensagens num statement (1 evento por statement)', op: 'DELETE', expect: 1,
+          sql: `DELETE FROM public.inbox_messages WHERE conversation_id = '${MX_CONV_2}'` },
+      ],
+    },
+    {
+      table: 'contacts', where: `id = 'mx_ct1'`,
+      insert: `INSERT INTO public.contacts (id, phone, name, email, notes, custom_fields, tags)
+               SELECT 'mx_ct' || g, '+55119876500' || g, 'Maria Teste ' || g, 'maria' || g || '@teste.com', ${PII_SQL}, ${PII_JSONB_SQL}, '["vip"]'::jsonb
+               FROM generate_series(1, 3) AS g`,
+      insertExpect: 1,
+      steps: [
+        { label: 'UPDATE dos 3 num statement (bulk update)', op: 'UPDATE', expect: 1, sql: `UPDATE public.contacts SET tags = '["vip","novo"]'::jsonb WHERE starts_with(id, 'mx_ct')` },
+        { label: 'UPDATE sem linha afetada (trigger por STATEMENT publica mesmo assim)', op: 'UPDATE', expect: 1,
+          sql: `UPDATE public.contacts SET notes = 'x' WHERE id = 'mx_inexistente'` },
+        { label: 'DELETE dos 3 num statement', op: 'DELETE', expect: 1, sql: `DELETE FROM public.contacts WHERE starts_with(id, 'mx_ct')` },
+      ],
+    },
+    {
+      table: 'campaigns', where: `id = 'mx_c1'`,
+      insert: `INSERT INTO public.campaigns (id, name, status, template_name, template_variables, quick_reply_responses, fallback_response)
+               VALUES ('mx_c1', ${PII_SQL}, 'Rascunho', 'promo', ${PII_JSONB_SQL}, ${PII_JSONB_SQL}, ${PII_SQL})`,
+      insertExpect: 1,
+      steps: [
+        { label: 'UPDATE de status', op: 'UPDATE', expect: 1, sql: `UPDATE public.campaigns SET status = 'Enviando', started_at = now() WHERE id = 'mx_c1'` },
+        { label: 'UPDATE só de dispatch_lock_*', op: 'UPDATE', expect: 0,
+          sql: `UPDATE public.campaigns SET dispatch_lock_until = now() + interval '6 minutes', dispatch_locked_by = 'mx_worker' WHERE id = 'mx_c1'` },
+        { label: 'fila em campaign_contacts (sem trigger)', expect: 0,
+          sql: `INSERT INTO public.campaign_contacts (campaign_id, phone, name, status) SELECT 'mx_c1', '+55119000000' || g, 'Maria Teste', 'pending' FROM generate_series(1, 2) AS g` },
+        { label: 'DELETE (a cascata em campaign_contacts não publica)', op: 'DELETE', expect: 1, sql: `DELETE FROM public.campaigns WHERE id = 'mx_c1'` },
+      ],
+    },
+  ]
+}
+
+/** Semeia PII em toda coluna texto/jsonb que NÃO está na whitelist do payload (nem é PK/FK). */
+async function seedPiiColumns(ex, table, where) {
+  const allowed = new Set([...(BROADCAST_PAYLOAD_KEYS[table]?.new ?? []), ...(BROADCAST_PAYLOAD_KEYS[table]?.old ?? [])])
+  const cols = await ex.query(`
+    SELECT a.attname AS col, a.atttypid::regtype::text AS type
+    FROM pg_attribute a
+    WHERE a.attrelid = to_regclass('public.' || $1) AND a.attnum > 0 AND NOT a.attisdropped AND a.attgenerated = ''
+      AND a.atttypid IN ('text'::regtype, 'varchar'::regtype, 'jsonb'::regtype, 'json'::regtype, 'text[]'::regtype)
+      AND NOT EXISTS (SELECT 1 FROM pg_constraint k WHERE k.conrelid = a.attrelid AND k.contype IN ('p', 'f') AND a.attnum = ANY(k.conkey))
+    ORDER BY a.attnum`, [table])
+  const seeded = []
+  const skipped = []
+  for (const { col, type } of cols) {
+    if (allowed.has(col)) continue
+    const value = type === 'jsonb' ? PII_JSONB_SQL : type === 'json' ? `${PII_JSONB_SQL}::json` : type === 'text[]' ? `ARRAY[${PII_SQL}]` : PII_SQL
+    const err = await tryAsRole(ex, 'service_role', `UPDATE public.${table} SET ${col} = ${value} WHERE ${where}`)
+    if (err) skipped.push(`${table}.${col} (${err})`)
+    else seeded.push(col)
+  }
+  return { seeded, skipped }
+}
+
+async function runMatrixStep(ex, label, table, step) {
+  const { events } = await delta(ex, () => writeAs(ex, 'service_role', step.sql))
+  if (step.expect === null) return
+  const target = step.table ?? table
+  const wrongKind = step.op ? events.filter((e) => e.payload?.table !== target || e.payload?.eventType !== step.op) : []
+  check(`[${label}] ${target}: ${step.label} → ${step.expect} evento(s)`, events.length === step.expect && wrongKind.length === 0,
+    `eventos=${events.length}: ${summarizeEvents(events)}`)
+}
+
+async function verifyBroadcastMatrix(ex, label) {
+  const seq0 = await realtimeMaxSeq(ex)
+  const seeded = {}
+  const skipped = []
+  for (const spec of matrixSpecs()) {
+    for (const sql of spec.setup ?? []) await writeAs(ex, 'service_role', sql)
+    await runMatrixStep(ex, label, spec.table, { label: 'INSERT', op: 'INSERT', expect: spec.insertExpect, sql: spec.insert })
+    const s = await seedPiiColumns(ex, spec.table, spec.where)
+    seeded[spec.table] = s.seeded
+    skipped.push(...s.skipped)
+    for (const step of spec.steps) await runMatrixStep(ex, label, spec.table, step)
+  }
+  const empty = Object.entries(seeded).filter(([, cols]) => cols.length === 0).map(([t]) => t)
+  const total = Object.values(seeded).reduce((acc, cols) => acc + cols.length, 0)
+  check(`[${label}] matriz: PII semeada em toda coluna texto/jsonb fora da whitelist (${total} colunas em ${Object.keys(seeded).length} tabelas)`,
+    empty.length === 0 && Object.keys(seeded).length === Object.keys(BROADCAST_PAYLOAD_KEYS).length, `sem coluna semeada: ${empty.join(', ')}`)
+  if (skipped.length) info(`colunas que recusaram o texto de PII pela própria restrição (CHECK): ${skipped.join(', ')}`)
+  await verifyAllPayloads(ex, `${label}: matriz`, seq0)
+  checkNoBroadcastWarnings(ex, `${label}: matriz`)
+}
+
+// --- D. RPCs reais como service_role ---------------------------------------
+async function verifyRpcs(ex, label) {
+  const svc = (sql, params) => queryAs(ex, 'service_role', sql, params)
+  const write = (sql) => writeAs(ex, 'service_role', sql)
+  const phone = '+5511900000101'
+  const conversation = async (id) => (await ex.query(`SELECT contact_id, unread_count, total_messages, status FROM public.inbox_conversations WHERE id = $1`, [id]))[0]
+
+  await write(`INSERT INTO public.contacts (id, phone, name, email) VALUES ('rpc_ct1', '${phone}', 'Maria Teste', 'maria@teste.com')`)
+
+  // process_inbound_message
+  let d = await delta(ex, () => svc(`SELECT public.process_inbound_message($1, $2, $3) AS r`, [phone, 'mensagem secreta do cliente', 'wamid.rpc.in1']))
+  const first = d.result[0]?.r
+  const convId = first?.conversation_id
+  let conv = await conversation(convId)
+  check(`[${label}] process_inbound_message: 1ª mensagem cria a conversa (ligada ao contato pelo telefone) e publica só o INSERT da mensagem`,
+    first?.is_new_conversation === true && conv?.contact_id === 'rpc_ct1' && conv?.unread_count === 1
+      && d.events.length === 1 && d.events[0].payload?.table === 'inbox_messages' && d.events[0].payload?.new?.conversation_id === convId,
+    JSON.stringify({ first, conv, eventos: summarizeEvents(d.events) }))
+  d = await delta(ex, () => svc(`SELECT public.process_inbound_message($1, $2, $3) AS r`, [phone, 'outra mensagem', 'wamid.rpc.in2']))
+  const second = d.result[0]?.r
+  conv = await conversation(convId)
+  check(`[${label}] process_inbound_message: 2ª mensagem reaproveita a conversa (unread 2, total 2) e publica o UPDATE da conversa + o INSERT da mensagem`,
+    second?.is_new_conversation === false && second?.conversation_id === convId && conv?.unread_count === 2 && conv?.total_messages === 2
+      && sameList(d.events.map((e) => `${e.payload?.table}/${e.payload?.eventType}`).sort(), ['inbox_conversations/UPDATE', 'inbox_messages/INSERT']),
+    JSON.stringify({ second, conv, eventos: summarizeEvents(d.events) }))
+
+  // increment_conversation_counters (SELECT * FROM: a função roda uma vez só)
+  d = await delta(ex, () => svc(`SELECT * FROM public.increment_conversation_counters($1::uuid, 'outbound', $2)`, [convId, 'resposta do atendente']))
+  check(`[${label}] increment_conversation_counters (saída): total 3, não lidas inalteradas (2), nenhum evento`,
+    d.result[0]?.total_messages === 3 && d.result[0]?.unread_count === 2 && d.events.length === 0, JSON.stringify({ r: d.result[0], eventos: summarizeEvents(d.events) }))
+  d = await delta(ex, () => svc(`SELECT * FROM public.increment_conversation_counters($1::uuid, 'inbound', $2)`, [convId, 'mais uma do cliente']))
+  check(`[${label}] increment_conversation_counters (entrada): total 4, não lidas 3, 1 UPDATE`,
+    d.result[0]?.total_messages === 4 && d.result[0]?.unread_count === 3 && d.events.length === 1 && d.events[0].payload?.eventType === 'UPDATE',
+    JSON.stringify({ r: d.result[0], eventos: summarizeEvents(d.events) }))
+
+  // reset_unread_count
+  d = await delta(ex, () => svc(`SELECT * FROM public.reset_unread_count($1::uuid)`, [convId]))
+  const again = await delta(ex, () => svc(`SELECT * FROM public.reset_unread_count($1::uuid)`, [convId]))
+  check(`[${label}] reset_unread_count: zera as não lidas e publica 1 UPDATE; repetir não publica`,
+    d.result[0]?.unread_count === 0 && d.events.length === 1 && again.result[0]?.unread_count === 0 && again.events.length === 0,
+    JSON.stringify({ r: d.result[0], eventos: summarizeEvents(d.events), repetido: summarizeEvents(again.events) }))
+
+  // Campanha + fila
+  await write(`
+    INSERT INTO public.campaigns (id, name, status) VALUES ('rpc_c1', 'Campanha RPC', 'Enviando');
+    INSERT INTO public.contacts (id, phone, name) SELECT 'rpc_q' || g, '+5511900001' || lpad(g::text, 3, '0'), 'Cliente ' || g FROM generate_series(1, 5) AS g;
+    INSERT INTO public.campaign_contacts (campaign_id, contact_id, phone, status) SELECT 'rpc_c1', id, phone, 'pending' FROM public.contacts WHERE starts_with(id, 'rpc_q');
+    INSERT INTO public.campaign_contacts (campaign_id, contact_id, phone, status) VALUES ('rpc_c1', NULL, '+5511900001999', 'pending')`)
+
+  // try_lock / release_campaign_dispatch_lock
+  const lockSeq = await realtimeMaxSeq(ex)
+  const lockW1 = (await svc(`SELECT public.try_lock_campaign_dispatch('rpc_c1', 'w1', 360) AS ok`))[0].ok
+  const lockW2 = (await svc(`SELECT public.try_lock_campaign_dispatch('rpc_c1', 'w2', 360) AS ok`))[0].ok
+  await svc(`SELECT public.release_campaign_dispatch_lock('rpc_c1', 'w2')`)
+  const [held] = await ex.query(`SELECT dispatch_locked_by, dispatch_lock_until > now() + interval '300 seconds' AS ttl_ok FROM public.campaigns WHERE id = 'rpc_c1'`)
+  await svc(`SELECT public.release_campaign_dispatch_lock('rpc_c1', 'w1')`)
+  const [released] = await ex.query(`SELECT dispatch_locked_by, dispatch_lock_until FROM public.campaigns WHERE id = 'rpc_c1'`)
+  const relockW2 = (await svc(`SELECT public.try_lock_campaign_dispatch('rpc_c1', 'w2', 360) AS ok`))[0].ok
+  await svc(`SELECT public.release_campaign_dispatch_lock('rpc_c1', 'w2')`)
+  const lockEvents = await realtimeEventsSince(ex, lockSeq)
+  check(`[${label}] try_lock/release_campaign_dispatch_lock: CAS por worker (w1 pega, w2 não; release de outro worker não solta; TTL ≥ 300s; solto, w2 pega) e nenhum evento`,
+    lockW1 === true && lockW2 === false && held?.dispatch_locked_by === 'w1' && held?.ttl_ok === true
+      && released?.dispatch_locked_by === null && released?.dispatch_lock_until === null && relockW2 === true && lockEvents.length === 0,
+    JSON.stringify({ lockW1, lockW2, held, released, relockW2, eventos: summarizeEvents(lockEvents) }))
+
+  // claim_campaign_batch
+  const claimSeq = await realtimeMaxSeq(ex)
+  const b1 = await svc(`SELECT * FROM public.claim_campaign_batch('rpc_c1', 3, 'trace_rpc', 'w1', 600)`)
+  const b2 = await svc(`SELECT * FROM public.claim_campaign_batch('rpc_c1', 10, 'trace_rpc', 'w1', 600)`)
+  const b3 = await svc(`SELECT * FROM public.claim_campaign_batch('rpc_c1', 10, 'trace_rpc', 'w1', 600)`)
+  const b0 = await svc(`SELECT * FROM public.claim_campaign_batch('rpc_c1', 0, 'trace_rpc', 'w1', 600)`)
+  const claimed = [...b1, ...b2]
+  const claimEvents = await realtimeEventsSince(ex, claimSeq)
+  check(`[${label}] claim_campaign_batch: lotes disjuntos (3 + 2) em 'sending' com lease/worker/tentativa; linha sem contact_id nunca é claimada; fila vazia e limite 0 devolvem 0; nenhum evento`,
+    b1.length === 3 && b2.length === 2 && b3.length === 0 && b0.length === 0 && new Set(claimed.map((r) => r.id)).size === 5
+      && claimed.every((r) => r.status === 'sending' && r.locked_by === 'w1' && r.attempts === 1 && r.trace_id === 'trace_rpc'
+        && r.contact_id !== null && new Date(r.lease_until).getTime() > Date.now() + 500_000)
+      && claimEvents.length === 0,
+    JSON.stringify({ b1: b1.length, b2: b2.length, b3: b3.length, b0: b0.length, exemplo: claimed[0], eventos: summarizeEvents(claimEvents) }))
+
+  // reap_stuck_campaign_sending
+  const [sentId, poisonId] = claimed.map((r) => r.id)
+  await write(`
+    UPDATE public.campaign_contacts SET sending_at = now() - interval '20 minutes', lease_until = now() - interval '1 minute' WHERE campaign_id = 'rpc_c1' AND status = 'sending';
+    UPDATE public.campaign_contacts SET message_id = 'wamid.rpc.enviado' WHERE id = '${sentId}';
+    UPDATE public.campaign_contacts SET attempts = 5 WHERE id = '${poisonId}'`)
+  const reaped = (await svc(`SELECT public.reap_stuck_campaign_sending(10, 5) AS n`))[0].n
+  const reapedAgain = (await svc(`SELECT public.reap_stuck_campaign_sending(10, 5) AS n`))[0].n
+  const statuses = Object.fromEntries((await ex.query(`SELECT id, status FROM public.campaign_contacts WHERE campaign_id = 'rpc_c1' AND contact_id IS NOT NULL`)).map((r) => [r.id, r.status]))
+  const pendingCount = Object.values(statuses).filter((s) => s === 'pending').length
+  check(`[${label}] reap_stuck_campaign_sending: enviado-sem-marcar → sent, poison → failed, órfãos → pending (5 linhas); 2ª passada não acha nada`,
+    reaped === 5 && reapedAgain === 0 && statuses[sentId] === 'sent' && statuses[poisonId] === 'failed' && pendingCount === 3,
+    JSON.stringify({ reaped, reapedAgain, statuses }))
+
+  // increment_campaign_auto_reply_counters
+  await svc(`SELECT public.increment_campaign_auto_reply_counters('rpc_c1', 'quick')`)
+  await svc(`SELECT public.increment_campaign_auto_reply_counters('rpc_c1', 'fallback')`)
+  const badMatch = await tryAsRole(ex, 'service_role', `SELECT public.increment_campaign_auto_reply_counters('rpc_c1', 'outro')`)
+  const [auto] = await ex.query(`SELECT auto_reply_sent_count AS total, quick_reply_match_count AS quick, fallback_sent_count AS fallback FROM public.campaigns WHERE id = 'rpc_c1'`)
+  const [cfg] = await ex.query(`SELECT proconfig FROM pg_proc WHERE oid = to_regprocedure('public.increment_campaign_auto_reply_counters(text, text)')`)
+  check(`[${label}] increment_campaign_auto_reply_counters: quick e fallback contam (2/1/1), match_type inválido é recusado (P0001) e a função ganhou search_path fixo`,
+    auto?.total === 2 && auto?.quick === 1 && auto?.fallback === 1 && badMatch === 'P0001' && (cfg?.proconfig ?? []).some((c) => c.startsWith('search_path=')),
+    JSON.stringify({ auto, badMatch, proconfig: cfg?.proconfig }))
+
+  // increment_campaign_stat (assinatura usada pelo app: text, text)
+  for (const field of ['sent', 'delivered', 'delivered', 'read', 'failed', 'campo_desconhecido']) {
+    await svc(`SELECT public.increment_campaign_stat($1::text, $2::text)`, ['rpc_c1', field])
+  }
+  const [stats] = await ex.query(`SELECT sent, delivered, read, failed FROM public.campaigns WHERE id = 'rpc_c1'`)
+  check(`[${label}] increment_campaign_stat: sent 1, delivered 2, read 1, failed 1; campo desconhecido é ignorado`,
+    stats?.sent === 1 && stats?.delivered === 2 && stats?.read === 1 && stats?.failed === 1, JSON.stringify(stats))
+
+  // bulk_delete_contacts
+  await write(`INSERT INTO public.flow_submissions (id, message_id, from_phone, response_json_raw, contact_id) VALUES ('rpc_fs1', 'wamid.rpc.fs1', '${phone}', '{}', 'rpc_ct1')`)
+  d = await delta(ex, () => svc(`SELECT public.bulk_delete_contacts(ARRAY['rpc_ct1', 'rpc_q1']) AS n`))
+  const [after] = await ex.query(`
+    SELECT (SELECT count(*) FROM public.contacts WHERE id IN ('rpc_ct1', 'rpc_q1'))::int AS contacts,
+           (SELECT contact_id FROM public.inbox_conversations WHERE id = $1) AS conv_contact,
+           (SELECT count(*) FROM public.inbox_conversations WHERE id = $1)::int AS conversations,
+           (SELECT count(*) FROM public.campaign_contacts WHERE campaign_id = 'rpc_c1' AND contact_id IS NULL)::int AS queue_unlinked,
+           (SELECT contact_id FROM public.flow_submissions WHERE id = 'rpc_fs1') AS fs_contact`, [convId])
+  check(`[${label}] bulk_delete_contacts: apaga 2 contatos, solta (SET NULL) conversa/fila/submissão e publica 1 evento (contacts, por statement)`,
+    d.result[0]?.n === 2 && after.contacts === 0 && after.conversations === 1 && after.conv_contact === null && after.queue_unlinked === 2
+      && after.fs_contact === null && d.events.length === 1 && d.events[0].payload?.table === 'contacts',
+    JSON.stringify({ n: d.result[0]?.n, after, eventos: summarizeEvents(d.events) }))
+
+  checkNoBroadcastWarnings(ex, `${label}: RPCs`)
+}
+
+// --- E. Throttle de campaigns: lado positivo -------------------------------
+async function verifyThrottleWindow(ex, label) {
+  const increment = () => writeAs(ex, 'service_role', `SELECT public.increment_campaign_stat('thr_c1'::text, 'delivered'::text)`)
+  await writeAs(ex, 'service_role', `INSERT INTO public.campaigns (id, name, status) VALUES ('thr_c1', 'Campanha throttle', 'Enviando')`)
+
+  await ageCampaignWindow(ex, 'thr_c1')
+  await alignToThrottleWindow()
+  const first = await delta(ex, increment)
+  const second = await delta(ex, increment)
+  const p = first.events[0]?.payload
+  check(`[${label}] throttle: 1º incremento depois da janela publica 1 UPDATE com old.status (transição detectável) e o contador novo`,
+    first.events.length === 1 && p?.eventType === 'UPDATE' && p?.old?.status === 'Enviando' && p?.new?.delivered === 1 && p?.new?.status === 'Enviando',
+    `eventos=${first.events.length} ${JSON.stringify(p ?? {})}`)
+  check(`[${label}] throttle: 2º incremento imediato (mesma janela de 2s) não publica`, second.events.length === 0, `eventos=${second.events.length}`)
+
+  await ageCampaignWindow(ex, 'thr_c1')
+  const third = await delta(ex, increment)
+  check(`[${label}] throttle: na janela seguinte volta a publicar (delivered = 3)`,
+    third.events.length === 1 && third.events[0].payload?.new?.delivered === 3, `eventos=${third.events.length} ${JSON.stringify(third.events[0]?.payload ?? {})}`)
+  checkNoBroadcastWarnings(ex, `${label}: throttle`)
+}
+
+// --- C. Disparo real simulado ----------------------------------------------
+/**
+ * Um webhook de status como app/api/webhook/route.ts: recordStatusEvent (upsert por
+ * dedupe_key) → applyStatusUpdateToCampaignContact (campaign_contacts + increment_campaign_stat)
+ * → handleDeliveryStatus (inbox_messages) → markEventAttempt.
+ */
+async function simulateStatusWebhook(svc, wamid, status) {
+  const [event] = await svc(`
+    INSERT INTO public.whatsapp_status_events (message_id, status, event_ts, event_ts_raw, dedupe_key, payload, last_received_at)
+    VALUES ($1, $2, now(), '1700000000', $3, '{"waba_id":"sim"}'::jsonb, now())
+    ON CONFLICT (dedupe_key) DO UPDATE SET last_received_at = EXCLUDED.last_received_at RETURNING id`, [wamid, status, `${wamid}:${status}:1700000000`])
+
+  const [row] = await svc(`SELECT id, status, campaign_id, phone, trace_id, delivered_at FROM public.campaign_contacts WHERE message_id = $1 LIMIT 1`, [wamid])
+  const order = { pending: 0, sent: 1, delivered: 2, read: 3, failed: 4 }
+  let applied = false
+  if (row && order[status] > (order[row.status] ?? 0)) {
+    if (status === 'delivered') {
+      const updated = await svc(`UPDATE public.campaign_contacts SET status = 'delivered', delivered_at = now() WHERE message_id = $1 AND status <> 'delivered' AND status <> 'read' RETURNING id`, [wamid])
+      if (updated.length) {
+        await svc(`SELECT public.increment_campaign_stat($1::text, 'delivered'::text)`, [row.campaign_id])
+        applied = true
+      }
+    } else if (status === 'read') {
+      const updated = await svc(`UPDATE public.campaign_contacts SET status = 'read', read_at = now() WHERE message_id = $1 AND status <> 'read' RETURNING id`, [wamid])
+      if (updated.length) {
+        if (!row.delivered_at) {
+          const fixed = await svc(`UPDATE public.campaign_contacts SET delivered_at = now() WHERE message_id = $1 AND delivered_at IS NULL RETURNING id`, [wamid])
+          if (fixed.length) await svc(`SELECT public.increment_campaign_stat($1::text, 'delivered'::text)`, [row.campaign_id])
+        }
+        await svc(`SELECT public.increment_campaign_stat($1::text, 'read'::text)`, [row.campaign_id])
+        applied = true
+      }
+    }
+  }
+
+  const [message] = await svc(`SELECT id, conversation_id, delivery_status FROM public.inbox_messages WHERE whatsapp_message_id = $1`, [wamid])
+  if (message) {
+    const stamp = status === 'delivered' ? ', delivered_at = now()' : status === 'read' ? ', read_at = now()' : ''
+    await svc(`UPDATE public.inbox_messages SET delivery_status = $2${stamp} WHERE id = $1`, [message.id, status])
+  }
+
+  await svc(`SELECT attempts FROM public.whatsapp_status_events WHERE id = $1`, [event.id])
+  await svc(`
+    UPDATE public.whatsapp_status_events
+    SET apply_state = $2, applied = $3, applied_at = CASE WHEN $3 THEN now() END, last_attempt_at = now(), last_received_at = now(), attempts = attempts + 1
+    WHERE id = $1`, [event.id, applied ? 'applied' : 'pending', applied])
+}
+
+/**
+ * Uma campanha de N contatos pela sequência real do app (app/api/campaign/workflow/route.ts,
+ * lib/inbox/*, lib/whatsapp-status-events.ts), cada chamada como uma requisição do
+ * PostgREST (service_role, autocommit): lock → [claim → por contato: persistSentWithRetry,
+ * syncCampaignTemplateToInbox (conversa + mensagem campaign_template +
+ * increment_conversation_counters) → upsert em massa → métricas do lote → contadores] →
+ * conclusão → release → webhooks sent/delivered/read de cada contato.
+ */
+async function verifyDispatchVolume(ex, label, { contacts: n = 50, batchSize = 10 } = {}) {
+  const svc = (sql, params) => queryAs(ex, 'service_role', sql, params)
+  const campaignId = 'sim_c1'
+  const worker = 'sim_worker'
+  const trace = 'sim_trace'
+
+  // Preparo (fora da medição): import dos contatos, campanha, fila
+  await svc(`
+    INSERT INTO public.contacts (id, phone, name, email, custom_fields)
+    SELECT 'sim_ct' || lpad(g::text, 3, '0'), '+55119' || lpad(g::text, 8, '0'), 'Maria Teste ' || g, 'maria' || g || '@teste.com', jsonb_build_object('cidade', 'São Paulo')
+    FROM generate_series(1, ${n}) AS g`)
+  await svc(`INSERT INTO public.campaigns (id, name, status, template_name, total_recipients) VALUES ($1, 'Campanha simulada', 'Agendado', 'promo', $2)`, [campaignId, n])
+  await svc(`
+    INSERT INTO public.campaign_contacts (campaign_id, contact_id, phone, name, email, custom_fields, status)
+    SELECT $1, id, phone, name, email, custom_fields, 'pending' FROM public.contacts WHERE starts_with(id, 'sim_ct') ORDER BY id`, [campaignId])
+
+  const t0 = Date.now()
+  // campaignDb.start (dispatch) — o throttle conta a partir daqui
+  await svc(`UPDATE public.campaigns SET status = 'Enviando', started_at = now(), updated_at = now() WHERE id = $1`, [campaignId])
+  const seq0 = await realtimeMaxSeq(ex)
+
+  const [lock] = await svc(`SELECT public.try_lock_campaign_dispatch($1, $2, 360) AS ok`, [campaignId, worker])
+  let batches = 0
+  for (;;) {
+    await svc(`SELECT status FROM public.campaigns WHERE id = $1`, [campaignId])
+    const claimed = await svc(`SELECT * FROM public.claim_campaign_batch($1, $2, $3, $4, 600)`, [campaignId, batchSize, trace, worker])
+    if (claimed.length === 0) break
+    batches++
+    await svc(`SELECT status FROM public.campaigns WHERE id = $1`, [campaignId])
+    for (const row of claimed) {
+      const wamid = `wamid.sim.${row.contact_id}`
+      // persistSentWithRetry → updateContactStatus('sent')
+      await svc(`
+        UPDATE public.campaign_contacts
+        SET status = 'sent', sending_at = $3, message_id = $4, trace_id = $5, sent_at = now(), failed_at = NULL, skipped_at = NULL,
+            error = NULL, skip_code = NULL, skip_reason = NULL, failure_code = NULL, failure_reason = NULL
+        WHERE campaign_id = $1 AND contact_id = $2 AND status IN ('pending', 'sending', 'sent') RETURNING id`,
+      [campaignId, row.contact_id, row.sending_at, wamid, trace])
+      // syncCampaignTemplateToInbox: findMessageByWhatsAppId → getOrCreateConversation → createMessage
+      await svc(`SELECT * FROM public.inbox_messages WHERE whatsapp_message_id = $1`, [wamid])
+      let [conv] = await svc(`SELECT * FROM public.inbox_conversations WHERE phone = $1 AND status = 'open'`, [row.phone])
+      if (!conv) {
+        const [agent] = await svc(`SELECT id FROM public.ai_agents WHERE is_default = true AND is_active = true`)
+        ;[conv] = await svc(`
+          INSERT INTO public.inbox_conversations (phone, contact_id, ai_agent_id, status, mode)
+          VALUES ($1, $2, $3, 'open', $4) RETURNING *`, [row.phone, row.contact_id, agent?.id ?? null, agent ? 'bot' : 'human'])
+      }
+      const preview = `Olá ${row.name}, mensagem secreta do cliente`
+      await svc(`
+        INSERT INTO public.inbox_messages (conversation_id, direction, content, message_type, whatsapp_message_id, delivery_status, payload)
+        VALUES ($1, 'outbound', $2, 'template', $3, 'sent', $4::jsonb) RETURNING *`,
+      [conv.id, preview, wamid, JSON.stringify({ type: 'campaign_template', campaign_id: campaignId, template_name: 'promo', template_language: 'pt_BR', resolved_values: { 1: row.name }, synced_at: new Date().toISOString() })])
+      await svc(`SELECT * FROM public.increment_conversation_counters($1::uuid, 'outbound', $2)`, [conv.id, preview])
+    }
+    // persistência em massa do lote + métricas + contadores (campaignDb.getById/updateStatus)
+    await svc(`
+      INSERT INTO public.campaign_contacts (campaign_id, contact_id, phone, trace_id, status, sending_at, sent_at, message_id)
+      SELECT campaign_id, contact_id, phone, $2, 'sent', sending_at, now(), message_id FROM public.campaign_contacts
+      WHERE campaign_id = $1 AND contact_id = ANY($3::text[])
+      ON CONFLICT (campaign_id, contact_id) DO UPDATE SET
+        status = EXCLUDED.status, sent_at = EXCLUDED.sent_at, message_id = EXCLUDED.message_id, trace_id = EXCLUDED.trace_id`,
+    [campaignId, trace, claimed.map((r) => r.contact_id)])
+    await svc(`
+      INSERT INTO public.campaign_batch_metrics (campaign_id, trace_id, batch_index, batch_size, concurrency, sent_count)
+      VALUES ($1, $2, $3, $4, 1, $4)`, [campaignId, trace, batches - 1, claimed.length])
+    const [current] = await svc(`SELECT sent, failed, skipped, first_dispatch_at FROM public.campaigns WHERE id = $1`, [campaignId])
+    await svc(`
+      UPDATE public.campaigns SET sent = $2, failed = $3, skipped = $4, first_dispatch_at = coalesce($5, now()), last_sent_at = now(), updated_at = now()
+      WHERE id = $1`, [campaignId, current.sent + claimed.length, current.failed, current.skipped, current.first_dispatch_at])
+  }
+  // conclusão (fila vazia) + release
+  await svc(`SELECT count(*)::int AS n FROM public.campaign_contacts WHERE campaign_id = $1 AND status = 'sending'`, [campaignId])
+  await svc(`
+    UPDATE public.campaign_contacts SET status = 'skipped', skipped_at = now(), skip_reason = 'sem id', failure_reason = 'sem id', error = 'sem id'
+    WHERE campaign_id = $1 AND status = 'pending' AND contact_id IS NULL RETURNING id`, [campaignId])
+  await svc(`UPDATE public.campaigns SET status = 'Concluído', completed_at = now(), updated_at = now() WHERE id = $1`, [campaignId])
+  await svc(`SELECT public.release_campaign_dispatch_lock($1, $2)`, [campaignId, worker])
+
+  // webhooks de cada contato
+  const sent = await svc(`SELECT message_id FROM public.campaign_contacts WHERE campaign_id = $1 ORDER BY id`, [campaignId])
+  for (const { message_id: wamid } of sent) {
+    for (const status of ['sent', 'delivered', 'read']) await simulateStatusWebhook(svc, wamid, status)
+  }
+  const t1 = Date.now()
+
+  const events = await realtimeEventsSince(ex, seq0)
+  const byTable = countBy(events, (e) => e.payload?.table)
+  const windows = Math.floor(t1 / 2000) - Math.floor(t0 / 2000) + 1
+  const bound = 1 + windows
+  check(`[${label}] disparo de ${n} contatos (${batches} lotes + ${n * 3} webhooks): inbox_messages, inbox_conversations e contacts não publicam nada`,
+    lock?.ok === true && !byTable.inbox_messages && !byTable.inbox_conversations && !byTable.contacts, JSON.stringify(byTable))
+  check(`[${label}] disparo: realtime.messages cresce O(1) — ${events.length} evento(s) ≤ 1 (conclusão) + ${windows} janela(s) de 2s em ${t1 - t0} ms (antes do hardening: ~${n * 5})`,
+    events.length <= bound && (byTable.campaigns ?? 0) === events.length, `eventos=${events.length} ${JSON.stringify(byTable)}`)
+  const done = events.find((e) => e.payload?.new?.status === 'Concluído' && e.payload?.old?.status !== 'Concluído')
+  check(`[${label}] disparo: a conclusão publica a transição (old.status Enviando → new.status Concluído, completed_at)`,
+    done?.payload?.old?.status === 'Enviando' && done?.payload?.old?.completed_at === null && typeof done?.payload?.new?.completed_at === 'string',
+    JSON.stringify(done?.payload ?? events.map((e) => e.payload)))
+
+  const [final] = await ex.query(`
+    SELECT c.sent, c.delivered, c.read, c.status,
+           (SELECT count(*) FROM public.campaign_contacts cc WHERE cc.campaign_id = c.id AND cc.status = 'read')::int AS read_rows,
+           (SELECT count(*) FROM public.inbox_conversations ic WHERE starts_with(ic.contact_id, 'sim_ct') AND ic.total_messages = 1)::int AS conversations,
+           (SELECT count(*) FROM public.inbox_messages im WHERE starts_with(im.whatsapp_message_id, 'wamid.sim.') AND im.delivery_status = 'read')::int AS messages,
+           (SELECT count(*) FROM public.whatsapp_status_events e WHERE starts_with(e.message_id, 'wamid.sim.'))::int AS status_events
+    FROM public.campaigns c WHERE c.id = $1`, [campaignId])
+  check(`[${label}] disparo: estado final correto (sent = delivered = read = ${n}, Concluído; ${n} conversas e ${n} mensagens 'read' no inbox; ${n * 3} eventos de status)`,
+    final?.sent === n && final?.delivered === n && final?.read === n && final?.status === 'Concluído' && final?.read_rows === n
+      && final?.conversations === n && final?.messages === n && final?.status_events === n * 3,
+    JSON.stringify(final))
+  checkNoBroadcastWarnings(ex, `${label}: disparo`)
+}
+
+// --- A. Controle: o WARNING de uma projeção quebrada é capturado -------------
+async function verifyBroadcastWarningCapture(ex, label) {
+  checkNoBroadcastWarnings(ex, `${label}: antes do controle`)
+  await asSuperuser(ex)
+  await ex.exec(`ALTER TABLE public.account_alerts RENAME COLUMN code TO code_renamed`)
+  try {
+    const { result: err, events } = await delta(ex, () =>
+      tryAsRole(ex, 'service_role', `INSERT INTO public.account_alerts (id, type, code_renamed, message) VALUES ('wc_al1', 'system', 1, 'aviso')`))
+    const warnings = takeBroadcastWarnings(ex)
+    check(`[${label}] (controle) coluna renomeada na projeção: a escrita segue, nada é publicado e o WARNING de dispara_broadcast_change(account_alerts) é capturado (falharia o check)`,
+      err === null && events.length === 0 && warnings.some((w) => /dispara_broadcast_change\(account_alerts\)/.test(w.message)),
+      JSON.stringify({ err, eventos: events.length, warnings: warnings.map((w) => w.message) }))
+  } finally {
+    await ex.exec(`ALTER TABLE public.account_alerts RENAME COLUMN code_renamed TO code`)
+    await writeAs(ex, 'service_role', `DELETE FROM public.account_alerts WHERE id = 'wc_al1'`)
+  }
+  checkNoBroadcastWarnings(ex, `${label}: depois do controle (coluna de volta)`)
+}
+
+async function verifyRealtimeResilience(ex) {
+  const write = (sql) => tryAsRole(ex, 'service_role', sql)
+
+  // 1) realtime.messages recusando INSERT: realtime.send engole (WARNING), a escrita segue
+  await asSuperuser(ex)
+  takeBroadcastWarnings(ex)
+  await ex.exec(`ALTER TABLE realtime.messages ADD CONSTRAINT harness_block CHECK (false) NOT VALID`)
   let err = await write(`UPDATE public.campaigns SET status = 'Pausado' WHERE id = 'rt_c1'`)
-  check('escrita segue quando o INSERT em realtime.messages falha', err === null, `erro: ${err}`)
-  await db.exec(`ALTER TABLE realtime.messages DROP CONSTRAINT harness_block`)
+  const sendWarnings = takeBroadcastWarnings(ex)
+  check('escrita segue quando o INSERT em realtime.messages falha (e o WARNING ErrorSendingBroadcastMessage é capturado)',
+    err === null && sendWarnings.some((w) => /ErrorSendingBroadcastMessage/.test(w.message)), `erro: ${err} avisos: ${sendWarnings.map((w) => w.message).join(' | ')}`)
+  await ex.exec(`ALTER TABLE realtime.messages DROP CONSTRAINT harness_block`)
 
   // 2) sem EXECUTE em realtime.send
-  await db.exec(`REVOKE EXECUTE ON FUNCTION realtime.send(jsonb, text, text, boolean) FROM PUBLIC, ${OWNER}`)
+  await ex.exec(`REVOKE EXECUTE ON FUNCTION realtime.send(jsonb, text, text, boolean) FROM PUBLIC, ${OWNER}`)
   err = await write(`UPDATE public.campaigns SET status = 'Enviando' WHERE id = 'rt_c1'`)
   check('escrita segue sem permissão de EXECUTE em realtime.send', err === null, `erro: ${err}`)
-  await db.exec(`GRANT EXECUTE ON FUNCTION realtime.send(jsonb, text, text, boolean) TO PUBLIC`)
+  await ex.exec(`GRANT EXECUTE ON FUNCTION realtime.send(jsonb, text, text, boolean) TO PUBLIC`)
 
   // 3) realtime.send inexistente (ambiente sem Broadcast from Database)
-  await db.exec(`ALTER FUNCTION realtime.send(jsonb, text, text, boolean) RENAME TO send_disabled`)
+  await ex.exec(`ALTER FUNCTION realtime.send(jsonb, text, text, boolean) RENAME TO send_disabled`)
   err = await write(`UPDATE public.campaigns SET status = 'Pausado' WHERE id = 'rt_c1'`)
   check('escrita segue com realtime.send ausente', err === null, `erro: ${err}`)
-  await db.exec(`ALTER FUNCTION realtime.send_disabled(jsonb, text, text, boolean) RENAME TO send`)
+  await ex.exec(`ALTER FUNCTION realtime.send_disabled(jsonb, text, text, boolean) RENAME TO send`)
+  checkNoBroadcastWarnings(ex, 'resiliência (fora o caso 1, esperado)')
 }
 
-async function verifyCron(db) {
-  await asSuperuser(db)
-  const jobs = await rows(db, `SELECT jobname, command FROM cron.job`)
-  check('job dispara-cron-tick agendado', jobs.some((j) => j.jobname === 'dispara-cron-tick'), JSON.stringify(jobs))
-  await db.exec(`SELECT vault.create_secret('https://exemplo.test', 'app_base_url'); SELECT vault.create_secret('s3cr3t', 'cron_secret');`)
-  // pg_cron roda o job como o dono do job (o postgres do Supabase)
-  await asOwner(db)
-  let err = null
+// --- F. Objetos futuros -------------------------------------------------------
+async function verifyFutureObjects(ex) {
+  await asOwner(ex)
+  await ex.exec(`
+    CREATE TABLE public.harness_probe_table (id int);
+    CREATE VIEW public.harness_probe_view AS SELECT 1 AS x;
+    CREATE SEQUENCE public.harness_probe_seq;
+    CREATE FUNCTION public.harness_probe_fn() RETURNS int LANGUAGE sql AS 'SELECT 1';`)
+  await asSuperuser(ex)
   try {
-    await db.exec(`SELECT public.dispara_cron_tick()`)
-  } catch (error) {
-    err = error.message
+    const [p] = await ex.query(`
+      SELECT
+        bool_or(has_table_privilege(r.role, 'public.harness_probe_table', 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')) AS table_leak,
+        bool_or(has_table_privilege(r.role, 'public.harness_probe_view', 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')) AS view_leak,
+        bool_or(has_sequence_privilege(r.role, 'public.harness_probe_seq', 'USAGE,SELECT,UPDATE')) AS seq_leak,
+        bool_or(has_function_privilege(r.role, 'public.harness_probe_fn()', 'EXECUTE')) AS fn_exec
+      FROM (VALUES ('anon'), ('authenticated')) AS r(role)`)
+    const [svc] = await ex.query(`
+      SELECT has_table_privilege('service_role', 'public.harness_probe_table', 'SELECT') AND has_table_privilege('service_role', 'public.harness_probe_table', 'INSERT')
+               AND has_table_privilege('service_role', 'public.harness_probe_table', 'UPDATE') AND has_table_privilege('service_role', 'public.harness_probe_table', 'DELETE') AS table_ok,
+             has_table_privilege('service_role', 'public.harness_probe_view', 'SELECT') AS view_ok,
+             has_sequence_privilege('service_role', 'public.harness_probe_seq', 'USAGE') AS seq_ok,
+             has_function_privilege('service_role', 'public.harness_probe_fn()', 'EXECUTE') AS fn_ok`)
+    const [explicit] = await ex.query(`
+      SELECT count(*)::int AS n FROM pg_proc p, aclexplode(p.proacl) AS a
+      WHERE p.oid = 'public.harness_probe_fn()'::regprocedure AND a.grantee IN ('anon'::regrole, 'authenticated'::regrole)`)
+    check('objetos futuros (criados pelo dono depois do hardening): anon/authenticated sem acesso a tabela, view e sequence novas',
+      !p.table_leak && !p.view_leak && !p.seq_leak, JSON.stringify(p))
+    check('objetos futuros: service_role com acesso a tabela, view, sequence e função novas (o app segue funcionando)',
+      svc.table_ok && svc.view_ok && svc.seq_ok && svc.fn_ok, JSON.stringify(svc))
+    check('objetos futuros: função nova sem GRANT explícito a anon/authenticated (default privileges do schema revogados)', explicit.n === 0, `grants=${explicit.n}`)
+    info(`(esperado, não falha) função nova em public: anon/authenticated ${p.fn_exec ? 'TÊM' : 'não têm'} EXECUTE via PUBLIC — default GLOBAL do Postgres que ALTER DEFAULT PRIVILEGES … IN SCHEMA não revoga; a defesa é o REVOKE explícito em cada migration`)
+  } finally {
+    await asOwner(ex)
+    await ex.exec(`
+      DROP FUNCTION public.harness_probe_fn();
+      DROP SEQUENCE public.harness_probe_seq;
+      DROP VIEW public.harness_probe_view;
+      DROP TABLE public.harness_probe_table;`)
+    await asSuperuser(ex)
   }
-  await asSuperuser(db)
-  const queued = await rows(db, `SELECT url, headers FROM net.http_request_queue ORDER BY id DESC LIMIT 1`)
-  check('dispara_cron_tick roda como o dono e enfileira POST /api/cron/tick com Bearer',
+}
+
+// --- G. pg_cron realista ------------------------------------------------------
+async function verifyCronExecution(ex) {
+  await asSuperuser(ex)
+  const [job] = await ex.query(`SELECT jobname, username, command FROM cron.job WHERE jobname = 'dispara-cron-tick'`)
+  check('pg_cron: o job guarda quem rodou a migration (cron.schedule SECURITY INVOKER, como o pg_cron)', job?.username === OWNER, JSON.stringify(job ?? {}))
+  if (!job) return
+  const [{ can }] = await ex.query(`SELECT has_function_privilege($1, 'public.dispara_cron_tick()', 'EXECUTE') AS can`, [job.username])
+  check(`pg_cron: cron.job.username (${job.username}) tem EXECUTE em dispara_cron_tick()`, can === true)
+  await ex.exec(`SELECT vault.create_secret('https://exemplo.test', 'app_base_url'); SELECT vault.create_secret('s3cr3t', 'cron_secret');`)
+  // pg_cron roda o comando do job numa sessão do usuário do job
+  const err = await tryAsRole(ex, job.username, job.command)
+  const queued = await ex.query(`SELECT url, headers FROM net.http_request_queue ORDER BY id DESC LIMIT 1`)
+  check('pg_cron: o comando do job, rodando como cron.job.username, enfileira POST /api/cron/tick com Bearer',
     err === null && queued[0]?.url === 'https://exemplo.test/api/cron/tick' && queued[0]?.headers?.Authorization === 'Bearer s3cr3t',
     err ?? JSON.stringify(queued))
 }
 
-async function triggerFingerprint(db) {
-  return rows(db, `
-    SELECT c.relname, t.tgname, t.oid::int AS oid, obj_description(t.oid, 'pg_trigger') AS comment
-    FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace
-    WHERE n.nspname = 'public' AND NOT t.tgisinternal AND t.tgname LIKE 'dispara_realtime%'
-    ORDER BY c.relname, t.tgname`)
+// ---------------------------------------------------------------------------
+// --verify-only pelo protocolo de rede (testa o caminho `pg` no CI)
+// ---------------------------------------------------------------------------
+/**
+ * Serve um PGlite pelo protocolo de rede do Postgres num socket local: o mesmo cliente `pg`
+ * do modo --verify-only real fala com ele. Uma conexão de cada vez; a sessão é a mesma do
+ * executor in-process (o PGlite é single-user), então não use os dois ao mesmo tempo.
+ */
+export async function servePgliteOverTcp(db) {
+  const net = await import('node:net')
+  let queue = Promise.resolve()
+  const sockets = new Set()
+  const server = net.createServer((socket) => {
+    sockets.add(socket)
+    socket.on('close', () => sockets.delete(socket))
+    socket.on('error', () => {})
+    let buffer = Buffer.alloc(0)
+    let started = false
+    socket.on('data', (chunk) => {
+      buffer = Buffer.concat([buffer, chunk])
+      const messages = []
+      for (;;) {
+        if (!started) {
+          if (buffer.length < 8) break
+          const length = buffer.readInt32BE(0)
+          if (buffer.length < length) break
+          // SSLRequest: responde 'N' (sem TLS) e o cliente manda o StartupMessage
+          if (length === 8 && buffer.readInt32BE(4) === 80877103) {
+            buffer = buffer.subarray(8)
+            socket.write('N')
+            continue
+          }
+          messages.push(buffer.subarray(0, length))
+          buffer = buffer.subarray(length)
+          started = true
+        } else {
+          if (buffer.length < 5) break
+          const length = buffer.readInt32BE(1)
+          if (buffer.length < length + 1) break
+          const message = buffer.subarray(0, length + 1)
+          buffer = buffer.subarray(length + 1)
+          if (message[0] === 0x58) {
+            socket.end() // Terminate
+            return
+          }
+          messages.push(message)
+        }
+      }
+      if (messages.length === 0) return
+      const payload = new Uint8Array(Buffer.concat(messages))
+      queue = queue
+        .then(async () => {
+          const response = await db.execProtocolRaw(payload)
+          if (response?.length && !socket.destroyed) socket.write(Buffer.from(response))
+        })
+        .catch((error) => {
+          socket.destroy(error)
+        })
+    })
+  })
+  await new Promise((resolveListen) => server.listen(0, '127.0.0.1', () => resolveListen(undefined)))
+  const { port } = /** @type {import('node:net').AddressInfo} */ (server.address())
+  return {
+    url: `postgresql://postgres@127.0.0.1:${port}/postgres`,
+    close: () => new Promise((resolveClose) => {
+      for (const s of sockets) s.destroy()
+      server.close(() => resolveClose())
+    }),
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -601,54 +1929,71 @@ async function triggerFingerprint(db) {
 // ---------------------------------------------------------------------------
 async function scenarioFreshInstall(files) {
   scenario('1. Instalação nova (todas as migrations em ordem, como o installer)')
-  const db = await createSupabaseLikeDb()
-  await asOwner(db)
+  const ex = await createSupabaseLikeDb()
+  await asOwner(ex)
+  const warnings = []
   for (const file of files) {
-    const r = await applyMigration(db, file)
+    const r = await applyMigration(ex, file)
     check(`aplica ${file}`, r.ok, r.error)
-    if (r.warnings.length) console.log(`      avisos: ${[...new Set(r.warnings)].slice(0, 3).join(' | ')}`)
-    if (!r.ok) return null
+    warnings.push(...r.warnings.map((w) => `${file}: ${w}`))
+    if (!r.ok) {
+      await ex.close()
+      return
+    }
   }
-  await asSuperuser(db)
-  const fingerprint = await triggerFingerprint(db)
-  check(`triggers de broadcast criados (${fingerprint.length})`, fingerprint.length >= 5, JSON.stringify(fingerprint.map((f) => `${f.relname}.${f.tgname}`)))
-  await verifyPrivileges(db)
-  await verifyServiceRole(db)
+  check('nenhuma migration emite WARNING (Realtime ativo)', warnings.length === 0, [...new Set(warnings)].slice(0, 3).join(' | '))
+  await asSuperuser(ex)
+  const fingerprint = await readBroadcastTriggers(ex)
+  await runVerifyOnly(ex)
 
   scenario('3. Idempotência (reaplica a migration de hardening)')
-  await asOwner(db)
-  const again = await applyMigration(db, HARDENING)
-  check('reaplicar a migration de hardening não falha', again.ok, again.error)
-  await asSuperuser(db)
-  const fingerprint2 = await triggerFingerprint(db)
+  await asOwner(ex)
+  const again = await applyMigration(ex, HARDENING)
+  check('reaplicar a migration de hardening não falha nem avisa', again.ok && again.warnings.length === 0, again.error ?? again.warnings.join(' | '))
+  await asSuperuser(ex)
+  const fingerprint2 = await readBroadcastTriggers(ex)
   check('reaplicar não recria triggers (mesmos OIDs)',
     JSON.stringify(fingerprint.map((f) => f.oid)) === JSON.stringify(fingerprint2.map((f) => f.oid)),
     `antes=${fingerprint.map((f) => f.oid)} depois=${fingerprint2.map((f) => f.oid)}`)
-  await verifyPrivileges(db)
+  const idempotent = await captureChecks(() => runVerifyOnly(ex))
+  check(`verify-only depois de reaplicar: ${idempotent.length} verificações passam`, idempotent.every((r) => r.ok),
+    idempotent.filter((r) => !r.ok).map((r) => `${r.name}: ${r.detail}`).slice(0, 5).join(' | '))
 
   scenario('4. Realtime e resiliência (instalação nova)')
-  await verifyRealtime(db, 'nova')
-  await verifyRealtimeResilience(db)
-  await verifyCron(db)
-  await db.close()
-  return true
+  await verifyRealtime(ex, 'nova')
+  await verifyBroadcastMatrix(ex, 'nova')
+  await verifyRpcs(ex, 'nova')
+  await verifyThrottleWindow(ex, 'nova')
+  await verifyDispatchVolume(ex, 'nova')
+  await verifyBroadcastWarningCapture(ex, 'nova')
+  await verifyRealtimeResilience(ex)
+  await verifyAllPayloads(ex, 'nova: todos os eventos do cenário', 0)
+  await verifyFutureObjects(ex)
+  await verifyCronExecution(ex)
+  const xid = await nextXid(ex)
+  const after = await captureChecks(() => runVerifyOnly(ex))
+  check(`verify-only depois de todas as escritas: ${after.length} verificações passam e nenhum XID é consumido`,
+    after.every((r) => r.ok) && (await nextXid(ex)) === xid,
+    after.filter((r) => !r.ok).map((r) => `${r.name}: ${r.detail}`).slice(0, 5).join(' | '))
+  await ex.close()
 }
 
 async function scenarioUpgrade(files) {
   scenario('2. Upgrade de produção (banco antigo + dados → migration de hardening)')
-  const db = await createSupabaseLikeDb()
-  await asOwner(db)
+  const ex = await createSupabaseLikeDb()
+  await asOwner(ex)
   for (const file of files.filter((f) => f !== HARDENING)) {
-    const r = await applyMigration(db, file)
+    const r = await applyMigration(ex, file)
     if (!r.ok) {
       check(`aplica ${file} (estado anterior)`, false, r.error)
+      await ex.close()
       return
     }
   }
 
   // Estado de produção ANTES: confirma que o vazamento existia (o teste precisa enxergá-lo)
-  await asSuperuser(db)
-  await db.exec(`
+  await asSuperuser(ex)
+  await ex.exec(`
     INSERT INTO public.contacts (id, phone, name, email) VALUES ('up_ct1', '5511900000001', 'Cliente Antigo', 'antigo@teste.com');
     INSERT INTO public.campaigns (id, name, status) VALUES ('up_c1', 'Campanha antiga', 'Concluído');
     INSERT INTO public.settings (key, value) VALUES ('session_tokens', '[]');
@@ -656,115 +2001,222 @@ async function scenarioUpgrade(files) {
     INSERT INTO public.inbox_messages (conversation_id, direction, content) VALUES ('22222222-2222-2222-2222-222222222222', 'inbound', 'oi');
     INSERT INTO public.attendant_tokens (name, token) VALUES ('Atendente', 'abcdef0123456789abcdef0123456789');
   `)
-  const leakBefore = await tryAsRole(db, 'anon', `SELECT * FROM public.contacts LIMIT 1`)
+  const leakBefore = await tryAsRole(ex, 'anon', `SELECT * FROM public.contacts LIMIT 1`)
   check('antes do hardening: anon LIA contacts (vazamento reproduzido)', leakBefore === null, `resultado: ${leakBefore}`)
 
-  await asOwner(db)
-  const r = await applyMigration(db, HARDENING)
-  check(`aplica ${HARDENING} sobre o banco de produção`, r.ok, r.error)
-  if (r.warnings.length) console.log(`      avisos: ${[...new Set(r.warnings)].slice(0, 3).join(' | ')}`)
-  if (!r.ok) return
-  await asSuperuser(db)
+  // Controle negativo do --verify-only: no banco SEM hardening ele tem de apontar o problema
+  let xid = await nextXid(ex)
+  const before = await captureChecks(() => runVerifyOnly(ex))
+  const failedBefore = before.filter((r) => !r.ok).map((r) => r.name)
+  const mustFail = [/^anon sem nenhum privilégio de tabela/, /^anon: SELECT em contacts é negado/, /^anon: RPC claim_campaign_batch é negada/,
+    /^anon sem EXECUTE/, /^snapshot exato das triggers/, /^dispara_broadcast_change existe/, /^tabelas de public fora da publicação/]
+  const missed = mustFail.filter((re) => !failedBefore.some((n) => re.test(n)))
+  check('verify-only (controle negativo): no banco SEM hardening aponta o vazamento (anon lê contacts e executa RPCs, triggers e função ausentes, publicação)',
+    missed.length === 0, `não apontou: ${missed.map(String).join(', ')} — falhas: ${failedBefore.join(' | ')}`)
+  check('verify-only (controle negativo): somente leitura, nenhum XID consumido', (await nextXid(ex)) === xid)
 
-  const counts = await rows(db, `
+  await asOwner(ex)
+  const r = await applyMigration(ex, HARDENING)
+  check(`aplica ${HARDENING} sobre o banco de produção, sem WARNING`, r.ok && r.warnings.length === 0, r.error ?? r.warnings.join(' | '))
+  if (!r.ok) {
+    await ex.close()
+    return
+  }
+  await asSuperuser(ex)
+
+  const [counts] = await ex.query(`
     SELECT (SELECT count(*) FROM public.contacts)::int AS contacts, (SELECT count(*) FROM public.campaigns)::int AS campaigns,
            (SELECT count(*) FROM public.inbox_messages)::int AS messages, (SELECT count(*) FROM public.attendant_tokens)::int AS tokens`)
-  check('dados preservados após a migration', counts[0].contacts === 1 && counts[0].campaigns === 1 && counts[0].messages === 1 && counts[0].tokens === 1, JSON.stringify(counts[0]))
-  await verifyPrivileges(db)
-  await verifyServiceRole(db)
-  await verifyRealtime(db, 'upgrade')
-  await db.close()
+  check('dados preservados após a migration', counts.contacts === 1 && counts.campaigns === 1 && counts.messages === 1 && counts.tokens === 1, JSON.stringify(counts))
+
+  xid = await nextXid(ex)
+  const afterHardening = await captureChecks(() => runVerifyOnly(ex))
+  check(`verify-only depois do hardening: ${afterHardening.length} verificações passam, sem consumir XID`,
+    afterHardening.every((x) => x.ok) && (await nextXid(ex)) === xid,
+    afterHardening.filter((x) => !x.ok).map((x) => `${x.name}: ${x.detail}`).slice(0, 5).join(' | '))
+  await verifyRealtime(ex, 'upgrade')
+  await verifyBroadcastMatrix(ex, 'upgrade')
+  await verifyAllPayloads(ex, 'upgrade: todos os eventos do cenário', 0)
+  await ex.close()
 }
 
 async function scenarioRealtimeUnavailable(files) {
   scenario('5. Realtime indisponível na instalação (realtime.send ausente ou sem tratamento de erro próprio)')
-  const db = await createSupabaseLikeDb()
 
-  // a) Projeto sem Broadcast from Database: não existe realtime.send
-  await db.exec(`ALTER FUNCTION realtime.send(jsonb, text, text, boolean) RENAME TO send_disabled`)
-  await asOwner(db)
-  let hardening = null
-  for (const file of files) {
-    const r = await applyMigration(db, file)
-    if (!r.ok) {
-      check(`aplica ${file} sem realtime.send`, false, r.error)
-      await db.close()
-      return
-    }
-    if (file === HARDENING) hardening = r
+  // a) Projeto sem Broadcast from Database: o bootstrap não cria realtime.send
+  let ex = await createSupabaseLikeDb({ realtimeSend: 'none' })
+  let applied = await applyAll(ex, files, 'sem realtime.send')
+  check('sem realtime.send: todas as migrations aplicam', applied !== null)
+  if (applied) {
+    const warnings = applied[HARDENING].warnings
+    check('sem realtime.send: WARNING acionável capturado ("Reaplique esta migration depois que o Realtime estiver ativo")',
+      warnings.some((w) => /Reaplique esta migration depois que o Realtime estiver ativo/.test(w)), warnings.join(' | ') || '(nenhum WARNING)')
+    let triggers = await readBroadcastTriggers(ex)
+    check('sem realtime.send: nenhuma trigger de broadcast criada', triggers.length === 0, describeDbTriggers(triggers).join(', '))
+    const anonErr = await tryAsRole(ex, 'anon', `SELECT * FROM public.contacts LIMIT 1`)
+    check('sem realtime.send: o resto da migration vale (anon sem SELECT em contacts)', anonErr === '42501', `resultado: ${anonErr ?? 'PASSOU (vazamento!)'}`)
+    const offErr = await tryAsRole(ex, 'service_role', `INSERT INTO public.campaigns (id, name) VALUES ('off_c1', 'Campanha sem realtime')`)
+    check('sem realtime.send: escrita segue normal e nada é publicado', offErr === null && (await realtimeMaxSeq(ex)) === 0, `erro: ${offErr}`)
+
+    // a2) Realtime ativado depois: o send passa a existir (como o Supabase cria) e SÓ a hardening é reaplicada
+    await ex.exec(REALTIME_SEND_SQL)
+    await asOwner(ex)
+    const enabled = await applyMigration(ex, HARDENING)
+    await asSuperuser(ex)
+    check('Realtime ativado depois: reaplicar SÓ a hardening não falha nem avisa', enabled.ok && enabled.warnings.length === 0, enabled.error ?? enabled.warnings.join(' | '))
+    triggers = await readBroadcastTriggers(ex)
+    const described = describeDbTriggers(triggers)
+    check(`Realtime ativado depois: reaplicar cria exatamente as ${EXPECTED_SORTED.length} triggers do snapshot`, sameList(described, EXPECTED_SORTED), listDiff(described, EXPECTED_SORTED))
+    const { events } = await delta(ex, () => writeAs(ex, 'service_role', `UPDATE public.campaigns SET status = 'Enviando' WHERE id = 'off_c1'`))
+    check('Realtime ativado depois: escrita publica (com old.status)', events.length === 1 && events[0].payload?.old?.status === 'Rascunho', summarizeEvents(events))
+
+    // a3) Triggers já criadas e o send trocado depois por um sem tratamento de erro que falha:
+    //     a guarda da função (a cada evento) não chama o send e a escrita segue
+    await ex.exec(REALTIME_SEND_UNSAFE_SQL)
+    await ex.exec(`ALTER TABLE realtime.messages ADD CONSTRAINT harness_block CHECK (false) NOT VALID`)
+    const controlErr = await tryAsRole(ex, 'service_role', `SELECT realtime.send('{}'::jsonb, 'db_change', 'dispara-db', false)`)
+    check('(controle) esse realtime.send propaga a falha do INSERT', controlErr === '23514', `resultado: ${controlErr ?? 'não falhou'}`)
+    const guardErr = await tryAsRole(ex, 'service_role', `
+      INSERT INTO public.campaigns (id, name, status) VALUES ('rt_guard', 'Campanha guarda', 'Rascunho');
+      UPDATE public.campaigns SET status = 'Enviando' WHERE id = 'rt_guard';`)
+    check('send trocado depois por um sem tratamento de erro: a escrita segue (guarda por evento)', guardErr === null, `erro: ${guardErr}`)
+    await ex.exec(`ALTER TABLE realtime.messages DROP CONSTRAINT harness_block`)
+    checkNoBroadcastWarnings(ex, 'sem realtime.send')
   }
-  check('sem realtime.send: todas as migrations aplicam', hardening?.ok)
-  check('sem realtime.send: WARNING acionável ("Reaplique esta migration depois que o Realtime estiver ativo")',
-    hardening.warnings.some((w) => /Reaplique esta migration depois que o Realtime estiver ativo/.test(w)),
-    hardening.warnings.join(' | ') || '(nenhum WARNING)')
-  await asSuperuser(db)
-  let fingerprint = await triggerFingerprint(db)
-  check('sem realtime.send: nenhuma trigger de broadcast criada', fingerprint.length === 0, JSON.stringify(fingerprint.map((f) => `${f.relname}.${f.tgname}`)))
-  const anonErr = await tryAsRole(db, 'anon', `SELECT * FROM public.contacts LIMIT 1`)
-  check('sem realtime.send: o resto da migration vale (anon sem SELECT em contacts)', anonErr === '42501', `resultado: ${anonErr ?? 'PASSOU (vazamento!)'}`)
+  await ex.close()
 
-  // b) realtime.send sem EXCEPTION WHEN OTHERS próprio: a trigger o chama fora de bloco de
-  //    exceção, então uma falha no envio derrubaria a escrita — a migration não cria triggers
-  await db.exec(`DROP FUNCTION realtime.send_disabled(jsonb, text, text, boolean)`)
-  await db.exec(REALTIME_SEND_UNSAFE_SQL)
-  await asOwner(db)
-  const unsafe = await applyMigration(db, HARDENING)
-  check('send sem tratamento de erro: reaplicar a migration não falha', unsafe.ok, unsafe.error)
-  check('send sem tratamento de erro: WARNING explica o motivo',
-    unsafe.warnings.some((w) => /não trata os próprios erros/.test(w) && /derrubaria a escrita/.test(w)),
-    unsafe.warnings.join(' | ') || '(nenhum WARNING)')
-  await asSuperuser(db)
-  fingerprint = await triggerFingerprint(db)
-  check('send sem tratamento de erro: nenhuma trigger de broadcast criada', fingerprint.length === 0, JSON.stringify(fingerprint.map((f) => `${f.relname}.${f.tgname}`)))
-
-  // c) Realtime ativo (send como o do Supabase): reaplicar cria as triggers, sem aviso
-  await db.exec(REALTIME_SEND_SQL)
-  await asOwner(db)
-  const enabled = await applyMigration(db, HARDENING)
-  check('Realtime ativo: reaplicar não falha nem avisa', enabled.ok && enabled.warnings.length === 0, enabled.error ?? enabled.warnings.join(' | '))
-  await asSuperuser(db)
-  fingerprint = await triggerFingerprint(db)
-  check(`Realtime ativo: reaplicar cria as triggers (${fingerprint.length})`, fingerprint.length >= 5)
-  const ok0 = await realtimeCount(db)
-  const okErr = await tryAsRole(db, 'service_role', `INSERT INTO public.campaigns (id, name, status) VALUES ('rt_on', 'Campanha on', 'Rascunho')`)
-  check('Realtime ativo: INSERT em campaigns publica', okErr === null && (await realtimeCount(db)) === ok0 + 1, `erro: ${okErr}`)
-
-  // d) Triggers já criadas e o send trocado depois por um sem tratamento de erro que falha:
-  //    a guarda da função (a cada evento) não chama o send e a escrita segue
-  await db.exec(REALTIME_SEND_UNSAFE_SQL)
-  await db.exec(`ALTER TABLE realtime.messages ADD CONSTRAINT harness_block CHECK (false) NOT VALID`)
-  const controlErr = await tryAsRole(db, 'service_role', `SELECT realtime.send('{}'::jsonb, 'db_change', 'dispara-db', false)`)
-  check('(controle) esse realtime.send propaga a falha do INSERT', controlErr === '23514', `resultado: ${controlErr ?? 'não falhou'}`)
-  const guardErr = await tryAsRole(db, 'service_role', `
-    INSERT INTO public.campaigns (id, name, status) VALUES ('rt_guard', 'Campanha guarda', 'Rascunho');
-    UPDATE public.campaigns SET status = 'Enviando' WHERE id = 'rt_guard';`)
-  check('send trocado depois por um sem tratamento de erro: a escrita segue (guarda por evento)', guardErr === null, `erro: ${guardErr}`)
-  await db.exec(`ALTER TABLE realtime.messages DROP CONSTRAINT harness_block`)
-  await db.close()
+  // b) Bootstrap com um realtime.send SEM EXCEPTION WHEN OTHERS próprio: a trigger o chama
+  //    fora de bloco de exceção, então uma falha no envio derrubaria a escrita — sem triggers
+  ex = await createSupabaseLikeDb({ realtimeSend: 'unsafe' })
+  applied = await applyAll(ex, files, 'send sem tratamento de erro')
+  check('send sem tratamento de erro (bootstrap): todas as migrations aplicam', applied !== null)
+  if (applied) {
+    const warnings = applied[HARDENING].warnings
+    const explains = (list) => list.some((w) => /não trata os próprios erros/.test(w) && /derrubaria a escrita/.test(w))
+    check('send sem tratamento de erro: WARNING explica o motivo (não trata os próprios erros; derrubaria a escrita)', explains(warnings), warnings.join(' | ') || '(nenhum WARNING)')
+    const triggers = await readBroadcastTriggers(ex)
+    check('send sem tratamento de erro: nenhuma trigger de broadcast criada', triggers.length === 0, describeDbTriggers(triggers).join(', '))
+    const writeErr = await tryAsRole(ex, 'service_role', `INSERT INTO public.campaigns (id, name) VALUES ('unsafe_c1', 'Campanha'); UPDATE public.campaigns SET status = 'Enviando' WHERE id = 'unsafe_c1'`)
+    check('send sem tratamento de erro: escrita segue e nada é publicado', writeErr === null && (await realtimeMaxSeq(ex)) === 0, `erro: ${writeErr}`)
+    await asOwner(ex)
+    const again = await applyMigration(ex, HARDENING)
+    await asSuperuser(ex)
+    check('send sem tratamento de erro: reaplicar segue avisando e sem criar triggers',
+      again.ok && explains(again.warnings) && (await readBroadcastTriggers(ex)).length === 0, again.error ?? again.warnings.join(' | '))
+  }
+  await ex.close()
 }
 
-async function main() {
+async function scenarioVerifyOnlyOverNetwork(files) {
+  scenario('6. --verify-only pelo protocolo de rede (cliente pg → PGlite num socket local)')
+  const local = await createSupabaseLikeDb()
+  const applied = await applyAll(local, files, 'rede')
+  if (!applied) {
+    await local.close()
+    return
+  }
+  const server = await servePgliteOverTcp(local.db)
+  let remote = null
+  try {
+    remote = await pgExecutor(server.url)
+    const xid = await nextXid(local)
+    const clean = await captureChecks(() => runVerifyOnly(remote))
+    check(`verify-only via pg: ${clean.length} verificações, todas passam no banco com hardening`, clean.length > 25 && clean.every((r) => r.ok),
+      clean.filter((r) => !r.ok).map((r) => `${r.name}: ${r.detail}`).slice(0, 5).join(' | '))
+    check('verify-only via pg: somente leitura, nenhum XID consumido', (await nextXid(local)) === xid)
+
+    // Controle negativo: um GRANT a anon (vazamento), uma trigger desatualizada e um job do
+    // pg_cron cujo usuário não pode executar o tick aparecem no relatório
+    await local.exec(`
+      GRANT SELECT ON public.contacts TO anon;
+      COMMENT ON TRIGGER dispara_realtime_broadcast ON public.flows IS 'dispara_broadcast:versao_antiga';
+      UPDATE cron.job SET username = 'anon' WHERE jobname = 'dispara-cron-tick';`)
+    const leak = await captureChecks(() => runVerifyOnly(remote))
+    await local.exec(`REVOKE SELECT ON public.contacts FROM anon; UPDATE cron.job SET username = '${OWNER}' WHERE jobname = 'dispara-cron-tick';`)
+    const failed = leak.filter((r) => !r.ok)
+    const named = (re) => failed.some((r) => re.test(r.name))
+    check('verify-only via pg (controle negativo): GRANT SELECT em contacts para anon, trigger desatualizada e job do pg_cron sem EXECUTE são apontados',
+      named(/^anon sem nenhum privilégio de tabela/) && named(/^anon: SELECT em contacts é negado/) && named(/^pg_cron: o usuário do job \(anon\) tem EXECUTE/)
+        && failed.some((r) => /^triggers na versão deste repositório/.test(r.name) && /flows\.dispara_realtime_broadcast/.test(r.detail)),
+      failed.map((r) => r.name).join(' | ') || '(nada apontado)')
+  } finally {
+    if (remote) await remote.close().catch(() => {})
+    await server.close()
+    await local.close()
+  }
+}
+
+// ---------------------------------------------------------------------------
+// main
+// ---------------------------------------------------------------------------
+function describeTarget(url) {
+  try {
+    const u = new URL(url)
+    return `${decodeURIComponent(u.username) || '?'}@${u.hostname}:${u.port || 5432}${u.pathname}`
+  } catch {
+    return '(DB_CHECK_URL inválida)'
+  }
+}
+
+async function mainVerifyOnly() {
+  const url = process.env.DB_CHECK_URL
+  let ex
+  if (url) {
+    console.log(`--verify-only contra ${describeTarget(url)} (somente leitura: BEGIN READ ONLY … ROLLBACK)`)
+    try {
+      ex = await pgExecutor(url)
+    } catch (error) {
+      console.error(`Não foi possível conectar (${error.code ?? 'erro'}): ${error.message}`)
+      return 1
+    }
+  } else {
+    console.log('--verify-only sem DB_CHECK_URL: verificando um PGlite com todas as migrations (autoteste)')
+    ex = await createMigratedDb()
+  }
+  try {
+    const [ctx] = await ex.query(`SELECT current_user AS "user", current_database() AS db, current_setting('server_version') AS version`)
+    console.log(`Conectado como ${ctx.user} no banco ${ctx.db} (Postgres ${ctx.version})`)
+    scenario('Estado de segurança (somente leitura)')
+    await runVerifyOnly(ex)
+  } finally {
+    await ex.close()
+  }
+  return printSummary()
+}
+
+async function mainAll() {
   const files = listMigrations()
   console.log(`Migrations encontradas: ${files.length} (${files[0]} … ${files[files.length - 1]})`)
   if (!files.includes(HARDENING)) {
     console.error(`Migration ${HARDENING} não encontrada`)
-    process.exit(1)
+    return 1
   }
+  scenario('0. Verificações estáticas (código e migration)')
   verifyRpcList()
+  verifyTriggerSnapshotMatchesMigration()
   await scenarioFreshInstall(files)
   await scenarioUpgrade(files)
   await scenarioRealtimeUnavailable(files)
-
-  const failed = results.filter((r) => !r.ok)
-  console.log(`\n${results.length - failed.length}/${results.length} verificações passaram`)
-  if (failed.length) {
-    console.log('\nFALHAS:')
-    for (const f of failed) console.log(` - [${f.scenario}] ${f.name}${f.detail ? `: ${f.detail}` : ''}`)
-    process.exit(1)
-  }
+  await scenarioVerifyOnlyOverNetwork(files)
+  return printSummary()
 }
 
-main().catch((error) => {
-  console.error(error)
-  process.exit(1)
-})
+export async function main(argv = process.argv.slice(2)) {
+  return argv.includes('--verify-only') ? mainVerifyOnly() : mainAll()
+}
+
+const invokedDirectly = (() => {
+  if (!process.argv[1]) return false
+  const self = fileURLToPath(import.meta.url)
+  const invoked = resolve(process.argv[1])
+  return process.platform === 'win32' ? self.toLowerCase() === invoked.toLowerCase() : self === invoked
+})()
+
+if (invokedDirectly) {
+  main()
+    .then((code) => process.exit(code))
+    .catch((error) => {
+      console.error(error)
+      process.exit(1)
+    })
+}
