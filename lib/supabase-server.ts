@@ -1,40 +1,35 @@
-import { createServerClient, type CookieOptions } from '@supabase/ssr'
-import { cookies } from 'next/headers'
+import 'server-only'
 
-export async function createClient() {
-    const cookieStore = await cookies()
+import { connection } from 'next/server'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { getSupabaseAdmin } from '@/lib/supabase'
 
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const publishableKey =
-        process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
-        process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY
+/**
+ * Client Supabase para código server-side (server actions, route handlers, RSC).
+ *
+ * Usa a SERVICE ROLE (SUPABASE_SECRET_KEY / SUPABASE_SERVICE_ROLE_KEY), que bypassa RLS.
+ * O app não usa Supabase Auth: a chave publishable (role anon) não tem mais acesso a
+ * nenhuma tabela (migration 20261011000000_security_hardening.sql), e quem autoriza a
+ * request é o proxy.ts (sessão do dashboard, API key, cron ou atendente — ver
+ * lib/route-policy.ts e lib/principal.ts). Por isso este módulo:
+ * - só pode ser importado no servidor (`server-only` quebra o build se for parar no bundle);
+ * - só deve ser usado em código que já passou pela autorização do proxy (rotas e páginas
+ *   protegidas, server actions do dashboard).
+ *
+ * Mantém a assinatura async por compatibilidade com os chamadores.
+ */
+export async function createClient(): Promise<SupabaseClient> {
+    // A versão anterior lia cookies(), o que deixava as páginas que usam este client
+    // dinâmicas. connection() preserva isso: sem ele, páginas com `revalidate` virariam
+    // ISR/prerender no build, consultando o banco com service role e servindo HTML
+    // cacheado (e o build quebraria sem as env vars do Supabase).
+    await connection()
 
-    if (!url || !publishableKey) {
+    const client = getSupabaseAdmin()
+    if (!client) {
         throw new Error(
-            'Supabase não configurado: defina NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY (ou NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY)'
+            'Supabase não configurado: defina NEXT_PUBLIC_SUPABASE_URL e SUPABASE_SECRET_KEY (ou SUPABASE_SERVICE_ROLE_KEY)'
         )
     }
-
-    return createServerClient(
-        url,
-        publishableKey,
-        {
-            cookies: {
-                getAll() {
-                    return cookieStore.getAll()
-                },
-                setAll(cookiesToSet) {
-                    try {
-                        cookiesToSet.forEach(({ name, value, options }) =>
-                            cookieStore.set(name, value, options)
-                        )
-                    } catch {
-                        // The `setAll` method was called from a Server Component.
-                        // This can be ignored if you have middleware refreshing
-                        // user sessions.
-                    }
-                },
-            },
-        }
-    )
+    return client
 }
