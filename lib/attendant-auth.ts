@@ -14,13 +14,19 @@ import type { AttendantPermissions } from '@/types'
  *    `attendant_or_session`, e repassa o principal para a rota (lib/principal.ts).
  * 4. A rota exige a permissão certa com requireAttendantPermission().
  *
- * Revogar/desativar/expirar o token derruba o acesso em até CACHE_TTL_MS.
+ * Revogar/desativar/expirar o token ou rebaixar permissões derruba o acesso em
+ * até CACHE_TTL_MS. clearAttendantAuthCache() NÃO encurta isso no proxy: o proxy
+ * roda em outro bundle/função, com a própria cópia deste módulo (e deste cache);
+ * a limpeza só vale para a cópia de quem chamou (as rotas). Por isso o TTL
+ * positivo é curto: é ele que limita a janela pós-revogação no proxy.
  */
 
 export const ATTENDANT_COOKIE_NAME = 'dispara_attendant'
 export const ATTENDANT_TOKEN_HEADER = 'x-attendant-token'
 
-const CACHE_TTL_MS = 30_000
+// 5s: ~1 lookup indexado (UNIQUE token) a cada 5s por atendente ativo e por
+// instância do proxy, em troca de uma janela curta após a revogação.
+const CACHE_TTL_MS = 5_000
 const NEGATIVE_CACHE_TTL_MS = 10_000
 // Em erro de banco, o último resultado POSITIVO conhecido continua valendo por
 // este tempo (stale-if-error). Revogação volta a valer assim que o banco responder.
@@ -67,7 +73,10 @@ function remember(token: string, value: AttendantPrincipal | null, now: number):
   })
 }
 
-/** Limpa o cache (usado ao revogar/editar tokens e nos testes). */
+/**
+ * Limpa o cache DESTA cópia do módulo (usado ao revogar/editar tokens e nos
+ * testes). Não alcança o cache do proxy — ver o cabeçalho do arquivo.
+ */
 export function clearAttendantAuthCache(): void {
   cache.clear()
 }
