@@ -25,6 +25,7 @@ import { campaignService } from '@/services/campaignService'
 import { contactService } from '@/services/contactService'
 import { templateService } from '@/services/templateService'
 import { settingsService } from '@/services/settingsService'
+import { saveMetaAppConfigWithFeedback } from '@/components/shared/save-meta-app-config'
 import { dashboardService } from '@/services/dashboardService'
 import { useUnreadCount } from '@/hooks/useUnreadCount'
 import { PrefetchLink } from '@/components/ui/PrefetchLink'
@@ -288,22 +289,21 @@ export function DashboardShell({
             testContact: undefined,
         })
 
-        // Salva Meta App ID e Secret separadamente (se fornecido)
+        // Salva Meta App ID e Secret separadamente (se fornecido). Não bloqueia o
+        // onboarding, mas um App Secret recusado (ou não validado) vira toast — antes
+        // o erro sumia no console e o App ID também ficava sem salvar.
         if (credentials.metaAppId?.trim()) {
-            try {
-                await settingsService.saveMetaAppConfig({
-                    appId: credentials.metaAppId.trim(),
-                    appSecret: credentials.metaAppSecret?.trim() || '',
-                })
-            } catch (e) {
-                console.warn('Falha ao salvar Meta App config:', e)
-            }
+            await saveMetaAppConfigWithFeedback({
+                appId: credentials.metaAppId.trim(),
+                appSecret: credentials.metaAppSecret?.trim() || '',
+            })
         }
 
         // Revalida o health status e queries relacionadas
         refetchHealth()
         queryClient.invalidateQueries({ queryKey: ['settings'] })
         queryClient.invalidateQueries({ queryKey: ['allSettings'] })
+        queryClient.invalidateQueries({ queryKey: ['metaAppConfig'] })
         queryClient.invalidateQueries({ queryKey: ['account-limits'] })
 
         // Sincroniza templates automaticamente em background (não bloqueia o usuário)

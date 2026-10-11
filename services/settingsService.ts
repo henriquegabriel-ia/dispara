@@ -61,6 +61,16 @@ export interface AllSettingsResponse {
   timestamp: string
 }
 
+/** Resposta de POST /api/settings/meta-app (o App Secret nunca volta). */
+export interface MetaAppConfigSaveResult {
+  appId?: string | null
+  hasAppSecret?: boolean
+  isConfigured?: boolean
+  appSecretValidation?: 'valid' | 'unavailable' | null
+  /** Presente quando não deu para validar o App Secret com a Meta (salvo em verificação). */
+  warning?: string
+}
+
 export const settingsService = {
   /**
    * Get ALL independent settings in a single request
@@ -168,16 +178,24 @@ export const settingsService = {
     return response.json()
   },
 
-  saveMetaAppConfig: async (data: { appId: string; appSecret: string }): Promise<void> => {
+  /**
+   * Lança com a mensagem da API em erro (ex.: App Secret recusado pela Graph — a
+   * mensagem diz se o App ID foi salvo). Em sucesso, devolve o JSON: `warning`
+   * aparece quando não deu para validar o App Secret com a Meta.
+   */
+  saveMetaAppConfig: async (data: { appId: string; appSecret: string }): Promise<MetaAppConfigSaveResult> => {
     const response = await fetch('/api/settings/meta-app', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     })
+    const json: unknown = await response.json().catch(() => ({}))
+    const body: MetaAppConfigSaveResult & { error?: unknown } =
+      json && typeof json === 'object' ? (json as MetaAppConfigSaveResult & { error?: unknown }) : {}
     if (!response.ok) {
-      const error = await response.json().catch(() => ({}))
-      throw new Error((error as any)?.error || 'Failed to save Meta App config')
+      throw new Error(typeof body.error === 'string' && body.error ? body.error : 'Failed to save Meta App config')
     }
+    return body
   },
 
   removeMetaAppConfig: async (): Promise<void> => {

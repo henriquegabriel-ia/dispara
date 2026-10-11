@@ -1,11 +1,10 @@
 'use client'
 
 import React, { forwardRef, useState, useCallback, useEffect } from 'react'
-import { toast } from 'sonner'
 import { Container } from '@/components/ui/container'
 import { SectionHeader } from '@/components/ui/section-header'
 import { WhatsAppCredentialsForm, type WhatsAppCredentials } from '@/components/shared/WhatsAppCredentialsForm'
-import { settingsService } from '@/services/settingsService'
+import { saveMetaAppConfigWithFeedback } from '@/components/shared/save-meta-app-config'
 import type { AppSettings } from '../../../types'
 import type { MetaAppInfo } from './types'
 
@@ -96,20 +95,17 @@ export const CredentialsForm = forwardRef<HTMLDivElement, CredentialsFormProps>(
         const nextAppSecret = metaAppSecretLocal.trim()
         const currentAppId = String(metaApp?.appId || '').trim()
 
-        // Se mudou o App ID ou temos um novo secret
+        // Se mudou o App ID ou temos um novo secret. Não bloqueia o fluxo principal.
+        // Recarrega mesmo em erro: um App Secret recusado pode ter descartado o App ID
+        // também, e o campo deve mostrar o estado real do servidor (não o valor
+        // digitado, que some no reload).
         if (nextAppId && (nextAppId !== currentAppId || nextAppSecret)) {
-          settingsService
-            .saveMetaAppConfig({
-              appId: nextAppId,
-              appSecret: nextAppSecret || '', // Mantém vazio se não fornecido
-            })
-            .then(() => {
-              refreshMetaApp?.()
-            })
-            .catch((e) => {
-              // Não bloqueia o fluxo principal
-              toast.warning(e instanceof Error ? e.message : 'Falha ao salvar Meta App ID')
-            })
+          void saveMetaAppConfigWithFeedback({
+            appId: nextAppId,
+            appSecret: nextAppSecret || '', // Mantém vazio se não fornecido
+          }).then(() => {
+            refreshMetaApp?.()
+          })
         }
       } catch {
         // Erro já tratado no hook, não fecha o formulário
