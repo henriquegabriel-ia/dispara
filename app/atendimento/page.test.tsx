@@ -1,6 +1,6 @@
 import React from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AttendantProvider } from '@/components/attendant/AttendantProvider'
 import AtendimentoPage from '@/app/atendimento/page'
@@ -111,6 +111,37 @@ describe('AtendimentoPage com o banco indisponível', () => {
     conversationsStatus = 200
     fireEvent.click(screen.getByTitle('Atualizar'))
     await waitFor(() => expect(screen.queryByText('Conexão instável. Tentando reconectar...')).toBeNull())
+  })
+
+  // Cenário do achado: banco fora desde o primeiro carregamento (lista nunca carregou).
+  // A cada nova rodada do polling o react-query v5 zera o erro da query sem dados; antes
+  // a faixa sumia e a lista voltava para o skeleton durante ~7s de retries, em ciclo.
+  it('banco fora desde o primeiro carregamento: a faixa continua durante a nova rodada do polling', async () => {
+    let hangConversations = false
+    let conversationCalls = 0
+    fetchMock.mockImplementation(async (input) => {
+      if (String(input).startsWith('/api/attendants/validate')) {
+        return jsonResponse(200, { valid: true, attendant: ATTENDANT })
+      }
+      conversationCalls++
+      // Nova rodada em andamento (a resposta não chega durante o teste)
+      if (hangConversations) return new Promise<Response>(() => {})
+      return jsonResponse(503, {}, { 'Retry-After': '5' })
+    })
+
+    const { container } = renderPage()
+    expect(await screen.findByText('Conexão instável. Tentando reconectar...')).toBeTruthy()
+    const callsBefore = conversationCalls
+
+    // Nova rodada (como o tick do polling) pelo botão "Atualizar"
+    hangConversations = true
+    fireEvent.click(screen.getByTitle('Atualizar'))
+    await waitFor(() => expect(conversationCalls).toBe(callsBefore + 1))
+    // Deixa o react-query notificar e o React renderizar o estado da nova rodada
+    await act(() => new Promise<void>((resolve) => setTimeout(resolve, 20)))
+
+    expect(screen.getByText('Conexão instável. Tentando reconectar...')).toBeTruthy()
+    expect(container.querySelector('.animate-pulse')).toBeNull()
   })
 
   it('validate 401 (token revogado): aí sim "Acesso Negado"', async () => {
