@@ -258,14 +258,31 @@ describe('reportFlowDecryptFailure', () => {
     expect(alerts[0]).toMatchObject({ type: 'meta_integration', code: null })
   })
 
-  it('chave ausente só alerta quando recorrente', async () => {
-    await reportFlowDecryptFailure({ trigger: 'missing_key', keyStatus: 'missing_key', signatureVerified: false, now: NOW })
-    await reportFlowDecryptFailure({ trigger: 'missing_key', keyStatus: 'missing_key', signatureVerified: false, now: NOW + 1 })
+  it('chave ausente com assinatura verificada só alerta quando recorrente', async () => {
+    await reportFlowDecryptFailure({ trigger: 'missing_key', keyStatus: 'missing_key', signatureVerified: true, now: NOW })
+    await reportFlowDecryptFailure({ trigger: 'missing_key', keyStatus: 'missing_key', signatureVerified: true, now: NOW + 1 })
     expect(flowAlerts()).toEqual([])
     await reportFlowDecryptFailure({ trigger: 'missing_key', keyStatus: 'missing_key', signatureVerified: true, now: NOW + 2 })
     expect(flowAlerts()).toHaveLength(1)
     // Com assinatura verificada não sugere configurar o App Secret.
     expect(JSON.parse(String(flowAlerts()[0].details)).action).not.toMatch(/App Secret/)
+  })
+
+  it('CENÁRIO DO ACHADO: chave ausente em requests SEM assinatura verificada nunca alerta (só estatística)', async () => {
+    for (let i = 0; i < 10; i++) {
+      await reportFlowDecryptFailure({ trigger: 'missing_key', keyStatus: 'missing_key', signatureVerified: false, now: NOW + i })
+    }
+    expect(flowAlerts()).toEqual([])
+    expect(getFlowDecryptFailureSummary(NOW + 10)).toMatchObject({
+      total: 10,
+      verifiedTotal: 0,
+      byKeyStatus: { missing_key: 10 },
+    })
+
+    // Lixo anônimo também não ajuda a bater o limite das verificadas.
+    await reportFlowDecryptFailure({ trigger: 'missing_key', keyStatus: 'missing_key', signatureVerified: true, now: NOW + 11 })
+    expect(flowAlerts()).toEqual([])
+    expect(getFlowDecryptFailureSummary(NOW + 12).verifiedTotal).toBe(1)
   })
 
   it('dismissFlowKeyAlerts dispensa os avisos ativos', async () => {

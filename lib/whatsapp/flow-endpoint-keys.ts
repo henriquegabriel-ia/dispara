@@ -400,6 +400,8 @@ export interface FlowDecryptFailureSummary {
   scope: 'instance'
   windowMinutes: number
   total: number
+  /** Falhas em requests com assinatura VERIFICADA (as demais podem ser ruído de terceiros). */
+  verifiedTotal: number
   byKeyStatus: Partial<Record<FlowDecryptKeyStatus, number>>
   lastAt: string | null
   lastKeyStatus: FlowDecryptKeyStatus | null
@@ -414,6 +416,7 @@ export function getFlowDecryptFailureSummary(now: number = Date.now()): FlowDecr
     scope: 'instance',
     windowMinutes: DECRYPT_FAILURE_WINDOW_MS / 60_000,
     total: decryptFailures.length,
+    verifiedTotal: decryptFailures.filter((e) => e.signatureVerified).length,
     byKeyStatus,
     lastAt: last ? new Date(last.at).toISOString() : null,
     lastKeyStatus: last?.keyStatus ?? null,
@@ -426,8 +429,9 @@ export const FLOW_KEYS_RECOMMENDED_ACTION =
 
 /**
  * Registra uma falha de decifração no endpoint de Flows e, quando ela indica um
- * problema real de chave (ausente, ou não deu para conferir/registrar na Meta),
- * cria um account_alert deduplicado (type 'meta_integration'). Best-effort.
+ * problema real de chave (ausente em requests com assinatura verificada, ou não deu
+ * para conferir/registrar na Meta), cria um account_alert deduplicado (type
+ * 'meta_integration'). Best-effort.
  */
 export async function reportFlowDecryptFailure(params: {
   trigger: FlowKeyRecoveryTrigger
@@ -451,7 +455,12 @@ export async function reportFlowDecryptFailure(params: {
     alertWorthy = true
     count = decryptFailures.filter((e) => e.keyStatus === 'unconfirmed').length
   } else if (params.keyStatus === 'missing_key') {
-    count = decryptFailures.filter((e) => e.keyStatus === 'missing_key').length
+    // Sem prova de origem, "chave ausente" pode ser só lixo anônimo (3 POSTs sem
+    // assinatura acendiam o banner, e ele voltava a cada hora). E como a instalação
+    // sempre cria a chave, ela só falta se o dono a apagou. Então só requests com
+    // assinatura VERIFICADA contam para o alerta; as outras ficam na estatística.
+    if (!params.signatureVerified) return
+    count = decryptFailures.filter((e) => e.keyStatus === 'missing_key' && e.signatureVerified).length
     alertWorthy = count >= MISSING_KEY_ALERT_MIN_FAILURES
   }
   if (!alertWorthy) return

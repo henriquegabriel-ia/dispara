@@ -60,6 +60,7 @@ import {
   FLOW_LAST_KEY_RESYNC_SETTING,
   FLOW_PRIVATE_KEY_SETTING,
   FLOW_PUBLIC_KEY_SETTING,
+  getFlowDecryptFailureSummary,
   isSamePublicKey,
   resetFlowKeyAlertState,
 } from '@/lib/whatsapp/flow-endpoint-keys'
@@ -297,19 +298,19 @@ describe('modo unsigned_allowed (sem App Secret)', () => {
     expect(flowAlerts()).toHaveLength(1)
   })
 
-  it('sem chave privada salva → 421 sem gerar chaves; recorrente vira alerta', async () => {
+  it('CENÁRIO DO ACHADO: sem chave privada salva → 421 sem gerar chaves; lixo sem assinatura recorrente NÃO acende alerta', async () => {
     store.delete(FLOW_PRIVATE_KEY_SETTING)
     const res = await post(garbageBody())
     expect(res.status).toBe(421)
     expect(keyWrites()).toEqual([])
     expect(metaSetEncryptionPublicKey).not.toHaveBeenCalled()
-    expect(flowAlerts()).toEqual([])
 
-    await post(garbageBody())
-    await post(garbageBody())
-    const alerts = flowAlerts()
-    expect(alerts).toHaveLength(1)
-    expect(String(alerts[0].message)).toMatch(/não há chave privada/)
+    for (let i = 0; i < 5; i++) {
+      expect((await post(garbageBody())).status).toBe(421)
+    }
+    // Antes: 3 POSTs anônimos criavam 'não há chave privada' (e voltava a cada hora).
+    expect(flowAlerts()).toEqual([])
+    expect(getFlowDecryptFailureSummary()).toMatchObject({ total: 6, verifiedTotal: 0 })
     expect(keyWrites()).toEqual([])
   })
 

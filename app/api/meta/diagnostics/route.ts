@@ -834,18 +834,24 @@ async function buildFlowEndpointKeysCheck(): Promise<DiagnosticCheck> {
 				actions: [syncAction],
 			}
 		case 'missing_local_key':
-		case 'invalid_local_key':
+		case 'invalid_local_key': {
+			// Só falha com assinatura VERIFICADA é prova de que a Meta está chamando o
+			// endpoint; sem ela pode ser só lixo anônimo (qualquer um faz POST aqui).
+			const onlyUnverified = failures.total > 0 && failures.verifiedTotal === 0
 			return {
 				id: 'flow_endpoint_keys',
 				title,
-				status: failures.total ? 'fail' : 'info',
+				status: failures.verifiedTotal ? 'fail' : failures.total ? 'warn' : 'info',
 				message:
 					(inspection.status === 'missing_local_key'
 						? 'Endpoint de Flows sem chave privada configurada (só necessária para MiniApps com endpoint).'
-						: 'A chave privada salva do endpoint de Flows é inválida.') + failuresText,
+						: 'A chave privada salva do endpoint de Flows é inválida.') +
+					failuresText +
+					(onlyUnverified ? ' Nenhuma delas tinha assinatura verificada: podem ser requisições de terceiros (ruído), não da Meta.' : ''),
 				details,
 				actions: [generateAction],
 			}
+		}
 		case 'no_credentials':
 			return {
 				id: 'flow_endpoint_keys',
