@@ -15,28 +15,33 @@
  * Allowed syntax:
  * - Template variables: {{@nodeId:Label.field}} (replaced with safe __v0, __v1, etc.)
  * - Comparison operators: ===, !==, ==, !=, >, <, >=, <=
- * - Logical operators: &&, ||, !
+ * - Logical operators: &&, ||, !, ?? (nullish coalescing)
+ * - Ternary: cond ? a : b
+ * - Arithmetic: +, -, *, /, %, **
  * - Grouping: ( )
  * - Literals: strings ('...', "..."), numbers, true, false, null, undefined
  * - Property access on variables: __v0.property, __v0[0], __v0["key"]
+ * - Optional chaining: __v0?.property, __v0?.[0], __v0?.includes("x")
  * - Array methods: .includes(), .length
  * - String methods: .startsWith(), .endsWith(), .includes()
  *
  * NOT allowed:
- * - Function calls (except allowed methods)
+ * - Function calls (except allowed methods), inclusive chamada opcional ?.()
  * - Assignment operators (=, +=, -=, etc.)
  * - Code execution constructs (eval, Function, import, require)
  * - Property assignment
  * - Array/object literals ([1,2,3], {key: value})
  * - Comments
- * - constructor/__proto__/prototype em QUALQUER forma (ponto, colchete, string
- *   com escapes constructor, template literal)
+ * - Template literals (crase) e operadores bitwise (& | ^ ~ << >> >>>)
+ * - constructor/__proto__/prototype em QUALQUER forma (ponto, ?., colchete,
+ *   string com escapes constructor, template literal)
  * - Chamada de qualquer coisa que não seja um método da whitelist via ponto
  */
 
 import {
   MAX_CONDITION_EXPRESSION_LENGTH,
   parseConditionExpression,
+  TEMPLATE_LITERAL_NOT_SUPPORTED_ERROR,
 } from "@/lib/builder/condition-evaluator";
 
 // Dangerous patterns that should never appear in conditions
@@ -358,6 +363,12 @@ export function validateConditionExpression(
   // Valida CÓDIGO como código: mascara o conteúdo dos literais de string (dados
   // do usuário) antes de qualquer checagem estrutural. Ver maskStringLiterals.
   const masked = maskStringLiterals(expression);
+
+  // Crase fora de aspas = template literal (não suportado). Checado antes das
+  // regex para a mensagem ser clara em vez de "Unknown identifier"/"disallowed".
+  if (masked.includes("`")) {
+    return { valid: false, error: TEMPLATE_LITERAL_NOT_SUPPORTED_ERROR };
+  }
 
   // Check for dangerous patterns
   const dangerousCheck = checkDangerousPatterns(masked);

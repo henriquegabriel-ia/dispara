@@ -22,19 +22,12 @@ import type { IntegrationConfig, IntegrationType } from "./types/integration";
 // WorkflowCredentials is now a generic record since plugins define their own keys
 export type WorkflowCredentials = Record<string, string | undefined>;
 
-// System integrations that don't have plugins need hardcoded mapping
+// System integrations that don't have plugins need hardcoded mapping.
+// (O mapper "database" → DATABASE_URL saiu junto com o passo Database Query.)
 const SYSTEM_CREDENTIAL_MAPPERS: Record<
   string,
   (config: IntegrationConfig) => WorkflowCredentials
-> = {
-  database: (config) => {
-    const creds: WorkflowCredentials = {};
-    if (config.url) {
-      creds.DATABASE_URL = config.url;
-    }
-    return creds;
-  },
-};
+> = {};
 
 /**
  * Map integration config to WorkflowCredentials format

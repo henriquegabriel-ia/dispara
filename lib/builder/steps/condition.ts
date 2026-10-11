@@ -11,6 +11,8 @@ export type ConditionInput = StepInput & {
   expression?: string;
   /** Resolved values of template variables for logging (e.g., { "Label.field": "actual_value" }) */
   values?: Record<string, unknown>;
+  /** Erro de sintaxe/política da expressão (condição vira false); só para o log da run. */
+  expressionError?: string;
 };
 
 type ConditionResult = {

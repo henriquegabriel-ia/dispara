@@ -4,9 +4,9 @@ import { getCompanyId } from "@/lib/builder/workflow-db";
 import { clearWorkflowSchedule, syncWorkflowSchedule } from "@/lib/builder/workflow-schedule";
 import { settingsDb } from "@/lib/supabase-db";
 import {
-  describeWorkflowConditionIssues,
-  findInvalidWorkflowConditions,
-} from "@/lib/builder/condition-validator";
+  findWorkflowGraphIssues,
+  workflowGraphIssuesBody,
+} from "@/lib/builder/workflow-graph-guard";
 
 type RouteParams = {
   params: Promise<{ workflowId: string }>;
@@ -44,18 +44,14 @@ export async function POST(request: Request, { params }: RouteParams) {
     );
   }
 
-  // Reativar uma versão antiga = publicá-la de novo: revalida as condições
-  // (versões gravadas antes da revalidação no servidor podem conter uma
-  // expressão inválida/maliciosa).
-  const conditionIssues = findInvalidWorkflowConditions(selectedVersion.nodes);
-  if (conditionIssues.length > 0) {
-    return NextResponse.json(
-      {
-        error: describeWorkflowConditionIssues(conditionIssues),
-        details: conditionIssues,
-      },
-      { status: 400 }
-    );
+  // Reativar uma versão antiga = publicá-la de novo: revalida condições e
+  // actionTypes (versões gravadas antes da revalidação no servidor podem conter
+  // uma expressão inválida/maliciosa ou um passo removido, ex. Database Query).
+  const graphIssues = findWorkflowGraphIssues(selectedVersion.nodes);
+  if (graphIssues.length > 0) {
+    return NextResponse.json(workflowGraphIssuesBody(graphIssues), {
+      status: 400,
+    });
   }
 
   const now = new Date().toISOString();

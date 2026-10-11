@@ -7,16 +7,28 @@
  * INTERPRETADA aqui — nunca há geração nem execução de código.
  *
  * Gramática suportada (precedência crescente, mesma semântica do JS):
- *   expr           := or
+ *   expr           := conditional
+ *   conditional    := shortCircuit [ "?" expr ":" expr ]
+ *   shortCircuit   := coalesce | or        (misturar ?? com && / || sem
+ *                                           parênteses é erro, como no JS)
+ *   coalesce       := equality ("??" equality)+
  *   or             := and ("||" and)*
  *   and            := equality ("&&" equality)*
  *   equality       := relational (("===" | "!==" | "==" | "!=") relational)*
  *   relational     := additive (("<" | ">" | "<=" | ">=") additive)*
  *   additive       := multiplicative (("+" | "-") multiplicative)*
- *   multiplicative := unary (("*" | "/" | "%") unary)*
+ *   multiplicative := exponent (("*" | "/" | "%") exponent)*
+ *   exponent       := unary | postfix [ "**" exponent ]   (unário à esquerda de
+ *                                                           ** exige parênteses)
  *   unary          := ("!" | "-" | "+") unary | postfix
- *   postfix        := primary ( "." IDENT [ "(" args ")" ] | "[" (STRING | NUMBER) "]" )*
+ *   postfix        := primary ( ("." | "?.") IDENT [ "(" args ")" ]
+ *                             | ("[" | "?.[") (STRING | NUMBER) "]" )*
  *   primary        := STRING | NUMBER | true | false | null | undefined | __vN | "(" expr ")"
+ *
+ * Optional chaining (?.): encurta a cadeia INTEIRA para undefined quando o
+ * receptor é null/undefined (como no JS); parênteses encerram a cadeia. Só vale
+ * para leitura de propriedade/índice e para os métodos da whitelist
+ * (`__v0?.includes("x")`) — chamada opcional `?.(` é erro de parse.
  *
  * Garantias de segurança (o que fechou o RCE por `__v0["constructor"]...`):
  * - Identificadores: só variáveis __vN (injetadas pelo executor) e os literais
@@ -26,7 +38,8 @@
  *   colchetes). Escapes (\uXXXX, \u{...}, \xHH) são resolvidos ANTES da
  *   checagem, então "constructor" é barrado igual a "constructor". Chaves
  *   perigosas (constructor, __proto__, prototype, __defineGetter__...) são
- *   rejeitadas em qualquer forma. Template literals (crase) não existem aqui.
+ *   rejeitadas em qualquer forma — inclusive via `?.` / `?.[...]`, que passam
+ *   pela MESMA checagem. Template literals (crase) não existem aqui.
  * - Em runtime só se leem propriedades PRÓPRIAS de DADOS (descriptor com
  *   `value`): nunca a cadeia de protótipos, nunca um getter. Funções vindas dos
  *   dados viram `undefined`.
@@ -35,8 +48,10 @@
  *   conforme o TIPO do receptor — nunca se chama uma função lida dos dados.
  * - Coerções (==, <, +, ...) convertem objeto→primitivo com implementação
  *   própria, sem invocar valueOf/toString dos dados.
- * - Sem atribuição, vírgula (fora de argumentos), ternário, new, spread, arrow
- *   function, regex, comentários. Tamanho e profundidade limitados.
+ * - Sem atribuição, vírgula (fora de argumentos), new, spread, arrow function,
+ *   regex, comentários, template literals (crase) e operadores bitwise
+ *   (& | ^ ~ << >> >>>) — esses dois últimos com mensagem de erro própria.
+ *   Tamanho e profundidade limitados (o ternário e o ** contam profundidade).
  */
 
 // Folga larga para as expressões geradas pela UI (dezenas de branches com
@@ -88,7 +103,12 @@ const NUMBER_PATTERN = /(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?/y;
 const LEADING_ZERO_PATTERN = /^0\d/;
 const CANONICAL_INDEX_PATTERN = /^(?:0|[1-9]\d*)$/;
 
-// Ordenados do mais longo para o mais curto (longest match).
+/** Mensagem única (tokenizer e validador) para crase/template literal. */
+export const TEMPLATE_LITERAL_NOT_SUPPORTED_ERROR =
+  "Template literals (backticks) are not supported in conditions. Use single or double quotes.";
+
+// Ordenados do mais longo para o mais curto (longest match). "?", "?." e "??"
+// são tratados à parte no tokenizer (regra do JS para `?.` seguido de dígito).
 const PUNCTUATORS = [
   "===",
   "!==",
@@ -100,6 +120,7 @@ const PUNCTUATORS = [
   "||",
   "++",
   "--",
+  "**",
   "<",
   ">",
   "!",
@@ -109,12 +130,16 @@ const PUNCTUATORS = [
   "]",
   ".",
   ",",
+  ":",
   "+",
   "-",
   "*",
   "/",
   "%",
 ] as const;
+
+/** Caracteres que só aparecem em operadores bitwise (fora de && e ||). */
+const BITWISE_CHARS: ReadonlySet<string> = new Set(["&", "|", "^", "~"]);
 
 type Token =
   | { type: "string"; value: string; pos: number }
@@ -125,7 +150,7 @@ type Token =
 
 type EqualityOperator = "===" | "!==" | "==" | "!=";
 type RelationalOperator = "<" | ">" | "<=" | ">=";
-type ArithmeticOperator = "+" | "-" | "*" | "/" | "%";
+type ArithmeticOperator = "+" | "-" | "*" | "/" | "%" | "**";
 type BinaryOperator = EqualityOperator | RelationalOperator | ArithmeticOperator;
 
 export type ConditionAst =
@@ -134,13 +159,16 @@ export type ConditionAst =
       value: string | number | boolean | null | undefined;
     }
   | { type: "variable"; name: string }
-  | { type: "member"; object: ConditionAst; key: string }
+  | { type: "member"; object: ConditionAst; key: string; optional?: boolean }
   | {
       type: "call";
       object: ConditionAst;
       method: AllowedMethod;
       args: ConditionAst[];
+      optional?: boolean;
     }
+  /** Fronteira de uma cadeia com `?.`: o curto-circuito para aqui. */
+  | { type: "chain"; expression: ConditionAst }
   | { type: "unary"; operator: "!" | "-" | "+"; argument: ConditionAst }
   | {
       type: "binary";
@@ -150,9 +178,15 @@ export type ConditionAst =
     }
   | {
       type: "logical";
-      operator: "&&" | "||";
+      operator: "&&" | "||" | "??";
       left: ConditionAst;
       right: ConditionAst;
+    }
+  | {
+      type: "conditional";
+      test: ConditionAst;
+      consequent: ConditionAst;
+      alternate: ConditionAst;
     };
 
 export type ConditionParseResult =
@@ -306,6 +340,12 @@ function readString(
   );
 }
 
+function bitwiseOperatorError(operator: string, pos: number): ConditionSyntaxError {
+  return new ConditionSyntaxError(
+    `Bitwise operators are not supported in conditions ("${operator}" at position ${pos}). Use && / || for logic and === / !== for comparison.`
+  );
+}
+
 function tokenize(source: string): Token[] {
   const tokens: Token[] = [];
   let i = 0;
@@ -321,6 +361,30 @@ function tokenize(source: string): Token[] {
       const { value, end } = readString(source, i);
       tokens.push({ type: "string", value, pos: i });
       i = end;
+      continue;
+    }
+
+    if (char === "`") {
+      throw new ConditionSyntaxError(
+        `${TEMPLATE_LITERAL_NOT_SUPPORTED_ERROR} (position ${i})`
+      );
+    }
+
+    if (char === "?") {
+      // Regra do JS: "?." seguido de dígito é ternário + número (a?.5:b).
+      const next = source[i + 1];
+      if (next === "?") {
+        tokens.push({ type: "punct", value: "??", pos: i });
+        i += 2;
+        continue;
+      }
+      if (next === "." && !DIGIT_PATTERN.test(source[i + 2] ?? "")) {
+        tokens.push({ type: "punct", value: "?.", pos: i });
+        i += 2;
+        continue;
+      }
+      tokens.push({ type: "punct", value: "?", pos: i });
+      i += 1;
       continue;
     }
 
@@ -365,11 +429,25 @@ function tokenize(source: string): Token[] {
       continue;
     }
 
+    // Shifts antes dos punctuators (senão "<<" viraria "<" "<").
+    const shift = source.startsWith(">>>", i)
+      ? ">>>"
+      : source.startsWith("<<", i) || source.startsWith(">>", i)
+        ? source.slice(i, i + 2)
+        : null;
+    if (shift) {
+      throw bitwiseOperatorError(shift, i);
+    }
+
     const punct = PUNCTUATORS.find((p) => source.startsWith(p, i));
     if (punct) {
       tokens.push({ type: "punct", value: punct, pos: i });
       i += punct.length;
       continue;
+    }
+
+    if (BITWISE_CHARS.has(char)) {
+      throw bitwiseOperatorError(char, i);
     }
 
     throw new ConditionSyntaxError(
@@ -461,23 +539,64 @@ class ConditionParser {
   private parseExpression(): ConditionAst {
     this.enter();
     try {
-      return this.parseLogicalOr();
+      return this.parseConditional();
     } finally {
       this.leave();
     }
   }
 
-  private parseLogicalOr(): ConditionAst {
-    let left = this.parseLogicalAnd();
+  /** Ternário (associativo à direita); cada ramo é uma expressão completa. */
+  private parseConditional(): ConditionAst {
+    const test = this.parseShortCircuit();
+    if (!this.matchPunct(["?"] as const)) {
+      return test;
+    }
+    const consequent = this.parseExpression();
+    this.expectPunct(":");
+    const alternate = this.parseExpression();
+    return { type: "conditional", test, consequent, alternate };
+  }
+
+  /**
+   * `a ?? b ?? c` OU uma cadeia de && / ||. Como no JS, misturar ?? com && ou
+   * || sem parênteses é erro de sintaxe (evita precedência ambígua).
+   */
+  private parseShortCircuit(): ConditionAst {
+    const head = this.parseEquality();
+    if (this.isPunct("??")) {
+      let left = head;
+      while (this.matchPunct(["??"] as const)) {
+        const right = this.parseEquality();
+        left = { type: "logical", operator: "??", left, right };
+      }
+      if (this.isPunct("&&") || this.isPunct("||")) {
+        throw this.mixedCoalesceError();
+      }
+      return left;
+    }
+    let left = this.continueLogicalAnd(head);
     while (this.matchPunct(["||"] as const)) {
       const right = this.parseLogicalAnd();
       left = { type: "logical", operator: "||", left, right };
     }
+    if (this.isPunct("??")) {
+      throw this.mixedCoalesceError();
+    }
     return left;
   }
 
+  private mixedCoalesceError(): ConditionSyntaxError {
+    return new ConditionSyntaxError(
+      `Cannot mix "??" with "&&" or "||" without parentheses (position ${this.peek().pos})`
+    );
+  }
+
   private parseLogicalAnd(): ConditionAst {
-    let left = this.parseEquality();
+    return this.continueLogicalAnd(this.parseEquality());
+  }
+
+  private continueLogicalAnd(first: ConditionAst): ConditionAst {
+    let left = first;
     while (this.matchPunct(["&&"] as const)) {
       const right = this.parseEquality();
       left = { type: "logical", operator: "&&", left, right };
@@ -516,12 +635,42 @@ class ConditionParser {
   }
 
   private parseMultiplicative(): ConditionAst {
-    let left = this.parseUnary();
+    let left = this.parseExponent();
     for (;;) {
       const operator = this.matchPunct(["*", "/", "%"] as const);
       if (!operator) return left;
-      const right = this.parseUnary();
+      const right = this.parseExponent();
       left = { type: "binary", operator, left, right };
+    }
+  }
+
+  /**
+   * `**` (associativo à direita). Como no JS, unário logo à esquerda de `**`
+   * (`-2 ** 2`) é erro: exige parênteses — `(-2) ** 2` ou `-(2 ** 2)`.
+   */
+  private parseExponent(): ConditionAst {
+    const token = this.peek();
+    if (
+      token.type === "punct" &&
+      (token.value === "!" || token.value === "-" || token.value === "+")
+    ) {
+      const unary = this.parseUnary();
+      if (this.isPunct("**")) {
+        throw new ConditionSyntaxError(
+          `Unary operator before "**" requires parentheses (position ${this.peek().pos})`
+        );
+      }
+      return unary;
+    }
+    const base = this.parsePostfix();
+    if (!this.matchPunct(["**"] as const)) {
+      return base;
+    }
+    this.enter();
+    try {
+      return { type: "binary", operator: "**", left: base, right: this.parseExponent() };
+    } finally {
+      this.leave();
     }
   }
 
@@ -540,32 +689,34 @@ class ConditionParser {
 
   private parsePostfix(): ConditionAst {
     let node = this.parsePrimary();
+    // Uma cadeia com qualquer `?.` é embrulhada num nó "chain" ao final: é ali
+    // que o curto-circuito para (parênteses abrem uma cadeia nova).
+    let hasOptional = false;
     for (;;) {
-      if (this.matchPunct(["."] as const)) {
-        const nameToken = this.next();
-        if (nameToken.type !== "identifier") {
+      if (this.matchPunct(["?."] as const)) {
+        hasOptional = true;
+        const token = this.peek();
+        if (token.type === "punct" && token.value === "(") {
           throw new ConditionSyntaxError(
-            `Expected property name after "." but found ${describeToken(nameToken)} at position ${nameToken.pos}`
+            `Optional calls ("?.(") are not allowed in conditions (position ${token.pos})`
           );
         }
-        const name = nameToken.value;
-        if (this.isPunct("(")) {
-          node = this.parseCall(node, name, nameToken.pos);
+        if (token.type === "punct" && token.value === "[") {
+          this.next();
+          node = this.parseBracketMember(node, true);
           continue;
         }
-        node = this.memberNode(node, name, nameToken.pos);
+        node = this.parseDotMember(node, "?.", true);
+        continue;
+      }
+
+      if (this.matchPunct(["."] as const)) {
+        node = this.parseDotMember(node, ".", false);
         continue;
       }
 
       if (this.matchPunct(["["] as const)) {
-        const keyToken = this.next();
-        if (keyToken.type !== "string" && keyToken.type !== "number") {
-          throw new ConditionSyntaxError(
-            `Invalid bracket content at position ${keyToken.pos}. Only numeric indices or string literals are allowed.`
-          );
-        }
-        this.expectPunct("]");
-        node = this.memberNode(node, String(keyToken.value), keyToken.pos);
+        node = this.parseBracketMember(node, false);
         if (this.isPunct("(")) {
           throw new ConditionSyntaxError(
             `Function calls are not allowed in conditions (position ${this.peek().pos}). Use .includes(), .startsWith() and similar methods.`
@@ -579,20 +730,63 @@ class ConditionParser {
           `Function calls are not allowed in conditions (position ${this.peek().pos}). Use .includes(), .startsWith() and similar methods.`
         );
       }
-      return node;
+      return hasOptional ? { type: "chain", expression: node } : node;
     }
   }
 
-  private memberNode(object: ConditionAst, key: string, pos: number): ConditionAst {
+  /** `.nome`, `?.nome`, `.metodo(...)` ou `?.metodo(...)`. */
+  private parseDotMember(
+    object: ConditionAst,
+    accessor: "." | "?.",
+    optional: boolean
+  ): ConditionAst {
+    const nameToken = this.next();
+    if (nameToken.type !== "identifier") {
+      throw new ConditionSyntaxError(
+        `Expected property name after "${accessor}" but found ${describeToken(nameToken)} at position ${nameToken.pos}`
+      );
+    }
+    const name = nameToken.value;
+    if (this.isPunct("(")) {
+      return this.parseCall(object, name, nameToken.pos, optional);
+    }
+    return this.memberNode(object, name, nameToken.pos, optional);
+  }
+
+  /** `[chave]` / `?.[chave]` — o "[" já foi consumido. Só chave LITERAL. */
+  private parseBracketMember(object: ConditionAst, optional: boolean): ConditionAst {
+    const keyToken = this.next();
+    if (keyToken.type !== "string" && keyToken.type !== "number") {
+      throw new ConditionSyntaxError(
+        `Invalid bracket content at position ${keyToken.pos}. Only numeric indices or string literals are allowed.`
+      );
+    }
+    this.expectPunct("]");
+    return this.memberNode(object, String(keyToken.value), keyToken.pos, optional);
+  }
+
+  private memberNode(
+    object: ConditionAst,
+    key: string,
+    pos: number,
+    optional: boolean
+  ): ConditionAst {
     if (isBlockedConditionPropertyKey(key)) {
       throw new ConditionSyntaxError(
         `Access to property "${key}" is not allowed in conditions (position ${pos})`
       );
     }
-    return { type: "member", object, key };
+    return optional
+      ? { type: "member", object, key, optional: true }
+      : { type: "member", object, key };
   }
 
-  private parseCall(object: ConditionAst, name: string, pos: number): ConditionAst {
+  private parseCall(
+    object: ConditionAst,
+    name: string,
+    pos: number,
+    optional: boolean
+  ): ConditionAst {
     if (!ALLOWED_METHOD_SET.has(name)) {
       throw new ConditionSyntaxError(
         `Method "${name}" is not allowed in conditions. Allowed methods: ${ALLOWED_CONDITION_METHODS.join(", ")}`
@@ -612,7 +806,10 @@ class ConditionParser {
       }
     }
     this.expectPunct(")");
-    return { type: "call", object, method: name as AllowedMethod, args };
+    const method = name as AllowedMethod;
+    return optional
+      ? { type: "call", object, method, args, optional: true }
+      : { type: "call", object, method, args };
   }
 
   private parsePrimary(): ConditionAst {
@@ -904,6 +1101,46 @@ function addValues(left: unknown, right: unknown): string | number {
   return Number(l) + Number(r);
 }
 
+/**
+ * Sentinela interna do optional chaining: nunca sai deste módulo (é convertida
+ * em undefined na fronteira da cadeia) e não pode vir dos dados.
+ */
+const SHORT_CIRCUIT: unique symbol = Symbol("condition-short-circuit");
+
+/**
+ * Avalia um elo de cadeia (membro/chamada). Devolve SHORT_CIRCUIT quando um elo
+ * `?.` encontra null/undefined — os elos seguintes NÃO são avaliados (nem os
+ * argumentos das chamadas), como no JS.
+ */
+function evaluateChainLink(
+  node: ConditionAst,
+  context: Record<string, unknown>
+): unknown {
+  switch (node.type) {
+    case "member": {
+      const object = evaluateChainLink(node.object, context);
+      if (object === SHORT_CIRCUIT) return SHORT_CIRCUIT;
+      if (node.optional && (object === null || object === undefined)) {
+        return SHORT_CIRCUIT;
+      }
+      return readProperty(object, node.key);
+    }
+    case "call": {
+      const receiver = evaluateChainLink(node.object, context);
+      if (receiver === SHORT_CIRCUIT) return SHORT_CIRCUIT;
+      if (node.optional && (receiver === null || receiver === undefined)) {
+        return SHORT_CIRCUIT;
+      }
+      const args = node.args.map((arg) => evaluateNode(arg, context));
+      return callAllowedMethod(receiver, node.method, args);
+    }
+    default:
+      // Inclusive "chain" (cadeia entre parênteses): fronteira própria, já
+      // convertida em valor por evaluateNode.
+      return evaluateNode(node, context);
+  }
+}
+
 function evaluateNode(node: ConditionAst, context: Record<string, unknown>): unknown {
   switch (node.type) {
     case "literal":
@@ -915,12 +1152,18 @@ function evaluateNode(node: ConditionAst, context: Record<string, unknown>): unk
       return toSafeValue(context[node.name]);
     }
     case "member":
-      return readProperty(evaluateNode(node.object, context), node.key);
-    case "call": {
-      const receiver = evaluateNode(node.object, context);
-      const args = node.args.map((arg) => evaluateNode(arg, context));
-      return callAllowedMethod(receiver, node.method, args);
+    case "call":
+    case "chain": {
+      const value = evaluateChainLink(
+        node.type === "chain" ? node.expression : node,
+        context
+      );
+      return value === SHORT_CIRCUIT ? undefined : value;
     }
+    case "conditional":
+      return evaluateNode(node.test, context)
+        ? evaluateNode(node.consequent, context)
+        : evaluateNode(node.alternate, context);
     case "unary": {
       const value = evaluateNode(node.argument, context);
       switch (node.operator) {
@@ -938,6 +1181,11 @@ function evaluateNode(node: ConditionAst, context: Record<string, unknown>): unk
       const left = evaluateNode(node.left, context);
       if (node.operator === "&&") {
         return left ? evaluateNode(node.right, context) : left;
+      }
+      if (node.operator === "??") {
+        return left === null || left === undefined
+          ? evaluateNode(node.right, context)
+          : left;
       }
       return left ? left : evaluateNode(node.right, context);
     }
@@ -968,6 +1216,8 @@ function evaluateNode(node: ConditionAst, context: Record<string, unknown>): unk
           return toNumberValue(left) / toNumberValue(right);
         case "%":
           return toNumberValue(left) % toNumberValue(right);
+        case "**":
+          return toNumberValue(left) ** toNumberValue(right);
         default:
           throw new TypeError("Unsupported binary operator");
       }

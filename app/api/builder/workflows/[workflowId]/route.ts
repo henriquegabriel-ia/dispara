@@ -19,9 +19,9 @@ import { validateTree } from "@/lib/builder/flow/tree-validate";
 import type { Flow } from "@/lib/builder/flow/types";
 import { parseWorkflowSettings } from "@/lib/builder/workflow-settings";
 import {
-  describeWorkflowConditionIssues,
-  findInvalidWorkflowConditions,
-} from "@/lib/builder/condition-validator";
+  findWorkflowGraphIssues,
+  workflowGraphIssuesBody,
+} from "@/lib/builder/workflow-graph-guard";
 
 type RouteParams = {
   params: Promise<{ workflowId: string }>;
@@ -59,17 +59,13 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       { status: 400 }
     );
   }
-  // O grafo cru vai direto para o executor: revalida TODAS as expressões de
-  // Condition no servidor (não confia no compile do cliente).
-  const conditionIssues = findInvalidWorkflowConditions(normalized.nodes);
-  if (conditionIssues.length > 0) {
-    return NextResponse.json(
-      {
-        error: describeWorkflowConditionIssues(conditionIssues),
-        details: conditionIssues,
-      },
-      { status: 400 }
-    );
+  // O grafo cru vai direto para o executor: revalida no servidor TODAS as
+  // expressões de Condition e os actionTypes (não confia no compile do cliente).
+  const graphIssues = findWorkflowGraphIssues(normalized.nodes);
+  if (graphIssues.length > 0) {
+    return NextResponse.json(workflowGraphIssuesBody(graphIssues), {
+      status: 400,
+    });
   }
   // Árvore canônica do builder novo: valida estrutura leve antes de persistir.
   let tree: unknown;
