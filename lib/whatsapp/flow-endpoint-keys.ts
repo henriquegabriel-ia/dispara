@@ -5,26 +5,50 @@
  * colateral forte: a Meta passa a cifrar com a chave nova e todos os Flows em
  * andamento recebem 421 até a propagação. Por isso o endpoint só faz isso quando
  * a request tem assinatura X-Hub-Signature-256 VERIFICADA (prova de que veio da
- * Meta). Sem App Secret (modo unsigned_allowed) qualquer um consegue mandar lixo,
- * então nunca há regeneração automática — o dono gera as chaves em Configurações.
+ * Meta). Sem assinatura verificada qualquer um consegue mandar lixo, então nunca
+ * há regeneração automática — o dono gera as chaves em Configurações.
+ *
+ * Sem assinatura verificada o endpoint ainda pode RE-SINCRONIZAR: comparar a chave
+ * pública registrada na Meta com a derivada da nossa chave privada e, se forem
+ * diferentes, registrar de novo a NOSSA chave existente. É idempotente, quem chama
+ * não escolhe a chave e nada local muda — lixo anônimo provoca no máximo um GET e
+ * um SET na Graph por cooldown (que fica numa setting própria, para não atrasar
+ * uma regeneração legítima).
  */
 
+import { createPublicKey } from 'node:crypto'
 import { settingsDb } from '@/lib/supabase-db'
 import { generateKeyPair } from '@/lib/whatsapp/flow-endpoint-crypto'
 import { getWhatsAppCredentials } from '@/lib/whatsapp-credentials'
-import { metaSetEncryptionPublicKey } from '@/lib/meta-flows-api'
+import { metaGetEncryptionPublicKey, metaSetEncryptionPublicKey } from '@/lib/meta-flows-api'
+import {
+  createMetaIntegrationAlert,
+  dismissMetaIntegrationAlerts,
+} from '@/lib/meta-integration-alerts'
 
 export const FLOW_PRIVATE_KEY_SETTING = 'whatsapp_flow_private_key'
 export const FLOW_PUBLIC_KEY_SETTING = 'whatsapp_flow_public_key'
 export const FLOW_LAST_KEY_REGEN_SETTING = 'whatsapp_flow_last_key_regen'
+export const FLOW_LAST_KEY_RESYNC_SETTING = 'whatsapp_flow_last_key_resync'
 
 // Cooldown de 10 minutos entre regenerações de chave
 export const FLOW_KEY_REGEN_COOLDOWN_MS = 10 * 60 * 1000
+// Cooldown de 10 minutos entre re-sincronizações sem assinatura verificada
+export const FLOW_KEY_RESYNC_COOLDOWN_MS = 10 * 60 * 1000
+
+export const FLOW_KEYS_ALERT_ID_PREFIX = 'alert_meta_flow_keys_'
+const MISSING_KEY_ALERT_MIN_FAILURES = 3
+const DECRYPT_FAILURE_WINDOW_MS = 30 * 60_000
+const DECRYPT_FAILURE_MAX_EVENTS = 200
+const FLOW_ALERT_LOCAL_THROTTLE_MS = 10 * 60_000
+// A Meta espera a resposta do endpoint em ~10s: chamadas à Graph aqui têm teto próprio.
+const GRAPH_CALL_TIMEOUT_MS = 4000
 
 export type FlowKeyRecoveryDecision =
   | 'regenerate'      // assinatura verificada, chave ausente/trocada, fora do cooldown
-  | 'cooldown'        // regenerou há pouco; espera a Meta propagar a chave
-  | 'unverified'      // assinatura não verificada: nunca gera/regenera
+  | 'resync'          // sem assinatura verificada + OAEP: só re-registra a chave LOCAL existente
+  | 'cooldown'        // regenerou/re-sincronizou há pouco; espera a Meta propagar a chave
+  | 'unverified'      // assinatura não verificada e chave ausente: nunca gera
   | 'not_applicable'  // erro de decifração que não indica chave trocada
 
 /**
@@ -44,19 +68,35 @@ export function decideFlowKeyRecovery(params: {
   signatureVerified: boolean
   trigger: FlowKeyRecoveryTrigger
   lastRegenAt: number
+  /** Só usado sem assinatura verificada (cooldown próprio da re-sincronização). */
+  lastResyncAt?: number
   now: number
 }): FlowKeyRecoveryDecision {
   if (params.trigger === 'other_error') return 'not_applicable'
-  if (!params.signatureVerified) return 'unverified'
+  if (!params.signatureVerified) {
+    // Falha de leitura do banco também cai em missing_key: nunca vira chave nova.
+    if (params.trigger === 'missing_key') return 'unverified'
+    const lastResyncAt = Number.isFinite(params.lastResyncAt) ? Number(params.lastResyncAt) : 0
+    if (params.now - lastResyncAt < FLOW_KEY_RESYNC_COOLDOWN_MS) return 'cooldown'
+    return 'resync'
+  }
   const lastRegenAt = Number.isFinite(params.lastRegenAt) ? params.lastRegenAt : 0
   if (params.now - lastRegenAt < FLOW_KEY_REGEN_COOLDOWN_MS) return 'cooldown'
   return 'regenerate'
 }
 
-export async function getLastFlowKeyRegenAt(): Promise<number> {
-  const raw = await settingsDb.get(FLOW_LAST_KEY_REGEN_SETTING)
+async function readTimestampSetting(key: string): Promise<number> {
+  const raw = await settingsDb.get(key)
   const parsed = raw ? parseInt(raw, 10) : 0
   return Number.isFinite(parsed) ? parsed : 0
+}
+
+export async function getLastFlowKeyRegenAt(): Promise<number> {
+  return readTimestampSetting(FLOW_LAST_KEY_REGEN_SETTING)
+}
+
+export async function getLastFlowKeyResyncAt(): Promise<number> {
+  return readTimestampSetting(FLOW_LAST_KEY_RESYNC_SETTING)
 }
 
 /**
@@ -90,4 +130,265 @@ export async function rotateFlowEndpointKeys(now: number = Date.now()): Promise<
     console.error('[flow-endpoint] ⚠️ Falha ao sincronizar chave com a Meta (não-bloqueante):', syncError)
   }
   return { metaSynced: false }
+}
+
+// ---------------------------------------------------------------------------
+// Comparação/re-sincronização da chave pública com a Meta
+// ---------------------------------------------------------------------------
+
+/** Chave pública (SPKI PEM) derivada da privada: é a que de fato decifra. */
+export function derivePublicKeyPem(privateKeyPem: string): string {
+  return createPublicKey(privateKeyPem).export({ type: 'spki', format: 'pem' }).toString()
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label}: timeout de ${ms}ms`)), ms)
+  })
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer))
+}
+
+function normalizePem(pem: string): string {
+  return pem.trim().replace(/\r\n/g, '\n')
+}
+
+/** Compara o material da chave (DER), não o texto: formatação diferente não é divergência. */
+export function isSamePublicKey(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (!a || !b) return false
+  try {
+    const derA = createPublicKey(a).export({ type: 'spki', format: 'der' })
+    const derB = createPublicKey(b).export({ type: 'spki', format: 'der' })
+    return Buffer.compare(derA, derB) === 0
+  } catch {
+    return normalizePem(a) === normalizePem(b)
+  }
+}
+
+export type FlowPublicKeyInspection =
+  | { status: 'in_sync' }
+  | { status: 'mismatch'; metaHasKey: boolean }
+  | { status: 'missing_local_key' }
+  | { status: 'invalid_local_key' }
+  | { status: 'no_credentials' }
+  | { status: 'failed'; error: string }
+
+interface InspectionContext {
+  inspection: FlowPublicKeyInspection
+  localPublicKey?: string
+  credentials?: { accessToken: string; phoneNumberId: string }
+}
+
+async function inspect(privateKeyOverride?: string | null): Promise<InspectionContext> {
+  const privateKey = privateKeyOverride ?? (await settingsDb.get(FLOW_PRIVATE_KEY_SETTING))
+  if (!privateKey) return { inspection: { status: 'missing_local_key' } }
+
+  let localPublicKey: string
+  try {
+    localPublicKey = derivePublicKeyPem(privateKey)
+  } catch {
+    return { inspection: { status: 'invalid_local_key' } }
+  }
+
+  const credentials = await getWhatsAppCredentials()
+  if (!credentials?.accessToken || !credentials?.phoneNumberId) {
+    return { inspection: { status: 'no_credentials' }, localPublicKey }
+  }
+  const creds = { accessToken: credentials.accessToken, phoneNumberId: credentials.phoneNumberId }
+
+  try {
+    const registered = await withTimeout(
+      metaGetEncryptionPublicKey(creds),
+      GRAPH_CALL_TIMEOUT_MS,
+      'Consulta da chave pública na Meta'
+    )
+    if (isSamePublicKey(registered.publicKey, localPublicKey)) {
+      return { inspection: { status: 'in_sync' }, localPublicKey, credentials: creds }
+    }
+    return {
+      inspection: { status: 'mismatch', metaHasKey: Boolean(registered.publicKey) },
+      localPublicKey,
+      credentials: creds,
+    }
+  } catch (error) {
+    return {
+      inspection: { status: 'failed', error: error instanceof Error ? error.message : String(error) },
+      localPublicKey,
+    }
+  }
+}
+
+/** Só leitura: a chave registrada na Meta é a derivada da nossa chave privada? */
+export async function inspectFlowPublicKey(params?: { privateKey?: string | null }): Promise<FlowPublicKeyInspection> {
+  return (await inspect(params?.privateKey)).inspection
+}
+
+export type FlowKeySyncResult =
+  | { status: 'in_sync' }
+  | { status: 'resynced' }
+  | { status: 'missing_local_key' }
+  | { status: 'invalid_local_key' }
+  | { status: 'no_credentials' }
+  | { status: 'failed'; error: string }
+
+/**
+ * Garante que a Meta tem a chave pública da NOSSA chave privada: compara e só
+ * registra se divergir. Nunca gera par novo nem altera as chaves locais.
+ */
+export async function syncFlowPublicKeyWithMeta(params?: { privateKey?: string | null }): Promise<FlowKeySyncResult> {
+  const { inspection, localPublicKey, credentials } = await inspect(params?.privateKey)
+  if (inspection.status !== 'mismatch') return inspection
+  if (!localPublicKey || !credentials) return { status: 'failed', error: 'Contexto incompleto para sincronizar' }
+
+  try {
+    await withTimeout(
+      metaSetEncryptionPublicKey({ ...credentials, publicKey: localPublicKey }),
+      GRAPH_CALL_TIMEOUT_MS,
+      'Registro da chave pública na Meta'
+    )
+    console.log('[flow-endpoint] 🔄 Chave pública local re-registrada na Meta (a registrada era diferente).')
+    return { status: 'resynced' }
+  } catch (error) {
+    return { status: 'failed', error: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Falhas de decifração: estatística (diagnóstico) e alerta ao dono
+// ---------------------------------------------------------------------------
+
+/**
+ * Situação da chave quando a decifração falhou:
+ * - missing_key: não há chave privada local;
+ * - in_sync: a Meta tem a nossa chave — a falha não é de chave nossa (lixo/forja ou
+ *   cache do cliente, que o 421 resolve); não alerta;
+ * - resynced: a Meta tinha outra chave e a nossa foi re-registrada; não alerta;
+ * - regenerated: assinatura verificada, par novo gerado e registrado; não alerta;
+ * - unconfirmed: não deu para conferir/registrar a chave na Meta; alerta;
+ * - pending: dentro do cooldown, sem resultado novo; só estatística.
+ */
+export type FlowDecryptKeyStatus =
+  | 'missing_key'
+  | 'in_sync'
+  | 'resynced'
+  | 'regenerated'
+  | 'unconfirmed'
+  | 'pending'
+
+interface DecryptFailureEvent {
+  at: number
+  trigger: FlowKeyRecoveryTrigger
+  keyStatus: FlowDecryptKeyStatus
+  signatureVerified: boolean
+}
+
+let decryptFailures: DecryptFailureEvent[] = []
+let lastFlowAlertAt = 0
+
+/** Zera o estado em memória (testes). */
+export function resetFlowKeyAlertState(): void {
+  decryptFailures = []
+  lastFlowAlertAt = 0
+}
+
+function pruneDecryptFailures(now: number): void {
+  const cutoff = now - DECRYPT_FAILURE_WINDOW_MS
+  if (decryptFailures.length && decryptFailures[0].at < cutoff) {
+    decryptFailures = decryptFailures.filter((e) => e.at >= cutoff)
+  }
+  if (decryptFailures.length > DECRYPT_FAILURE_MAX_EVENTS) {
+    decryptFailures = decryptFailures.slice(-DECRYPT_FAILURE_MAX_EVENTS)
+  }
+}
+
+export interface FlowDecryptFailureSummary {
+  scope: 'instance'
+  windowMinutes: number
+  total: number
+  byKeyStatus: Partial<Record<FlowDecryptKeyStatus, number>>
+  lastAt: string | null
+  lastKeyStatus: FlowDecryptKeyStatus | null
+}
+
+export function getFlowDecryptFailureSummary(now: number = Date.now()): FlowDecryptFailureSummary {
+  pruneDecryptFailures(now)
+  const byKeyStatus: Partial<Record<FlowDecryptKeyStatus, number>> = {}
+  for (const e of decryptFailures) byKeyStatus[e.keyStatus] = (byKeyStatus[e.keyStatus] || 0) + 1
+  const last = decryptFailures[decryptFailures.length - 1] || null
+  return {
+    scope: 'instance',
+    windowMinutes: DECRYPT_FAILURE_WINDOW_MS / 60_000,
+    total: decryptFailures.length,
+    byKeyStatus,
+    lastAt: last ? new Date(last.at).toISOString() : null,
+    lastKeyStatus: last?.keyStatus ?? null,
+  }
+}
+
+export const FLOW_KEYS_RECOMMENDED_ACTION =
+  'Abra Configurações > Diagnóstico da Meta e use "Re-sincronizar chave dos Flows" (ou gere novas chaves em Configurações > MiniApp Dinâmico, no modo desenvolvedor). ' +
+  'Se você não usa MiniApps (Flows) com endpoint, pode dispensar este aviso.'
+
+/**
+ * Registra uma falha de decifração no endpoint de Flows e, quando ela indica um
+ * problema real de chave (ausente, ou não deu para conferir/registrar na Meta),
+ * cria um account_alert deduplicado (type 'meta_integration'). Best-effort.
+ */
+export async function reportFlowDecryptFailure(params: {
+  trigger: FlowKeyRecoveryTrigger
+  keyStatus: FlowDecryptKeyStatus
+  signatureVerified: boolean
+  now?: number
+}): Promise<void> {
+  if (params.trigger === 'other_error') return
+  const now = params.now ?? Date.now()
+  decryptFailures.push({
+    at: now,
+    trigger: params.trigger,
+    keyStatus: params.keyStatus,
+    signatureVerified: params.signatureVerified,
+  })
+  pruneDecryptFailures(now)
+
+  let alertWorthy = false
+  let count = 0
+  if (params.keyStatus === 'unconfirmed') {
+    alertWorthy = true
+    count = decryptFailures.filter((e) => e.keyStatus === 'unconfirmed').length
+  } else if (params.keyStatus === 'missing_key') {
+    count = decryptFailures.filter((e) => e.keyStatus === 'missing_key').length
+    alertWorthy = count >= MISSING_KEY_ALERT_MIN_FAILURES
+  }
+  if (!alertWorthy) return
+
+  if (lastFlowAlertAt && now - lastFlowAlertAt < FLOW_ALERT_LOCAL_THROTTLE_MS) return
+  lastFlowAlertAt = now
+
+  const unsignedHint = params.signatureVerified
+    ? ''
+    : ' Configure também o App Secret do App da Meta em Configurações: com a assinatura verificada, o endpoint consegue gerar e registrar chaves sozinho.'
+  const message =
+    params.keyStatus === 'missing_key'
+      ? `O endpoint de Flows (MiniApp Dinâmico) recebeu ${count} requisição(ões) recente(s), mas não há chave privada configurada para decifrá-las.`
+      : 'O endpoint de Flows (MiniApp Dinâmico) não conseguiu decifrar requisições recentes e não foi possível conferir/registrar a chave pública na Meta.'
+
+  await createMetaIntegrationAlert({
+    idPrefix: FLOW_KEYS_ALERT_ID_PREFIX,
+    message,
+    action: FLOW_KEYS_RECOMMENDED_ACTION + unsignedHint,
+    details: {
+      kind: 'flow_keys',
+      keyStatus: params.keyStatus,
+      trigger: params.trigger,
+      signatureVerified: params.signatureVerified,
+      count,
+    },
+    now,
+  })
+}
+
+/** Chaves confirmadas/consertadas pelo dono: os avisos de chave deixam de valer. */
+export async function dismissFlowKeyAlerts(): Promise<void> {
+  decryptFailures = decryptFailures.filter((e) => e.keyStatus !== 'unconfirmed' && e.keyStatus !== 'missing_key')
+  await dismissMetaIntegrationAlerts(FLOW_KEYS_ALERT_ID_PREFIX)
 }

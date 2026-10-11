@@ -35,17 +35,37 @@ vi.mock('@/lib/supabase', () => {
     isSupabaseConfigured: vi.fn(() => true),
   }
 })
-vi.mock('@/lib/meta-app-credentials', () => ({
-  getStoredMetaAppSecret: vi.fn(async () => null),
+vi.mock('@/lib/meta-app-credentials', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/meta-app-credentials')>()
+  return {
+    ...actual,
+    getStoredMetaAppSecretState: vi.fn(async () => ({ secret: null, verifiedHash: null, verifiedAt: null })),
+    markStoredMetaAppSecretVerified: vi.fn(async () => {}),
+  }
+})
+vi.mock('@/lib/whatsapp-credentials', () => ({
+  getWhatsAppCredentials: vi.fn(async () => null),
 }))
 
 import { GET, POST } from '@/app/api/webhook/route'
-import { getStoredMetaAppSecret } from '@/lib/meta-app-credentials'
+import { getStoredMetaAppSecretState, hashMetaAppSecret } from '@/lib/meta-app-credentials'
 import { getSupabaseAdmin } from '@/lib/supabase'
+import { getWhatsAppCredentials } from '@/lib/whatsapp-credentials'
 import { resetMetaSignatureState } from '@/lib/meta-webhook-signature'
+import { resetWebhookOriginState } from '@/lib/meta-webhook-origin'
+import { createInMemorySupabase } from '@/tests/helpers/in-memory-supabase'
 
 const APP_SECRET = 'webhook-app-secret'
 const NON_WABA_BODY = JSON.stringify({ object: 'page', entry: [] })
+
+/** Secret salvo pela UI (settings); `verified` = já comprovado por assinatura válida. */
+function storeSecret(secret: string, verified = false) {
+  vi.mocked(getStoredMetaAppSecretState).mockResolvedValue({
+    secret,
+    verifiedHash: verified ? hashMetaAppSecret(secret) : null,
+    verifiedAt: verified ? '2026-10-01T00:00:00.000Z' : null,
+  })
+}
 
 function sign(body: string, secret = APP_SECRET): string {
   return `sha256=${createHmac('sha256', secret).update(body, 'utf8').digest('hex')}`
@@ -67,11 +87,14 @@ function postRequest(body: string, headers: Record<string, string> = {}): NextRe
 
 beforeEach(() => {
   resetMetaSignatureState()
+  resetWebhookOriginState()
   settings.clear()
   adminFrom.fn = null
   vi.mocked(getSupabaseAdmin).mockClear()
-  vi.mocked(getStoredMetaAppSecret).mockReset()
-  vi.mocked(getStoredMetaAppSecret).mockResolvedValue(null)
+  vi.mocked(getStoredMetaAppSecretState).mockReset()
+  vi.mocked(getStoredMetaAppSecretState).mockResolvedValue({ secret: null, verifiedHash: null, verifiedAt: null })
+  vi.mocked(getWhatsAppCredentials).mockReset()
+  vi.mocked(getWhatsAppCredentials).mockResolvedValue(null)
   vi.stubEnv('META_APP_SECRET', '')
   vi.stubEnv('META_WEBHOOK_REQUIRE_SIGNATURE', '')
   vi.stubEnv('WEBHOOK_VERIFY_TOKEN', '')
@@ -148,19 +171,37 @@ describe('POST /api/webhook (assinatura)', () => {
     expect(settings.size).toBe(0)
   })
 
-  it('enforced (secret salvo pela UI): assinatura inválida → 401 e registra account_alert', async () => {
-    vi.mocked(getStoredMetaAppSecret).mockResolvedValue(APP_SECRET)
-    const upsert = vi.fn().mockResolvedValue({ error: null })
-    adminFrom.fn = (table) => {
-      expect(table).toBe('account_alerts')
-      const limit = vi.fn().mockResolvedValue({ data: [], error: null })
-      return { select: () => ({ like: () => ({ eq: () => ({ limit }) }) }), upsert }
-    }
+  it('enforced (secret salvo pela UI e já comprovado): assinatura inválida → 401, sem alerta auth', async () => {
+    storeSecret(APP_SECRET, true)
+    const mem = createInMemorySupabase()
+    adminFrom.fn = (table) => mem.client.from(table)
 
     const res = await POST(postRequest(NON_WABA_BODY, { 'x-hub-signature-256': sign(NON_WABA_BODY, 'outro') }))
     expect(res.status).toBe(401)
-    expect(upsert).toHaveBeenCalledTimes(1)
-    expect(upsert.mock.calls[0][0]).toMatchObject({ type: 'auth' })
+    // Uma rejeição isolada (forjável por qualquer um) não vira alerta.
+    expect(mem.rows('account_alerts')).toEqual([])
+  })
+
+  it('CENÁRIO DO ACHADO: secret errado salvo em Configurações (nunca comprovado) NÃO derruba o inbound', async () => {
+    // Antes: 401 para todo POST legítimo da Meta. Agora: report_only (aceita e registra).
+    storeSecret('client-token-colado-no-lugar')
+    const mem = createInMemorySupabase()
+    adminFrom.fn = (table) => mem.client.from(table)
+
+    const res = await POST(postRequest(NON_WABA_BODY, { 'x-hub-signature-256': sign(NON_WABA_BODY, 'secret-real-da-meta') }))
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ status: 'ignored' })
+  })
+
+  it('secret de Configurações: a primeira assinatura válida passa a exigir assinatura', async () => {
+    storeSecret(APP_SECRET)
+    const mem = createInMemorySupabase()
+    adminFrom.fn = (table) => mem.client.from(table)
+
+    const ok = await POST(postRequest(NON_WABA_BODY, { 'x-hub-signature-256': sign(NON_WABA_BODY) }))
+    expect(ok.status).toBe(200)
+    const forged = await POST(postRequest(NON_WABA_BODY, { 'x-hub-signature-256': sign(NON_WABA_BODY, 'forjado') }))
+    expect(forged.status).toBe(401)
   })
 
   it('enforced: assinatura válida segue para o pipeline', async () => {
@@ -190,7 +231,7 @@ describe('POST /api/webhook (assinatura)', () => {
   })
 
   it('falha ao ler o App Secret → 503 (Meta reentrega), sem processar', async () => {
-    vi.mocked(getStoredMetaAppSecret).mockRejectedValue(new Error('db down'))
+    vi.mocked(getStoredMetaAppSecretState).mockRejectedValue(new Error('db down'))
     const res = await POST(postRequest(NON_WABA_BODY))
     expect(res.status).toBe(503)
     expect(vi.mocked(getSupabaseAdmin)).not.toHaveBeenCalled()
@@ -200,5 +241,84 @@ describe('POST /api/webhook (assinatura)', () => {
     vi.stubEnv('META_APP_SECRET', APP_SECRET)
     const res = await POST(postRequest('', { 'x-hub-signature-256': sign('') }))
     expect(res.status).toBe(400)
+  })
+})
+
+describe('POST /api/webhook sem assinatura verificada (mitigações)', () => {
+  const TEMPLATE_BODY = JSON.stringify({
+    object: 'whatsapp_business_account',
+    entry: [
+      {
+        id: 'waba-1',
+        changes: [
+          {
+            field: 'message_template_status_update',
+            // Formato lido pelo handler: value.message_template_status_update
+            value: {
+              message_template_status_update: {
+                event: 'REJECTED',
+                message_template_id: 'tpl-meta-1',
+                message_template_name: 'promo',
+                reason: 'x',
+              },
+            },
+          },
+        ],
+      },
+    ],
+  })
+
+  function useMemDb() {
+    const mem = createInMemorySupabase({
+      templates: [{ id: 't1', name: 'promo', meta_id: 'tpl-meta-1', status: 'APPROVED' }],
+    })
+    adminFrom.fn = (table) => mem.client.from(table)
+    return mem
+  }
+
+  it('CENÁRIO DO ACHADO: message_template_status_update forjado (unsigned_allowed) é ignorado', async () => {
+    const mem = useMemDb()
+    const res = await POST(postRequest(TEMPLATE_BODY))
+    expect(res.status).toBe(200)
+    expect(mem.accessed).not.toContain('templates')
+    expect(mem.rows('templates')[0].status).toBe('APPROVED')
+    expect(console.warn).toHaveBeenCalledWith(expect.stringMatching(/message_template_status_update ignorado/))
+  })
+
+  it('report_only com assinatura que não confere também ignora o status de template', async () => {
+    storeSecret(APP_SECRET)
+    const mem = useMemDb()
+    const res = await POST(postRequest(TEMPLATE_BODY, { 'x-hub-signature-256': sign(TEMPLATE_BODY, 'forjado') }))
+    expect(res.status).toBe(200)
+    expect(mem.rows('templates')[0].status).toBe('APPROVED')
+  })
+
+  it('com assinatura verificada o status de template é aplicado', async () => {
+    vi.stubEnv('META_APP_SECRET', APP_SECRET)
+    const mem = useMemDb()
+    const res = await POST(postRequest(TEMPLATE_BODY, { 'x-hub-signature-256': sign(TEMPLATE_BODY) }))
+    expect(res.status).toBe(200)
+    expect(mem.rows('templates')[0].status).toBe('REJECTED')
+  })
+
+  it('WABA/phone_number_id diferentes das credenciais: loga (mascarado) e processa mesmo assim', async () => {
+    vi.mocked(getWhatsAppCredentials).mockResolvedValue({
+      businessAccountId: '111111111',
+      phoneNumberId: '222222222',
+      accessToken: 'tok',
+    })
+    useMemDb()
+    const body = JSON.stringify({
+      object: 'whatsapp_business_account',
+      entry: [{ id: '999999999', changes: [{ field: 'messages', value: { metadata: { phone_number_id: '888888888' } } }] }],
+    })
+
+    const res = await POST(postRequest(body))
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ status: 'ok' })
+    const warnings = vi.mocked(console.warn).mock.calls.map((c) => String(c[0]))
+    expect(warnings.some((w) => w.includes('entry.id') && w.includes('999…999') && w.includes('App Secret'))).toBe(true)
+    expect(warnings.some((w) => w.includes('metadata.phone_number_id') && w.includes('888…888'))).toBe(true)
+    expect(warnings.join('\n')).not.toContain('999999999')
   })
 })
