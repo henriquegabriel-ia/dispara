@@ -1106,9 +1106,24 @@ async function verifyBroadcastTriggers(ex) {
     const problem = realtimeInsertProblem(send)
     check(`realtime.messages: quem insere (${send.inserter}, ${send.sendDefiner ? 'dono do realtime.send SECURITY DEFINER' : 'dono de dispara_broadcast_change'}) consegue gravar (privilégio INSERT e RLS)`,
       problem === null,
-      `${problem} — sem isso realtime.send engole o erro (WARNING ErrorSendingBroadcastMessage a cada escrita) e o realtime do dashboard morre em silêncio; não precisa reaplicar a migration`)
+      `${problem} — sem isso realtime.send engole o erro (WARNING ErrorSendingBroadcastMessage ou pg_notify realtime:system, conforme a versão) e o realtime do dashboard morre em silêncio; não precisa reaplicar a migration`)
     if (problem === null && send.rlsAccess === 'policy') {
       info(`INSERT de ${send.inserter} em realtime.messages liberado pelo RLS via policy (${send.policies}); o WITH CHECK não é avaliado aqui: confira que aceita topic = 'dispara-db'`)
+    }
+    // Policies RESTRICTIVE não liberam nada, mas podem barrar o INSERT mesmo com uma PERMISSIVE.
+    const restrictive = await ex.query(`
+      SELECT string_agg(p.polname, ', ' ORDER BY p.polname) AS names FROM pg_policy p
+      WHERE p.polrelid = to_regclass('realtime.messages') AND p.polcmd IN ('a', '*') AND NOT p.polpermissive`)
+    if (restrictive[0]?.names) {
+      info(`realtime.messages tem policy RESTRICTIVE de INSERT (${restrictive[0].names}): não é avaliada aqui — confira que aceita topic = 'dispara-db' para ${send.inserter}`)
+    }
+    // Mostra qual variante do realtime.send o banco tem (a guarda da migration é heurística: ver LIMITAÇÃO no cabeçalho)
+    const src = await ex.query(`
+      SELECT md5(prosrc) AS md5, prosrc ~* 'pg_notify' AS notifies, prosrc ~* 'ErrorSendingBroadcastMessage' AS warns
+      FROM pg_proc WHERE oid = to_regprocedure('realtime.send(jsonb,text,text,boolean)')`)
+    if (src[0]) {
+      const kind = src[0].warns ? "RAISE WARNING 'ErrorSendingBroadcastMessage'" : src[0].notifies ? "pg_notify('realtime:system')" : 'outro formato'
+      info(`realtime.send: falhas reportadas via ${kind} (md5 do fonte ${src[0].md5})`)
     }
   }
 
@@ -1133,7 +1148,7 @@ async function verifyBroadcastTriggers(ex) {
     check('triggers na versão deste repositório (md5 da definição na marca do COMMENT)', stale.length === 0,
       `desatualizadas: ${stale.join(', ')} — reaplique a migration de hardening`)
     check('triggers sem alteração manual desde a migration (md5 do pg_get_triggerdef = o registrado na criação)', drifted.length === 0,
-      `alteradas à mão (ex.: CREATE OR REPLACE TRIGGER com outro WHEN, que mantém OID e COMMENT): ${drifted.join(', ')} — reaplique a migration de hardening (ela recria só as alteradas)`)
+      `alteradas à mão (ex.: CREATE OR REPLACE TRIGGER com outro WHEN, que mantém OID e COMMENT): ${drifted.join(', ')} — reaplique a migration de hardening (ela recria só as alteradas). Se TODAS aparecerem alteradas logo após um upgrade de major do Postgres, é só o formato do pg_get_triggerdef que mudou: reaplique numa janela de baixo tráfego`)
   }
 
   const fn = await ex.query(`SELECT prosrc FROM pg_proc WHERE oid = to_regprocedure('public.dispara_broadcast_change()')`)

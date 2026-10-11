@@ -81,6 +81,18 @@
 --    função depois, a trigger para de publicar em vez de derrubar a escrita). A guarda
 --    também confere USAGE no schema realtime e EXECUTE no send antes de usá-lo.
 --    Preferimos ficar sem realtime a arriscar derrubar escritas do app.
+--    LIMITAÇÃO da guarda (heurística sobre o texto do fonte, não análise de fluxo): ela
+--    não trata dollar-quotes nem E'...' com \' ao remover literais, não sabe se o INSERT
+--    está DENTRO do bloco protegido e não detecta erro lançado por outro caminho no
+--    handler (ex.: 1/0). Um fonte escrito para enganá-la passaria e uma falha no INSERT
+--    derrubaria a escrita. O alvo é o realtime.send do próprio Supabase (versões
+--    conhecidas: handler com RAISE WARNING 'ErrorSendingBroadcastMessage' ou com
+--    PERFORM pg_notify('realtime:system', ...) — as duas passam e não relançam); confira
+--    o fonte real com o modo --verify-only do scripts/check-migrations.mjs.
+--    Efeito colateral conhecido do throttle de campaigns: o BEFORE set_updated_at grava
+--    updated_at também nos UPDATEs só de dispatch_lock_* (try_lock/release do dreno), que
+--    não publicam mas "gastam" a janela de 2s — um contador logo depois pode não publicar.
+--    A tela de campanha cobre isso com polling (useCampaignDetails/useCampaignsQuery).
 --    Sem realtime.send (Broadcast from Database indisponível) ou sem o tratamento de
 --    erro, a migration aplica o resto normalmente, NÃO cria as triggers e emite um
 --    WARNING: o dashboard fica só no polling até esta migration ser reaplicada depois
