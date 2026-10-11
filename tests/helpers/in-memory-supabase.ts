@@ -4,7 +4,8 @@
  * Diferente de createMockQueryBuilder (resultado fixo), aqui as escritas valem para
  * as leituras seguintes. Suporta o subconjunto usado pelo código de assinatura da
  * Meta e alertas: select / upsert (onConflict, ignoreDuplicates) / insert / update /
- * delete com eq, neq, in, like ('prefixo%'), order, limit, single e maybeSingle.
+ * delete com eq, neq, in, like ('prefixo%'), lt, order, limit, single e maybeSingle.
+ * Cada instrução roda inteira de uma vez (como um UPDATE ... WHERE no Postgres).
  *
  * @example
  * ```ts
@@ -141,6 +142,17 @@ export function createInMemorySupabase(
       like: (column: string, pattern: string) => {
         const test = likeToPredicate(pattern)
         state.filters.push((r) => test(r[column]))
+        return builder
+      },
+      // Número com número compara numericamente; o resto como texto (coluna text no Postgres).
+      lt: (column: string, value: unknown) => {
+        state.filters.push((r) => {
+          const current = r[column]
+          if (current === null || current === undefined) return false
+          return typeof current === 'number' && typeof value === 'number'
+            ? current < value
+            : String(current) < String(value)
+        })
         return builder
       },
       order: (column: string, options?: { ascending?: boolean }) => {

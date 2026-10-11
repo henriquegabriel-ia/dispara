@@ -80,6 +80,30 @@ export async function dismissMetaIntegrationAlerts(idPrefix: string): Promise<vo
   }
 }
 
+/**
+ * O SISTEMA constatou que o problema acabou (não é dispensa do usuário): APAGA as
+ * linhas com o prefixo, inclusive as já dispensadas. Para alerta de id fixo
+ * (bucket ''), marcar dismissed=true deixaria o id ocupado para sempre — o upsert
+ * com ignoreDuplicates nunca o reabre — e o aviso não voltaria quando o problema
+ * reaparecesse (ex.: o dono remove o App Secret depois). A dispensa manual do
+ * usuário continua sendo um update dismissed=true, definitiva enquanto o problema
+ * durar. Best-effort: nunca lança.
+ */
+export async function resolveMetaIntegrationAlerts(idPrefix: string): Promise<void> {
+  try {
+    const db = getSupabaseAdmin()
+    if (!db) return
+    const { error } = await db
+      .from('account_alerts')
+      .delete()
+      .like('id', `${idPrefix}%`)
+      .eq('type', META_INTEGRATION_ALERT_TYPE)
+    if (error) throw error
+  } catch (error) {
+    console.warn('[meta-alerts] Falha ao resolver account_alerts (best-effort):', error)
+  }
+}
+
 export interface MetaIntegrationAlertSummary {
   id: string
   createdAt: string

@@ -50,7 +50,11 @@ import { getWhatsAppCredentials } from '@/lib/whatsapp-credentials'
 import { metaGetEncryptionPublicKey } from '@/lib/meta-flows-api'
 import { evaluateMetaSignature, reportMetaSignatureFailure, resetMetaSignatureState } from '@/lib/meta-webhook-signature'
 import { generateKeyPair } from '@/lib/whatsapp/flow-endpoint-crypto'
-import { FLOW_PRIVATE_KEY_SETTING, resetFlowKeyAlertState } from '@/lib/whatsapp/flow-endpoint-keys'
+import {
+  FLOW_PRIVATE_KEY_SETTING,
+  reportFlowDecryptFailure,
+  resetFlowKeyAlertState,
+} from '@/lib/whatsapp/flow-endpoint-keys'
 
 type Check = {
   id: string
@@ -196,5 +200,23 @@ describe('diagnóstico da chave do endpoint de Flows', () => {
     const check = data.checks.find((c) => c.id === 'flow_endpoint_keys')
     expect(check?.status).toBe('info')
     expect(check?.actions?.[0]).toMatchObject({ kind: 'api', endpoint: '/api/flows/endpoint/keys' })
+  })
+
+  it('CENÁRIO DO ACHADO: sem chave + falhas só de requests NÃO verificadas → warn (possível ruído), não fail', async () => {
+    for (let i = 0; i < 3; i++) {
+      await reportFlowDecryptFailure({ trigger: 'missing_key', keyStatus: 'missing_key', signatureVerified: false })
+    }
+    const check = (await diagnostics()).checks.find((c) => c.id === 'flow_endpoint_keys')
+    expect(check?.status).toBe('warn')
+    expect(check?.message).toMatch(/3 falha\(s\)/)
+    expect(check?.message).toMatch(/Nenhuma delas tinha assinatura verificada/)
+  })
+
+  it('sem chave + falha de request com assinatura verificada (a Meta está chamando) → fail', async () => {
+    await reportFlowDecryptFailure({ trigger: 'missing_key', keyStatus: 'missing_key', signatureVerified: false })
+    await reportFlowDecryptFailure({ trigger: 'missing_key', keyStatus: 'missing_key', signatureVerified: true })
+    const check = (await diagnostics()).checks.find((c) => c.id === 'flow_endpoint_keys')
+    expect(check?.status).toBe('fail')
+    expect(check?.message).not.toMatch(/Nenhuma delas/)
   })
 })

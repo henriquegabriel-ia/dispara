@@ -29,7 +29,9 @@ import {
   FLOW_KEYS_ALERT_ID_PREFIX,
   FLOW_KEY_REGEN_COOLDOWN_MS,
   FLOW_KEY_RESYNC_COOLDOWN_MS,
+  FLOW_LAST_KEY_RESYNC_SETTING,
   FLOW_PRIVATE_KEY_SETTING,
+  claimFlowKeyResync,
   decideFlowKeyRecovery,
   derivePublicKeyPem,
   dismissFlowKeyAlerts,
@@ -39,6 +41,7 @@ import {
   isSamePublicKey,
   reportFlowDecryptFailure,
   resetFlowKeyAlertState,
+  resyncFlowPublicKeyIfDue,
   syncFlowPublicKeyWithMeta,
 } from '@/lib/whatsapp/flow-endpoint-keys'
 import { generateKeyPair } from '@/lib/whatsapp/flow-endpoint-crypto'
@@ -186,6 +189,54 @@ describe('syncFlowPublicKeyWithMeta / inspectFlowPublicKey', () => {
   })
 })
 
+describe('claimFlowKeyResync / resyncFlowPublicKeyIfDue (cooldown atômico)', () => {
+  function resyncSetting(): string | undefined {
+    return db.rows('settings').find((r) => r.key === FLOW_LAST_KEY_RESYNC_SETTING)?.value as string | undefined
+  }
+
+  it('CENÁRIO DO ACHADO: claims concorrentes (várias instâncias) → só UM ganha a janela', async () => {
+    const results = await Promise.all(Array.from({ length: 20 }, () => claimFlowKeyResync(NOW)))
+    expect(results.filter(Boolean)).toHaveLength(1)
+    expect(resyncSetting()).toBe(String(NOW))
+
+    // Com a linha já existente e o cooldown vencido: de novo, só um.
+    const later = NOW + FLOW_KEY_RESYNC_COOLDOWN_MS
+    const again = await Promise.all(Array.from({ length: 20 }, () => claimFlowKeyResync(later)))
+    expect(again.filter(Boolean)).toHaveLength(1)
+    expect(resyncSetting()).toBe(String(later))
+  })
+
+  it('dentro do cooldown não reivindica; vencido, reivindica', async () => {
+    db = createInMemorySupabase({ settings: [{ key: FLOW_LAST_KEY_RESYNC_SETTING, value: String(NOW) }] })
+    holder.client = db.client
+    await expect(claimFlowKeyResync(NOW + FLOW_KEY_RESYNC_COOLDOWN_MS - 1)).resolves.toBe(false)
+    await expect(claimFlowKeyResync(NOW + FLOW_KEY_RESYNC_COOLDOWN_MS)).resolves.toBe(true)
+  })
+
+  it('valor vazio/legado conta como nunca re-sincronizado', async () => {
+    db = createInMemorySupabase({ settings: [{ key: FLOW_LAST_KEY_RESYNC_SETTING, value: '' }] })
+    holder.client = db.client
+    await expect(claimFlowKeyResync(NOW)).resolves.toBe(true)
+  })
+
+  it('erro do banco ou Supabase ausente → false (fail-closed, nunca libera a Graph)', async () => {
+    db.failNext('settings', 'connection reset')
+    await expect(claimFlowKeyResync(NOW)).resolves.toBe(false)
+    holder.client = null
+    await expect(claimFlowKeyResync(NOW)).resolves.toBe(false)
+  })
+
+  it('single-flight por instância: chamadas concorrentes → uma inspeção na Graph', async () => {
+    vi.mocked(metaGetEncryptionPublicKey).mockResolvedValue({ publicKey: other.publicKey })
+    const attempts = await Promise.all(
+      Array.from({ length: 10 }, () => resyncFlowPublicKeyIfDue({ privateKey: keys.privateKey, now: NOW }))
+    )
+    expect(attempts.filter((a) => a.claimed)).toEqual([{ claimed: true, result: { status: 'resynced' } }])
+    expect(metaGetEncryptionPublicKey).toHaveBeenCalledTimes(1)
+    expect(metaSetEncryptionPublicKey).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('reportFlowDecryptFailure', () => {
   function flowAlerts() {
     return db.rows('account_alerts').filter((r) => String(r.id).startsWith(FLOW_KEYS_ALERT_ID_PREFIX))
@@ -207,14 +258,31 @@ describe('reportFlowDecryptFailure', () => {
     expect(alerts[0]).toMatchObject({ type: 'meta_integration', code: null })
   })
 
-  it('chave ausente só alerta quando recorrente', async () => {
-    await reportFlowDecryptFailure({ trigger: 'missing_key', keyStatus: 'missing_key', signatureVerified: false, now: NOW })
-    await reportFlowDecryptFailure({ trigger: 'missing_key', keyStatus: 'missing_key', signatureVerified: false, now: NOW + 1 })
+  it('chave ausente com assinatura verificada só alerta quando recorrente', async () => {
+    await reportFlowDecryptFailure({ trigger: 'missing_key', keyStatus: 'missing_key', signatureVerified: true, now: NOW })
+    await reportFlowDecryptFailure({ trigger: 'missing_key', keyStatus: 'missing_key', signatureVerified: true, now: NOW + 1 })
     expect(flowAlerts()).toEqual([])
     await reportFlowDecryptFailure({ trigger: 'missing_key', keyStatus: 'missing_key', signatureVerified: true, now: NOW + 2 })
     expect(flowAlerts()).toHaveLength(1)
     // Com assinatura verificada não sugere configurar o App Secret.
     expect(JSON.parse(String(flowAlerts()[0].details)).action).not.toMatch(/App Secret/)
+  })
+
+  it('CENÁRIO DO ACHADO: chave ausente em requests SEM assinatura verificada nunca alerta (só estatística)', async () => {
+    for (let i = 0; i < 10; i++) {
+      await reportFlowDecryptFailure({ trigger: 'missing_key', keyStatus: 'missing_key', signatureVerified: false, now: NOW + i })
+    }
+    expect(flowAlerts()).toEqual([])
+    expect(getFlowDecryptFailureSummary(NOW + 10)).toMatchObject({
+      total: 10,
+      verifiedTotal: 0,
+      byKeyStatus: { missing_key: 10 },
+    })
+
+    // Lixo anônimo também não ajuda a bater o limite das verificadas.
+    await reportFlowDecryptFailure({ trigger: 'missing_key', keyStatus: 'missing_key', signatureVerified: true, now: NOW + 11 })
+    expect(flowAlerts()).toEqual([])
+    expect(getFlowDecryptFailureSummary(NOW + 12).verifiedTotal).toBe(1)
   })
 
   it('dismissFlowKeyAlerts dispensa os avisos ativos', async () => {

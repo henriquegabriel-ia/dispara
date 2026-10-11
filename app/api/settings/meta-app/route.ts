@@ -3,13 +3,14 @@ import { settingsDb } from '@/lib/supabase-db'
 import {
   clearStoredMetaAppSecretVerification,
   getMetaAppConfigPublic,
+  getStoredMetaAppSecret,
   getStoredMetaAppSecretState,
   hashMetaAppSecret,
   validateMetaAppCredentials,
 } from '@/lib/meta-app-credentials'
 import { isSupabaseConfigured } from '@/lib/supabase'
 import { META_APP_SECRET_MISSING_ALERT_ID, clearMetaAppSecretCache } from '@/lib/meta-webhook-signature'
-import { dismissMetaIntegrationAlerts } from '@/lib/meta-integration-alerts'
+import { resolveMetaIntegrationAlerts } from '@/lib/meta-integration-alerts'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -56,6 +57,34 @@ async function resetVerificationIfSecretChanged(nextSecret: string | null): Prom
   }
 }
 
+const NUMERIC_APP_ID = /^\d+$/
+
+/**
+ * App Secret recusado pela Graph: o App ID ainda é gravado — não é sensível e o
+ * upload de mídia de template depende só dele —, desde que isso não deixe em
+ * settings um par divergente (App ID novo junto de um App Secret de outro App, que
+ * quebraria o /debug_token e manteria o HMAC com o secret antigo). Então só grava
+ * quando não há secret salvo ou quando o App ID é o mesmo já salvo. Na dúvida
+ * (erro de leitura), não grava. Retorna se o App ID informado é o que ficou salvo.
+ */
+async function saveAppIdDespiteRejectedSecret(appId: string): Promise<boolean> {
+  if (!NUMERIC_APP_ID.test(appId)) return false
+  try {
+    const [storedAppIdRaw, storedSecret] = await Promise.all([
+      settingsDb.get('metaAppId'),
+      getStoredMetaAppSecret(),
+    ])
+    const storedAppId = String(storedAppIdRaw || '').trim()
+    if (storedAppId === appId) return true
+    if (storedSecret) return false
+    await settingsDb.set('metaAppId', appId)
+    return true
+  } catch (error) {
+    console.warn('[meta-app] Falha ao gravar o App ID com o App Secret recusado:', error)
+    return false
+  }
+}
+
 // POST - Salva App ID/Secret no Supabase settings
 // Observação: secret NUNCA é retornado; no máximo confirmamos booleanos.
 export async function POST(request: NextRequest) {
@@ -75,17 +104,34 @@ export async function POST(request: NextRequest) {
     // Para upload (Resumable Upload API), precisamos apenas do App ID.
     // O App Secret é opcional: usado em diagnósticos (/debug_token) e na assinatura
     // X-Hub-Signature-256 do webhook e do endpoint de Flows. Um secret errado não pode
-    // ser salvo: o par App ID + App Secret é conferido na Graph antes de gravar.
+    // ser salvo: o par App ID + App Secret é conferido na Graph antes de gravar. O App
+    // ID ainda é salvo quando isso não cria um par divergente (ver acima).
     let appSecretValidation: 'valid' | 'unavailable' | null = null
     let warning: string | undefined
     if (appSecret) {
       const validation = await validateMetaAppCredentials(appId, appSecret)
       if (validation.status === 'invalid') {
+        const secretHelp =
+          'Copie o App Secret do mesmo App em developers.facebook.com > App > Configurações > Básico (não use o Client Token).'
+        if (!NUMERIC_APP_ID.test(appId)) {
+          return NextResponse.json(
+            {
+              error: 'App ID inválido: deve conter apenas números. Nada foi salvo.',
+              code: 'invalid_app_id',
+              appIdSaved: false,
+              details: { graphCode: validation.graphCode, message: validation.message },
+            },
+            { status: 400 }
+          )
+        }
+        const appIdSaved = await saveAppIdDespiteRejectedSecret(appId)
         return NextResponse.json(
           {
-            error:
-              'App Secret não confere com o App ID informado. Copie o App Secret do mesmo App em developers.facebook.com > App > Configurações > Básico (não use o Client Token).',
+            error: appIdSaved
+              ? `O App ID foi salvo, mas o App Secret não confere com ele e NÃO foi salvo. ${secretHelp}`
+              : `App Secret não confere com o App ID informado. Nada foi salvo: o App ID e o App Secret atuais foram mantidos. ${secretHelp}`,
             code: 'invalid_app_secret',
+            appIdSaved,
             details: { graphCode: validation.graphCode, message: validation.message },
           },
           { status: 400 }
@@ -105,7 +151,9 @@ export async function POST(request: NextRequest) {
       await settingsDb.set('metaAppSecret', appSecret)
       // O secret também verifica a assinatura do webhook (cache de 60s por instância).
       clearMetaAppSecretCache()
-      await dismissMetaIntegrationAlerts(META_APP_SECRET_MISSING_ALERT_ID)
+      // Apaga (não só dispensa) o aviso "App Secret ausente": se o secret for
+      // removido depois, ele precisa voltar (id fixo + ignoreDuplicates).
+      await resolveMetaIntegrationAlerts(META_APP_SECRET_MISSING_ALERT_ID)
     }
 
     const cfg = await getMetaAppConfigPublic()
