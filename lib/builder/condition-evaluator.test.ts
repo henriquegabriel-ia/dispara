@@ -365,6 +365,21 @@ describe("condition-evaluator — limites", () => {
     expect(parseConditionExpression(bangs).ok).toBe(false);
   });
 
+  it("cadeia de && no limite de tamanho avalia sem derrubar o processo", () => {
+    const expression = `${"1&&".repeat(6600)}1`;
+    expect(expression.length).toBeLessThan(MAX_CONDITION_EXPRESSION_LENGTH);
+    expect(parseConditionExpression(expression).ok).toBe(true);
+    // Árvore de 6600 níveis: ou avalia, ou lança RangeError (que o executor
+    // trata como falso) — nunca trava nem derruba o processo.
+    let outcome: unknown;
+    try {
+      outcome = evaluateSafeExpression(expression, {});
+    } catch (error) {
+      outcome = error instanceof RangeError ? "range-error" : error;
+    }
+    expect([1, "range-error"]).toContain(outcome);
+  });
+
   it("aceita cadeia longa de && (branch None com muitas opções)", () => {
     const parts = Array.from({ length: 60 }, (_, i) => `!(__v0.includes("opcao ${i}"))`);
     const expression = parts.join(" && ");
