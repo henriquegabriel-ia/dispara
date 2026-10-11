@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { settingsDb } from '@/lib/supabase-db'
 import { getMetaAppConfigPublic } from '@/lib/meta-app-credentials'
 import { isSupabaseConfigured } from '@/lib/supabase'
+import { clearMetaAppSecretCache } from '@/lib/meta-webhook-signature'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -47,10 +48,13 @@ export async function POST(request: NextRequest) {
     }
 
     // Para upload (Resumable Upload API), precisamos apenas do App ID.
-    // O App Secret é opcional e só é usado em diagnósticos (/debug_token).
+    // O App Secret é opcional: usado em diagnósticos (/debug_token) e, quando presente,
+    // passa a exigir assinatura X-Hub-Signature-256 no webhook e no endpoint de Flows.
     await settingsDb.set('metaAppId', appId)
     if (appSecret) {
       await settingsDb.set('metaAppSecret', appSecret)
+      // O secret também verifica a assinatura do webhook (cache de 60s por instância).
+      clearMetaAppSecretCache()
     }
 
     const cfg = await getMetaAppConfigPublic()
@@ -70,6 +74,7 @@ export async function DELETE() {
 
     await settingsDb.set('metaAppId', '')
     await settingsDb.set('metaAppSecret', '')
+    clearMetaAppSecretCache()
 
     const cfg = await getMetaAppConfigPublic()
     return NextResponse.json({ success: true, ...cfg })

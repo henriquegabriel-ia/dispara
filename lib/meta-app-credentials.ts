@@ -1,4 +1,5 @@
 import { settingsDb } from '@/lib/supabase-db'
+import { getSupabaseAdmin } from '@/lib/supabase'
 
 export interface MetaAppCredentials {
   appId: string
@@ -46,6 +47,33 @@ export async function getMetaAppCredentials(): Promise<MetaAppCredentials | null
   } catch {
     return null
   }
+}
+
+/**
+ * App Secret salvo pela UI (settings 'metaAppSecret'), independente do App ID.
+ *
+ * Usado na verificação de assinatura (X-Hub-Signature-256) do webhook e do
+ * endpoint de Flows. Diferente das funções acima, NÃO engole erro de leitura:
+ * quem verifica assinatura precisa distinguir "não configurado" (null) de
+ * "não consegui ler" (throw) para não abrir o webhook por falha transitória do banco.
+ */
+export async function getStoredMetaAppSecret(): Promise<string | null> {
+  const client = getSupabaseAdmin()
+  // Supabase não configurado (wizard) → não há nada salvo.
+  if (!client) return null
+
+  const { data, error } = await client
+    .from('settings')
+    .select('value')
+    .eq('key', 'metaAppSecret')
+    .maybeSingle()
+
+  if (error) {
+    throw new Error(`Falha ao ler metaAppSecret: ${error.message}`)
+  }
+
+  const secret = String((data as { value?: unknown } | null)?.value || '').trim()
+  return secret || null
 }
 
 /**

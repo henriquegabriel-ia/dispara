@@ -4,6 +4,7 @@ import { normalizeSubscribedFields, type MetaSubscribedApp } from '@/lib/meta-we
 import { getVerifyToken } from '@/lib/verify-token'
 import { supabase } from '@/lib/supabase'
 import { getMetaAppCredentials } from '@/lib/meta-app-credentials'
+import { getMetaSignatureStatus, type MetaSignatureStatus } from '@/lib/meta-webhook-signature'
 import { fetchWithTimeout, safeJson } from '@/lib/server-http'
 
 export const runtime = 'nodejs'
@@ -677,6 +678,58 @@ function summarizeHealthStatus(raw: any) {
 	}
 }
 
+function buildWebhookSignatureCheck(status: MetaSignatureStatus): DiagnosticCheck {
+	const details: Record<string, unknown> = {
+		mode: status.mode,
+		secretSource: status.secretSource,
+		requireSignature: status.requireSignature,
+		recommendedAction: status.recommendedAction,
+	}
+	const openSettings = [
+		{ id: 'open_settings', label: 'Configurar App Secret', kind: 'link' as const, href: '/settings' },
+	]
+
+	if (status.error) {
+		return {
+			id: 'webhook_signature',
+			title: 'Assinatura do webhook (X-Hub-Signature-256)',
+			status: 'warn',
+			message: 'Não foi possível ler o App Secret agora; o webhook rejeita requisições até conseguir ler (fail-closed).',
+			details: { ...details, error: status.error },
+		}
+	}
+
+	if (status.mode === 'enforced' && status.secretSource) {
+		return {
+			id: 'webhook_signature',
+			title: 'Assinatura do webhook (X-Hub-Signature-256)',
+			status: 'pass',
+			message: `Exigida (App Secret via ${status.secretSource === 'env' ? 'env META_APP_SECRET' : 'Configurações'}). Requisições sem assinatura válida são rejeitadas.`,
+			details,
+		}
+	}
+
+	if (status.rejectsAll) {
+		return {
+			id: 'webhook_signature',
+			title: 'Assinatura do webhook (X-Hub-Signature-256)',
+			status: 'fail',
+			message: 'META_WEBHOOK_REQUIRE_SIGNATURE=true sem App Secret: todo POST da Meta (webhook e Flows) está sendo rejeitado. Configure o App Secret em Configurações.',
+			details,
+			actions: openSettings,
+		}
+	}
+
+	return {
+		id: 'webhook_signature',
+		title: 'Assinatura do webhook (X-Hub-Signature-256)',
+		status: 'warn',
+		message: 'Não verificada: sem App Secret, o webhook e o endpoint de Flows aceitam requisições sem assinatura (qualquer um pode forjar eventos). Configure o App Secret em Configurações.',
+		details,
+		actions: openSettings,
+	}
+}
+
 /**
  * GET /api/meta/diagnostics
  * Centraliza o diagnóstico (infra + credenciais + Graph API + sinais internos).
@@ -689,6 +742,7 @@ export async function GET() {
 
 	const credentials = await getWhatsAppCredentials().catch(() => null)
 	const source = credentials ? 'db' : 'none'
+	const webhookSignature = await getMetaSignatureStatus()
 
 	const checks: DiagnosticCheck[] = []
 
@@ -709,6 +763,9 @@ export async function GET() {
 			hasSupabaseSecretKey,
 		},
 	})
+
+	// 0.1) Assinatura do webhook: 'enforced' (com App Secret) ou 'unsigned_allowed'
+	checks.push(buildWebhookSignatureCheck(webhookSignature))
 
 	// 1) Credenciais
 	if (!credentials?.accessToken || !credentials?.businessAccountId || !credentials?.phoneNumberId) {
@@ -740,6 +797,7 @@ export async function GET() {
 				webhook: {
 					expectedUrl: webhookUrl,
 					verifyTokenPreview: maskTokenPreview(webhookToken),
+					signature: webhookSignature,
 				},
 				whatsapp: {
 					credentialsSource: source,
@@ -1459,6 +1517,7 @@ export async function GET() {
 		webhook: {
 			expectedUrl: webhookUrl,
 			verifyTokenPreview: maskTokenPreview(webhookToken),
+			signature: webhookSignature,
 		},
 		whatsapp: {
 			credentialsSource: source,

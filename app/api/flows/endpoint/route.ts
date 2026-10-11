@@ -6,6 +6,10 @@
  *
  * POST /api/flows/endpoint
  *
+ * Segurança: rota pública no proxy (public_route_auth). A assinatura
+ * X-Hub-Signature-256 é verificada antes de decifrar (lib/meta-webhook-signature.ts)
+ * e as chaves RSA só são geradas/regeneradas automaticamente com assinatura verificada.
+ *
  * Handlers:
  * - ping: health check
  * - INIT: primeira tela do flow
@@ -19,134 +23,154 @@ import {
   decryptRequest,
   encryptResponse,
   createErrorResponse,
-  generateKeyPair,
   type FlowDataExchangeRequest,
 } from '@/lib/whatsapp/flow-endpoint-crypto'
 import { handleFlowAction } from '@/lib/whatsapp/flow-endpoint-handlers'
-import { getWhatsAppCredentials } from '@/lib/whatsapp-credentials'
-import { metaSetEncryptionPublicKey } from '@/lib/meta-flows-api'
+import {
+  FLOW_PRIVATE_KEY_SETTING,
+  type FlowKeyRecoveryTrigger,
+  decideFlowKeyRecovery,
+  getLastFlowKeyRegenAt,
+  isOaepDecryptError,
+  rotateFlowEndpointKeys,
+} from '@/lib/whatsapp/flow-endpoint-keys'
+import {
+  META_SIGNATURE_HEADER,
+  evaluateMetaSignature,
+  reportMetaSignatureFailure,
+} from '@/lib/meta-webhook-signature'
 
-const PRIVATE_KEY_SETTING = 'whatsapp_flow_private_key'
-const PUBLIC_KEY_SETTING = 'whatsapp_flow_public_key'
-const LAST_KEY_REGEN_SETTING = 'whatsapp_flow_last_key_regen'
+export const runtime = 'nodejs'
 
-// Cooldown de 10 minutos entre regenerações de chave
-const KEY_REGEN_COOLDOWN_MS = 10 * 60 * 1000
+// Status que a Meta define para o endpoint de Flows:
+// 421 = não consegui decifrar (o cliente rebusca a chave pública e tenta de novo);
+// 432 = falha na autenticação da assinatura da request.
+const STATUS_DECRYPT_FAILED = 421
+const STATUS_SIGNATURE_FAILED = 432
+
+type EncryptedFlowEnvelope = {
+  encrypted_flow_data: string
+  encrypted_aes_key: string
+  initial_vector: string
+}
+
+function parseEnvelope(rawBody: string): EncryptedFlowEnvelope | null {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(rawBody)
+  } catch {
+    return null
+  }
+  if (!parsed || typeof parsed !== 'object') return null
+  const { encrypted_flow_data, encrypted_aes_key, initial_vector } = parsed as Record<string, unknown>
+  if (
+    typeof encrypted_flow_data !== 'string' || !encrypted_flow_data ||
+    typeof encrypted_aes_key !== 'string' || !encrypted_aes_key ||
+    typeof initial_vector !== 'string' || !initial_vector
+  ) {
+    return null
+  }
+  return { encrypted_flow_data, encrypted_aes_key, initial_vector }
+}
+
+/**
+ * Auto-recuperação das chaves RSA. Só gera/regenera com assinatura VERIFICADA
+ * (prova de que a request veio da Meta) e fora do cooldown. Retorna o hint da resposta.
+ */
+async function recoverFlowKeys(params: {
+  signatureVerified: boolean
+  trigger: FlowKeyRecoveryTrigger
+}): Promise<string | undefined> {
+  if (params.trigger === 'other_error') return undefined
+
+  const decision = decideFlowKeyRecovery({
+    signatureVerified: params.signatureVerified,
+    trigger: params.trigger,
+    lastRegenAt: await getLastFlowKeyRegenAt(),
+    now: Date.now(),
+  })
+  const what = params.trigger === 'missing_key' ? 'Chave privada ausente' : 'OAEP Error'
+
+  if (decision === 'regenerate') {
+    console.log(`[flow-endpoint] 🔑 ${what} com assinatura verificada! Gerando novas chaves...`)
+    try {
+      await rotateFlowEndpointKeys()
+      return 'Chaves foram regeneradas e sincronizadas. Tente novamente.'
+    } catch (recoveryError) {
+      console.error('[flow-endpoint] ❌ Falha na auto-recuperação:', recoveryError)
+      return undefined
+    }
+  }
+
+  if (decision === 'cooldown') {
+    console.log(`[flow-endpoint] ⏳ ${what}, mas cooldown de regeneração ativo.`)
+    console.log('[flow-endpoint] 💡 A Meta pode demorar alguns minutos para propagar a nova chave.')
+    return undefined
+  }
+
+  if (decision === 'unverified') {
+    // Sem App Secret qualquer um manda lixo aqui: regenerar viraria DoS.
+    // O 421 faz a Meta rebuscar a chave pública já registrada.
+    console.warn(
+      `[flow-endpoint] ⚠️ ${what} sem assinatura verificada (App Secret ausente): chaves NÃO geradas/regeneradas automaticamente. ` +
+        'Se os Flows pararam, gere as chaves em Configurações > Flows e configure o App Secret.'
+    )
+  }
+  return undefined
+}
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json()
+    const rawBody = await request.text()
     console.log('[flow-endpoint] 📥 POST received at', new Date().toISOString())
 
+    // A Meta assina o data exchange com X-Hub-Signature-256 (App Secret).
+    // Verifica sobre o corpo CRU, antes de decifrar ou tocar em qualquer chave.
+    const signature = await evaluateMetaSignature(rawBody, request.headers.get(META_SIGNATURE_HEADER))
+    if (!signature.ok) {
+      console.warn(`[flow-endpoint] ❌ Assinatura rejeitada: ${signature.reason} (modo ${signature.mode})`)
+      if (signature.reason === 'secret_unavailable') {
+        return NextResponse.json({ error: 'Indisponível' }, { status: 503 })
+      }
+      await reportMetaSignatureFailure({ evaluation: signature, endpoint: 'flows_endpoint' })
+      return NextResponse.json({ error: 'Assinatura inválida' }, { status: STATUS_SIGNATURE_FAILED })
+    }
+    // Só assinatura VERIFICADA prova que a request veio da Meta: só nesse caso o
+    // endpoint pode gerar/regenerar as chaves RSA e re-registrá-las na Meta.
+    const signatureVerified = signature.mode === 'enforced'
+
     // Valida campos obrigatorios
-    const { encrypted_flow_data, encrypted_aes_key, initial_vector } = body
-    if (!encrypted_flow_data || !encrypted_aes_key || !initial_vector) {
+    const envelope = parseEnvelope(rawBody)
+    if (!envelope) {
       console.error('[flow-endpoint] ❌ Campos obrigatorios ausentes')
       return NextResponse.json({ error: 'Campos obrigatorios ausentes' }, { status: 400 })
     }
 
-    // Busca a chave privada (gera automaticamente se não existir)
-    let privateKey = await settingsDb.get(PRIVATE_KEY_SETTING)
+    const privateKey = await settingsDb.get(FLOW_PRIVATE_KEY_SETTING)
 
     if (!privateKey) {
-      console.log('[flow-endpoint] 🔑 Chave privada não encontrada, gerando automaticamente...')
-
-      const { publicKey, privateKey: newPrivateKey } = generateKeyPair()
-
-      // Salva as chaves
-      await Promise.all([
-        settingsDb.set(PRIVATE_KEY_SETTING, newPrivateKey),
-        settingsDb.set(PUBLIC_KEY_SETTING, publicKey),
-      ])
-
-      privateKey = newPrivateKey
-
-      console.log('[flow-endpoint] ✅ Chaves RSA geradas e salvas automaticamente')
-
-      // Tenta sincronizar com a Meta automaticamente
-      try {
-        const credentials = await getWhatsAppCredentials()
-        if (credentials?.accessToken && credentials?.phoneNumberId) {
-          await metaSetEncryptionPublicKey({
-            accessToken: credentials.accessToken,
-            phoneNumberId: credentials.phoneNumberId,
-            publicKey,
-          })
-          console.log('[flow-endpoint] ✅ Chave pública sincronizada com a Meta automaticamente')
-        } else {
-          console.log('[flow-endpoint] ⚠️ Credenciais WhatsApp não configuradas, sincronização pendente')
-        }
-      } catch (syncError) {
-        console.error('[flow-endpoint] ⚠️ Falha ao sincronizar com Meta (não-bloqueante):', syncError)
-      }
+      // Sem chave não há como decifrar; com assinatura verificada, gera e registra
+      // para as próximas requests.
+      const hint = await recoverFlowKeys({ signatureVerified, trigger: 'missing_key' })
+      return NextResponse.json(
+        { error: 'Chave do endpoint não configurada', hint },
+        { status: STATUS_DECRYPT_FAILED }
+      )
     }
 
     // Descriptografa a request
     let decrypted
     try {
-      decrypted = decryptRequest(
-        { encrypted_flow_data, encrypted_aes_key, initial_vector },
-        privateKey
-      )
+      decrypted = decryptRequest(envelope, privateKey)
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error)
-      const isOaepError = errorMessage.includes('oaep') || errorMessage.includes('OAEP')
-
       console.error('[flow-endpoint] ❌ Erro ao descriptografar:', error)
-
-      if (isOaepError) {
-        // Verifica cooldown para evitar regenerar chaves em loop
-        const lastRegenStr = await settingsDb.get(LAST_KEY_REGEN_SETTING)
-        const lastRegen = lastRegenStr ? parseInt(lastRegenStr, 10) : 0
-        const now = Date.now()
-        const timeSinceLastRegen = now - lastRegen
-
-        if (timeSinceLastRegen < KEY_REGEN_COOLDOWN_MS) {
-          const remainingMinutes = Math.ceil((KEY_REGEN_COOLDOWN_MS - timeSinceLastRegen) / 60000)
-          console.log(`[flow-endpoint] ⏳ OAEP Error, mas cooldown ativo. Aguarde ${remainingMinutes}min para nova tentativa de regeneração.`)
-          console.log('[flow-endpoint] 💡 A Meta pode demorar alguns minutos para propagar a nova chave.')
-        } else {
-          console.log('[flow-endpoint] 🔑 OAEP Error detectado! Iniciando auto-recuperação...')
-
-          // Auto-recuperação: regenera chaves e sincroniza com Meta
-          try {
-            const { publicKey: newPublicKey, privateKey: newPrivateKey } = generateKeyPair()
-
-            await Promise.all([
-              settingsDb.set(PRIVATE_KEY_SETTING, newPrivateKey),
-              settingsDb.set(PUBLIC_KEY_SETTING, newPublicKey),
-              settingsDb.set(LAST_KEY_REGEN_SETTING, String(now)),
-            ])
-
-            console.log('[flow-endpoint] ✅ Novas chaves RSA geradas')
-
-            // Sincroniza com a Meta
-            const credentials = await getWhatsAppCredentials()
-            if (credentials?.accessToken && credentials?.phoneNumberId) {
-              await metaSetEncryptionPublicKey({
-                accessToken: credentials.accessToken,
-                phoneNumberId: credentials.phoneNumberId,
-                publicKey: newPublicKey,
-              })
-              console.log('[flow-endpoint] ✅ Nova chave pública sincronizada com a Meta')
-              console.log('[flow-endpoint] 💡 A Meta pode levar até 5-10min para propagar a nova chave')
-            } else {
-              console.error('[flow-endpoint] ⚠️ Credenciais WhatsApp não configuradas, sincronização falhou')
-            }
-          } catch (recoveryError) {
-            console.error('[flow-endpoint] ❌ Falha na auto-recuperação:', recoveryError)
-          }
-        }
-      }
-
+      const hint = await recoverFlowKeys({
+        signatureVerified,
+        trigger: isOaepDecryptError(error) ? 'oaep_error' : 'other_error',
+      })
       return NextResponse.json(
-        {
-          error: 'Falha na descriptografia',
-          hint: isOaepError
-            ? 'Chaves foram regeneradas e sincronizadas. Tente novamente.'
-            : undefined
-        },
-        { status: 421 }
+        { error: 'Falha na descriptografia', hint },
+        { status: STATUS_DECRYPT_FAILED }
       )
     }
 
@@ -209,7 +233,7 @@ export async function POST(request: NextRequest) {
  * GET - Health check simples (sem criptografia)
  */
 export async function GET() {
-  const privateKey = await settingsDb.get(PRIVATE_KEY_SETTING)
+  const privateKey = await settingsDb.get(FLOW_PRIVATE_KEY_SETTING)
   const configured = !!privateKey
 
   return NextResponse.json({
