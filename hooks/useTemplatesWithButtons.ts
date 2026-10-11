@@ -8,9 +8,16 @@ export interface TemplateWithButtons {
   buttons: string[]
 }
 
+interface UseTemplatesWithButtonsOptions {
+  // Na PWA de atendente: só busca depois que a sessão foi validada (senão toma 401)
+  enabled?: boolean
+}
+
 // Lê templates locais (sem chamar Meta API) e devolve só os APPROVED com QUICK_REPLY.
 // Usado pelos filtros do inbox (dropdown + pills) — leve, pode reusar cache.
-export function useTemplatesWithButtons() {
+// Precisa ser ?source=local: é o único modo do GET /api/templates liberado para atendente.
+export function useTemplatesWithButtons(options: UseTemplatesWithButtonsOptions = {}) {
+  const { enabled = true } = options
   const query = useQuery({
     queryKey: ['inbox-templates-with-buttons'],
     queryFn: async (): Promise<TemplateWithButtons[]> => {
@@ -36,6 +43,7 @@ export function useTemplatesWithButtons() {
       withButtons.sort((a, b) => a.name.localeCompare(b.name))
       return withButtons
     },
+    enabled,
     staleTime: 5 * 60 * 1000,
   })
 

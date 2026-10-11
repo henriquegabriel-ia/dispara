@@ -1,6 +1,6 @@
 'use client'
 
-import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react'
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState, ReactNode } from 'react'
 import type { AttendantPermissions } from '@/types'
 
 // =============================================================================
@@ -28,7 +28,22 @@ interface AttendantContextType {
   canView: boolean
   canReply: boolean
   canHandoff: boolean
+
+  // Ações
+  logout: () => Promise<void>
 }
+
+interface ValidateResponse {
+  valid?: boolean
+  error?: string
+  attendant?: AttendantInfo
+}
+
+// =============================================================================
+// CONSTANTS
+// =============================================================================
+
+const VALIDATE_URL = '/api/attendants/validate'
 
 // =============================================================================
 // CONTEXT
@@ -51,46 +66,81 @@ export function AttendantProvider({ children, token }: AttendantProviderProps) {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [attendant, setAttendant] = useState<AttendantInfo | null>(null)
+  const authenticatedRef = useRef(false)
 
-  // Validar token na montagem
+  // Com ?token → POST (valida e grava o cookie); sem ?token → GET (restaura do cookie).
+  // A navegação interna não leva mais o ?token= na URL: a sessão segue pelo cookie httpOnly.
   useEffect(() => {
-    if (!token) {
-      setIsValidating(false)
-      setIsReady(true)
-      setError('Token não informado')
-      return
-    }
+    // Já autenticado e a URL nova não tem ?token= (navegação interna): nada a revalidar.
+    if (!token && authenticatedRef.current) return
 
-    const validateToken = async () => {
+    let cancelled = false
+    // Revalidação com sessão ativa (ex.: voltar para o link com ?token=) não pisca o loading
+    if (!authenticatedRef.current) setIsValidating(true)
+
+    const validate = async () => {
       try {
-        const res = await fetch('/api/attendants/validate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token }),
-        })
+        const res = token
+          ? await fetch(VALIDATE_URL, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'same-origin',
+              body: JSON.stringify({ token }),
+            })
+          : await fetch(VALIDATE_URL, {
+              method: 'GET',
+              credentials: 'same-origin',
+              cache: 'no-store',
+            })
 
-        const data = await res.json()
+        const data = (await res.json().catch(() => ({}))) as ValidateResponse
+        if (cancelled) return
 
-        if (data.valid) {
+        if (res.ok && data.valid && data.attendant) {
+          authenticatedRef.current = true
           setAttendant(data.attendant)
           setIsAuthenticated(true)
           setError(null)
         } else {
-          setError(data.error || 'Token inválido')
+          authenticatedRef.current = false
+          setAttendant(null)
           setIsAuthenticated(false)
+          setError(data.error || (token ? 'Token inválido' : 'Token não informado'))
         }
       } catch (err) {
+        if (cancelled) return
         console.error('[AttendantProvider] Erro ao validar token:', err)
+        authenticatedRef.current = false
+        setAttendant(null)
         setError('Erro ao validar token')
         setIsAuthenticated(false)
       } finally {
-        setIsValidating(false)
-        setIsReady(true)
+        if (!cancelled) {
+          setIsValidating(false)
+          setIsReady(true)
+        }
       }
     }
 
-    validateToken()
+    validate()
+
+    return () => {
+      cancelled = true
+    }
   }, [token])
+
+  // Logout: apaga o cookie no servidor e zera o estado local
+  const logout = useCallback(async () => {
+    try {
+      await fetch(VALIDATE_URL, { method: 'DELETE', credentials: 'same-origin' })
+    } catch (err) {
+      console.error('[AttendantProvider] Erro ao encerrar sessão:', err)
+    }
+    authenticatedRef.current = false
+    setAttendant(null)
+    setIsAuthenticated(false)
+    setError('Sessão encerrada')
+  }, [])
 
   // Permissões derivadas
   const canView = attendant?.permissions.canView ?? false
@@ -107,6 +157,7 @@ export function AttendantProvider({ children, token }: AttendantProviderProps) {
     canView,
     canReply,
     canHandoff,
+    logout,
   }
 
   return (

@@ -23,6 +23,7 @@ import { useAttendant } from '@/components/attendant/AttendantProvider'
 import {
   useAttendantConversations,
   formatRelativeTime,
+  isAttendantAuthError,
   type AttendantConversation,
 } from '@/hooks/useAttendantConversations'
 
@@ -352,13 +353,13 @@ function LoadingPage() {
 
 export default function AtendimentoPage() {
   const router = useRouter()
-  const { isReady, isValidating, isAuthenticated, error, attendant, token } = useAttendant()
+  const { isReady, isValidating, isAuthenticated, error, attendant, logout } = useAttendant()
   const [activeTab, setActiveTab] = useState<FilterTab>('all')
   const [searchQuery, setSearchQuery] = useState('')
   const [buttonFilter, setButtonFilter] = useState<string | null>(null)
   const [templateFilter, setTemplateFilter] = useState<string | null>(null)
 
-  const { templates: templatesWithButtons } = useTemplatesWithButtons()
+  const { templates: templatesWithButtons } = useTemplatesWithButtons({ enabled: isAuthenticated })
   const activeTemplateMeta = useMemo(
     () => templatesWithButtons.find((t) => t.name === templateFilter),
     [templatesWithButtons, templateFilter]
@@ -377,12 +378,14 @@ export default function AtendimentoPage() {
     counts: apiCounts,
     isLoading,
     isRefetching,
+    error: conversationsError,
     refetch,
   } = useAttendantConversations({
     status: 'open',
     search: searchQuery || undefined,
     buttonPayload: buttonFilter || undefined,
     templateName: templateFilter || undefined,
+    enabled: isAuthenticated,
   })
 
   // Filtrar conversas por tab
@@ -425,6 +428,19 @@ export default function AtendimentoPage() {
   // Error state
   if (!isAuthenticated || error) {
     return <ErrorPage error={error || 'Token inválido'} />
+  }
+
+  // Sessão caiu no servidor (token revogado/expirado) ou sem permissão de visualizar
+  if (isAttendantAuthError(conversationsError)) {
+    return (
+      <ErrorPage
+        error={
+          conversationsError.status === 403
+            ? 'Você não tem permissão para visualizar conversas'
+            : 'Sua sessão expirou ou o acesso foi revogado'
+        }
+      />
+    )
   }
 
   return (
@@ -473,9 +489,11 @@ export default function AtendimentoPage() {
             {/* Logout button */}
             <button
               type="button"
-              onClick={() => {
+              onClick={async () => {
                 if (confirm('Deseja sair?')) {
-                  window.location.href = '/atendimento'
+                  // Apaga o cookie de sessão; recarrega para limpar o cache das consultas
+                  await logout()
+                  window.location.replace('/atendimento')
                 }
               }}
               className="p-2 rounded-md transition-colors"
@@ -660,7 +678,7 @@ export default function AtendimentoPage() {
             <ConversationItem
               key={conversation.id}
               conversation={conversation}
-              onClick={() => router.push(`/atendimento/conversa/${conversation.id}${token ? `?token=${token}` : ''}`)}
+              onClick={() => router.push(`/atendimento/conversa/${conversation.id}`)}
             />
           ))
         )}

@@ -47,6 +47,26 @@ interface UseAttendantConversationsOptions {
 }
 
 // =============================================================================
+// ERROS
+// =============================================================================
+
+/** Erro HTTP da API do atendimento (preserva o status para tratar 401/403). */
+export class AttendantApiError extends Error {
+  readonly status: number
+
+  constructor(message: string, status: number) {
+    super(message)
+    this.name = 'AttendantApiError'
+    this.status = status
+  }
+}
+
+/** 401/403: sessão expirada, token revogado ou sem permissão — não adianta repetir. */
+export function isAttendantAuthError(error: unknown): error is AttendantApiError {
+  return error instanceof AttendantApiError && (error.status === 401 || error.status === 403)
+}
+
+// =============================================================================
 // FETCHER
 // =============================================================================
 
@@ -66,7 +86,7 @@ async function fetchConversations(
   const response = await fetch(url)
 
   if (!response.ok) {
-    throw new Error('Falha ao carregar conversas')
+    throw new AttendantApiError('Falha ao carregar conversas', response.status)
   }
 
   return response.json()
@@ -89,8 +109,11 @@ export function useAttendantConversations(options: UseAttendantConversationsOpti
   const query = useQuery({
     queryKey: ['attendant-conversations', status, search, buttonPayload, templateName],
     queryFn: () => fetchConversations(status, search, buttonPayload, templateName),
+    // Só busca depois que a sessão do atendente foi validada (senão toma 401)
     enabled,
-    refetchInterval,
+    // Para o polling quando a sessão caiu ou o acesso foi revogado
+    refetchInterval: (q) => (isAttendantAuthError(q.state.error) ? false : refetchInterval),
+    retry: (failureCount, error) => !isAttendantAuthError(error) && failureCount < 3,
     staleTime: 5000, // Considera dados frescos por 5 segundos
   })
 
