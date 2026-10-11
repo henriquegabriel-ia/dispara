@@ -6,6 +6,7 @@ import { AttendantProvider, useAttendant } from '@/components/attendant/Attendan
 /**
  * AttendantProvider: com ?token valida via POST (servidor grava o cookie);
  * sem ?token restaura a sessão via GET (cookie httpOnly, invisível ao JS).
+ * 503/5xx/rede = transitório: "reconectando" com backoff, nunca "Acesso Negado".
  */
 
 const ATTENDANT = {
@@ -16,13 +17,16 @@ const ATTENDANT = {
 
 type FetchCall = [input: string, init?: RequestInit]
 
-function jsonResponse(status: number, data: unknown): Response {
+function jsonResponse(status: number, data: unknown, headers: Record<string, string> = {}): Response {
   return {
     ok: status >= 200 && status < 300,
     status,
+    headers: new Headers(headers),
     json: async () => data,
   } as unknown as Response
 }
+
+const UNAVAILABLE_BODY = { valid: false, error: 'Banco de dados indisponível', reason: 'attendant_store_unavailable' }
 
 function Probe() {
   const ctx = useAttendant()
@@ -31,12 +35,16 @@ function Probe() {
       <span data-testid="ready">{String(ctx.isReady)}</span>
       <span data-testid="validating">{String(ctx.isValidating)}</span>
       <span data-testid="auth">{String(ctx.isAuthenticated)}</span>
+      <span data-testid="reconnecting">{String(ctx.isReconnecting)}</span>
       <span data-testid="name">{ctx.attendant?.name ?? ''}</span>
       <span data-testid="error">{ctx.error ?? ''}</span>
       <span data-testid="canReply">{String(ctx.canReply)}</span>
       <span data-testid="canHandoff">{String(ctx.canHandoff)}</span>
       <button type="button" onClick={() => void ctx.logout()}>
         sair
+      </button>
+      <button type="button" onClick={() => ctx.retryNow()}>
+        tentar agora
       </button>
     </div>
   )
@@ -54,8 +62,20 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.useRealTimers()
   vi.unstubAllGlobals()
 })
+
+/** Resolve as promessas pendentes e avança os timers fake dentro do act. */
+async function advance(ms: number): Promise<void> {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(ms)
+  })
+}
+
+function text(testId: string): string | null {
+  return screen.getByTestId(testId).textContent
+}
 
 describe('AttendantProvider', () => {
   it('sem ?token: restaura a sessão pelo cookie (GET)', async () => {
@@ -176,20 +196,173 @@ describe('AttendantProvider', () => {
     expect(screen.getByTestId('error').textContent).toBe('Token inválido ou expirado')
   })
 
-  it('falha de rede: não autentica', async () => {
-    fetchMock.mockRejectedValue(new Error('offline'))
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+  // Cenário do achado da revisão: reload da PWA com o banco oscilando. Antes da
+  // correção o 503 caía em setError e a página mostrava "Acesso Negado".
+  it('GET com 503 (banco indisponível): fica reconectando, sem erro, e autentica quando o servidor volta', async () => {
+    vi.useFakeTimers()
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(503, UNAVAILABLE_BODY, { 'Retry-After': '5' }))
+      .mockResolvedValueOnce(jsonResponse(503, UNAVAILABLE_BODY, { 'Retry-After': '5' }))
+      .mockResolvedValueOnce(jsonResponse(200, { valid: true, attendant: ATTENDANT }))
 
     render(
       <AttendantProvider token={null}>
         <Probe />
       </AttendantProvider>
     )
+    await advance(0)
 
-    await waitFor(() => expect(screen.getByTestId('ready').textContent).toBe('true'))
-    expect(screen.getByTestId('auth').textContent).toBe('false')
-    expect(screen.getByTestId('error').textContent).toBe('Erro ao validar token')
-    spy.mockRestore()
+    expect(text('ready')).toBe('true')
+    expect(text('validating')).toBe('false')
+    expect(text('reconnecting')).toBe('true')
+    expect(text('auth')).toBe('false')
+    expect(text('error')).toBe('')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    // Respeita o Retry-After (5s): nada antes disso
+    await advance(4_900)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    await advance(100)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    // A nova tentativa não volta para o loading
+    expect(text('validating')).toBe('false')
+    expect(text('reconnecting')).toBe('true')
+
+    await advance(5_000)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(calls().every(([, init]) => init?.method === 'GET')).toBe(true)
+    expect(text('auth')).toBe('true')
+    expect(text('reconnecting')).toBe('false')
+    expect(text('error')).toBe('')
+    expect(text('name')).toBe('Ana')
+  })
+
+  it('falha de rede: não mostra erro de acesso, reconecta com backoff exponencial', async () => {
+    vi.useFakeTimers()
+    fetchMock
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce(jsonResponse(200, { valid: true, attendant: ATTENDANT }))
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    render(
+      <AttendantProvider token={null}>
+        <Probe />
+      </AttendantProvider>
+    )
+    await advance(0)
+
+    expect(text('reconnecting')).toBe('true')
+    expect(text('auth')).toBe('false')
+    expect(text('error')).toBe('')
+
+    await advance(1_000) // 1a nova tentativa: 1s
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    await advance(1_999) // 2a: 2s
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    await advance(1)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(text('auth')).toBe('true')
+    expect(text('reconnecting')).toBe('false')
+    warn.mockRestore()
+  })
+
+  it('POST com ?token e 502: reconecta e repete o POST (não diz "token inválido")', async () => {
+    vi.useFakeTimers()
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(502, {}))
+      .mockResolvedValueOnce(jsonResponse(200, { valid: true, attendant: ATTENDANT }))
+
+    render(
+      <AttendantProvider token="abc123">
+        <Probe />
+      </AttendantProvider>
+    )
+    await advance(0)
+
+    expect(text('reconnecting')).toBe('true')
+    expect(text('error')).toBe('')
+
+    await advance(1_000)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(calls()[1][1]?.method).toBe('POST')
+    expect(JSON.parse(String(calls()[1][1]?.body))).toEqual({ token: 'abc123' })
+    expect(text('auth')).toBe('true')
+  })
+
+  it('reconectando e o servidor responde 401: aí sim é acesso negado (para de tentar)', async () => {
+    vi.useFakeTimers()
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(503, UNAVAILABLE_BODY))
+      .mockResolvedValueOnce(jsonResponse(401, { valid: false, error: 'Token inválido ou expirado' }))
+
+    render(
+      <AttendantProvider token={null}>
+        <Probe />
+      </AttendantProvider>
+    )
+    await advance(0)
+    expect(text('reconnecting')).toBe('true')
+
+    await advance(1_000)
+    expect(text('reconnecting')).toBe('false')
+    expect(text('auth')).toBe('false')
+    expect(text('error')).toBe('Token inválido ou expirado')
+
+    await advance(60_000)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('"Tentar agora" antecipa a reconexão sem esperar o backoff', async () => {
+    vi.useFakeTimers()
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(503, UNAVAILABLE_BODY, { 'Retry-After': '30' }))
+      .mockResolvedValueOnce(jsonResponse(200, { valid: true, attendant: ATTENDANT }))
+
+    render(
+      <AttendantProvider token={null}>
+        <Probe />
+      </AttendantProvider>
+    )
+    await advance(0)
+    expect(text('reconnecting')).toBe('true')
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'tentar agora' }).click()
+    })
+    await advance(0)
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(text('auth')).toBe('true')
+
+    // O timer do backoff anterior foi cancelado: não há 3a chamada
+    await advance(60_000)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('a rede voltou (evento online): tenta de novo na hora', async () => {
+    vi.useFakeTimers()
+    fetchMock
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce(jsonResponse(200, { valid: true, attendant: ATTENDANT }))
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    render(
+      <AttendantProvider token={null}>
+        <Probe />
+      </AttendantProvider>
+    )
+    await advance(0)
+    expect(text('reconnecting')).toBe('true')
+
+    await act(async () => {
+      window.dispatchEvent(new Event('online'))
+    })
+    await advance(0)
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(text('auth')).toBe('true')
+    warn.mockRestore()
   })
 
   it('logout: apaga o cookie (DELETE) e zera a sessão', async () => {

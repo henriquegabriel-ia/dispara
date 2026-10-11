@@ -92,7 +92,8 @@ export async function POST(request: Request) {
       );
     }
 
-    // Descarta o cache negativo (token novo pode ter sido testado há segundos)
+    // Descarta o cache negativo deste bundle (token novo pode ter sido testado há
+    // segundos). O cache do proxy é outra cópia e expira sozinho (lib/attendant-auth.ts).
     clearAttendantAuthCache();
 
     return NextResponse.json(data as AttendantToken, { status: 201 });

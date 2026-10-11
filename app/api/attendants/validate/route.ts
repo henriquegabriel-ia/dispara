@@ -3,7 +3,7 @@ import { getSupabaseAdmin } from '@/lib/supabase';
 import {
   ATTENDANT_COOKIE_NAME,
   readAttendantToken,
-  resolveAttendantToken,
+  resolveAttendantTokenDetailed,
 } from '@/lib/attendant-auth';
 import type { AttendantPrincipal } from '@/lib/principal';
 
@@ -17,7 +17,11 @@ import type { AttendantPrincipal } from '@/lib/principal';
  * - DELETE: apaga o cookie (logout do atendente).
  *
  * A política do proxy para esta rota é `public_route_auth`: a verificação é toda
- * feita aqui, via resolveAttendantToken (mesma fonte usada pelo proxy).
+ * feita aqui, via resolveAttendantTokenDetailed (mesma fonte usada pelo proxy).
+ *
+ * Banco indisponível ≠ token inválido: em 'unavailable' a resposta é 503 com
+ * Retry-After e o cookie NÃO é tocado (a PWA mostra "reconectando" e tenta de
+ * novo). Só 'invalid' apaga o cookie.
  */
 
 // 30 dias: teto da sessão do atendente no navegador (o token pode expirar antes).
@@ -26,6 +30,10 @@ const MAX_COOKIE_AGE_SECONDS = 60 * 60 * 24 * 30;
 // Mensagem única para inexistente/inativo/expirado — não revela qual é o caso.
 const INVALID_TOKEN_MESSAGE = 'Token inválido ou expirado';
 const NO_SESSION_MESSAGE = 'Sessão de atendente não encontrada. Abra o link de acesso enviado pelo administrador.';
+const UNAVAILABLE_MESSAGE = 'Não foi possível validar o acesso agora: banco de dados indisponível. Tente novamente em instantes.';
+
+// Mesmo valor do 503 do proxy para sessão indisponível.
+const RETRY_AFTER_SECONDS = '5';
 
 const NO_STORE_HEADERS = { 'Cache-Control': 'no-store' };
 
@@ -91,6 +99,14 @@ function invalidResponse(message: string, clearCookie: boolean): NextResponse {
   return response;
 }
 
+/** Banco indisponível: 503 transitório, sem Set-Cookie (a sessão do atendente fica intacta). */
+function unavailableResponse(): NextResponse {
+  return NextResponse.json(
+    { valid: false, error: UNAVAILABLE_MESSAGE, reason: 'attendant_store_unavailable' },
+    { status: 503, headers: { ...NO_STORE_HEADERS, 'Retry-After': RETRY_AFTER_SECONDS } }
+  );
+}
+
 /** Resposta de sucesso (sem o token em si) + cookie de sessão renovado. */
 async function sessionResponse(attendant: AttendantPrincipal, token: string): Promise<NextResponse> {
   const { expiresAt } = await registerAccess(attendant.id);
@@ -136,10 +152,11 @@ export async function POST(request: NextRequest) {
     }
 
     const trimmed = token.trim();
-    const attendant = await resolveAttendantToken(trimmed);
-    if (!attendant) return invalidResponse(INVALID_TOKEN_MESSAGE, false);
+    const result = await resolveAttendantTokenDetailed(trimmed);
+    if (result.status === 'unavailable') return unavailableResponse();
+    if (result.status === 'invalid') return invalidResponse(INVALID_TOKEN_MESSAGE, false);
 
-    return await sessionResponse(attendant, trimmed);
+    return await sessionResponse(result.principal, trimmed);
   } catch (error) {
     console.error('[API] Erro ao validar token:', error);
     return NextResponse.json(
@@ -158,11 +175,14 @@ export async function GET(request: NextRequest) {
     const token = readAttendantToken(request)?.trim();
     if (!token) return invalidResponse(NO_SESSION_MESSAGE, false);
 
-    const attendant = await resolveAttendantToken(token);
+    const result = await resolveAttendantTokenDetailed(token);
+    // Oscilação do banco: NÃO apaga o cookie (senão o atendente fica trancado
+    // até receber um novo link). A PWA tenta de novo com backoff.
+    if (result.status === 'unavailable') return unavailableResponse();
     // Cookie com token revogado/expirado: apaga para não ficar tentando.
-    if (!attendant) return invalidResponse(INVALID_TOKEN_MESSAGE, true);
+    if (result.status === 'invalid') return invalidResponse(INVALID_TOKEN_MESSAGE, true);
 
-    return await sessionResponse(attendant, token);
+    return await sessionResponse(result.principal, token);
   } catch (error) {
     console.error('[API] Erro ao restaurar sessão de atendente:', error);
     return NextResponse.json(

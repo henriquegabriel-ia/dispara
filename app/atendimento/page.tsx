@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { useTemplatesWithButtons } from '@/hooks/useTemplatesWithButtons'
 import { useAttendant } from '@/components/attendant/AttendantProvider'
+import { AttendantReconnectingBanner, AttendantReconnectingPage } from '@/components/attendant/AttendantReconnecting'
 import {
   useAttendantConversations,
   formatRelativeTime,
@@ -353,7 +354,7 @@ function LoadingPage() {
 
 export default function AtendimentoPage() {
   const router = useRouter()
-  const { isReady, isValidating, isAuthenticated, error, attendant, logout } = useAttendant()
+  const { isReady, isValidating, isAuthenticated, isReconnecting, error, attendant, logout, retryNow } = useAttendant()
   const [activeTab, setActiveTab] = useState<FilterTab>('all')
   const [searchQuery, setSearchQuery] = useState('')
   const [buttonFilter, setButtonFilter] = useState<string | null>(null)
@@ -379,6 +380,7 @@ export default function AtendimentoPage() {
     isLoading,
     isRefetching,
     error: conversationsError,
+    isReconnecting: conversationsReconnecting,
     refetch,
   } = useAttendantConversations({
     status: 'open',
@@ -423,6 +425,12 @@ export default function AtendimentoPage() {
   // Loading state
   if (!isReady || isValidating) {
     return <LoadingPage />
+  }
+
+  // Banco/rede oscilando ao restaurar a sessão: não é "Acesso Negado" (o cookie
+  // continua válido) — tenta de novo com backoff
+  if (isReconnecting && !isAuthenticated) {
+    return <AttendantReconnectingPage onRetry={retryNow} />
   }
 
   // Error state
@@ -532,6 +540,9 @@ export default function AtendimentoPage() {
           />
         </div>
       </header>
+
+      {/* 503/5xx/rede no polling: a lista atual fica na tela e o polling continua */}
+      {conversationsReconnecting && <AttendantReconnectingBanner />}
 
       {/* Filter tabs */}
       <FilterTabs activeTab={activeTab} onTabChange={setActiveTab} counts={counts} />
