@@ -9,6 +9,7 @@ import {
   createMetaIntegrationAlert,
   dismissMetaIntegrationAlerts,
   listRecentMetaIntegrationAlerts,
+  resolveMetaIntegrationAlerts,
   type MetaIntegrationAlertSummary,
 } from '@/lib/meta-integration-alerts'
 
@@ -320,7 +321,8 @@ async function noteValidSignature(info: MetaAppSecretInfo): Promise<void> {
   }
   if (firstInThisInstance) {
     // Há App Secret funcionando: o aviso de "App Secret ausente" não vale mais.
-    await dismissMetaIntegrationAlerts(META_APP_SECRET_MISSING_ALERT_ID)
+    // Apaga (não só dispensa): se o secret for removido depois, o aviso volta.
+    await resolveMetaIntegrationAlerts(META_APP_SECRET_MISSING_ALERT_ID)
   }
   await persistLastValidSignatureAt(now)
 }
@@ -477,7 +479,10 @@ function classifyFailureAlert(evaluation: MetaSignatureEvaluation, now: number):
 async function reportUnsignedAllowed(now: number): Promise<void> {
   if (lastUnsignedAlertAt && now - lastUnsignedAlertAt < UNSIGNED_WARNING_INTERVAL_MS) return
   lastUnsignedAlertAt = now
-  // id fixo + ignoreDuplicates: aparece uma vez; dispensado, não volta.
+  // id fixo + ignoreDuplicates: aparece uma vez; dispensado pelo usuário, não volta.
+  // Quando o sistema vê o problema resolvido (secret salvo / assinatura válida), a
+  // linha é APAGADA (resolveMetaIntegrationAlerts): se o secret for removido
+  // depois, o aviso volta.
   await createMetaIntegrationAlert({
     idPrefix: META_APP_SECRET_MISSING_ALERT_ID,
     bucket: '',

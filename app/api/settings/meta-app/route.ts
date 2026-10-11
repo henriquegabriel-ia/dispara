@@ -10,7 +10,7 @@ import {
 } from '@/lib/meta-app-credentials'
 import { isSupabaseConfigured } from '@/lib/supabase'
 import { META_APP_SECRET_MISSING_ALERT_ID, clearMetaAppSecretCache } from '@/lib/meta-webhook-signature'
-import { dismissMetaIntegrationAlerts } from '@/lib/meta-integration-alerts'
+import { resolveMetaIntegrationAlerts } from '@/lib/meta-integration-alerts'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -151,7 +151,9 @@ export async function POST(request: NextRequest) {
       await settingsDb.set('metaAppSecret', appSecret)
       // O secret também verifica a assinatura do webhook (cache de 60s por instância).
       clearMetaAppSecretCache()
-      await dismissMetaIntegrationAlerts(META_APP_SECRET_MISSING_ALERT_ID)
+      // Apaga (não só dispensa) o aviso "App Secret ausente": se o secret for
+      // removido depois, ele precisa voltar (id fixo + ignoreDuplicates).
+      await resolveMetaIntegrationAlerts(META_APP_SECRET_MISSING_ALERT_ID)
     }
 
     const cfg = await getMetaAppConfigPublic()

@@ -715,6 +715,38 @@ describe('reportMetaSignatureFailure', () => {
     expect(alerts[0].dismissed).toBe(true)
   })
 
+  it('CENÁRIO DO ACHADO: aviso de App Secret ausente apagado pela 1ª assinatura válida volta se o secret for removido depois', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-10-11T12:00:00Z'))
+    const unsigned: MetaSignatureEvaluation = { ok: true, mode: 'unsigned_allowed', verified: false, reason: 'no_app_secret' }
+
+    // 1) Sem secret: o aviso aparece.
+    await reportMetaSignatureFailure({ evaluation: unsigned, endpoint: 'webhook' })
+    expect(db.rows('account_alerts').filter((a) => a.id === META_APP_SECRET_MISSING_ALERT_ID)).toHaveLength(1)
+
+    // 2) Dono salva o secret e a Meta manda a 1ª assinatura válida: o sistema resolve
+    //    o aviso APAGANDO a linha (antes: dismissed=true, id ocupado para sempre).
+    await (db.client.from('settings') as { upsert: (r: object, o: object) => Promise<unknown> }).upsert(
+      { key: META_APP_SECRET_SETTING, value: SETTINGS_SECRET },
+      { onConflict: 'key' }
+    )
+    clearMetaAppSecretCache()
+    await expect(evaluateMetaSignature(BODY, sign(SETTINGS_SECRET, BODY))).resolves.toMatchObject({ verified: true })
+    expect(db.rows('account_alerts').filter((a) => a.id === META_APP_SECRET_MISSING_ALERT_ID)).toEqual([])
+
+    // 3) Depois o dono remove o secret ("Desconectar"): volta a unsigned_allowed e o aviso VOLTA.
+    await (db.client.from('settings') as { update: (p: object) => { eq: (c: string, v: string) => Promise<unknown> } })
+      .update({ value: '' })
+      .eq('key', META_APP_SECRET_SETTING)
+    clearMetaAppSecretCache()
+    vi.setSystemTime(new Date('2026-10-11T18:00:00Z'))
+    const evaluation = await evaluateMetaSignature(BODY, null)
+    expect(evaluation).toMatchObject({ mode: 'unsigned_allowed', reason: 'no_app_secret' })
+    await reportMetaSignatureFailure({ evaluation, endpoint: 'webhook' })
+    const active = db.rows('account_alerts').filter((a) => a.id === META_APP_SECRET_MISSING_ALERT_ID && a.dismissed === false)
+    expect(active).toHaveLength(1)
+  })
+
   it('não registra em sucesso nem em falha de leitura do secret', async () => {
     await reportMetaSignatureFailure({ evaluation: { ok: true, mode: 'enforced', verified: true }, endpoint: 'webhook' })
     await reportMetaSignatureFailure({ evaluation: enforced('secret_unavailable'), endpoint: 'webhook' })

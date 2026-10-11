@@ -32,7 +32,12 @@ import {
   META_APP_SECRET_VERIFIED_AT_SETTING,
   META_APP_SECRET_VERIFIED_HASH_SETTING,
 } from '@/lib/meta-app-credentials'
-import { META_APP_SECRET_MISSING_ALERT_ID, resetMetaSignatureState } from '@/lib/meta-webhook-signature'
+import {
+  META_APP_SECRET_MISSING_ALERT_ID,
+  evaluateMetaSignature,
+  reportMetaSignatureFailure,
+  resetMetaSignatureState,
+} from '@/lib/meta-webhook-signature'
 
 let db: InMemorySupabase
 const fetchMock = vi.fn()
@@ -81,6 +86,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
   vi.restoreAllMocks()
 })
 
@@ -170,8 +176,24 @@ describe('POST /api/settings/meta-app', () => {
     expect(setting('metaAppId')).toBe('123456')
     expect(setting(META_APP_SECRET_VERIFIED_HASH_SETTING)).toBe('')
     expect(setting(META_APP_SECRET_VERIFIED_AT_SETTING)).toBe('')
-    // O aviso "App Secret ausente" deixa de valer.
-    expect(db.rows('account_alerts')[0].dismissed).toBe(true)
+    // O aviso "App Secret ausente" deixa de valer: a linha é apagada (não só dispensada).
+    expect(db.rows('account_alerts').filter((a) => a.id === META_APP_SECRET_MISSING_ALERT_ID)).toEqual([])
+  })
+
+  it('CENÁRIO DO ACHADO: salvar o secret e depois removê-lo (DELETE) faz o aviso "App Secret ausente" voltar', async () => {
+    vi.stubEnv('META_APP_SECRET', '')
+    vi.stubEnv('META_WEBHOOK_REQUIRE_SIGNATURE', '')
+    fetchMock.mockResolvedValue(graph(200, { id: '123456' }))
+
+    expect((await save({ appId: '123456', appSecret: 'secret-novo' })).status).toBe(200)
+    expect((await DELETE()).status).toBe(200)
+
+    // Webhook volta a aceitar sem assinatura → o aviso persistente precisa reaparecer.
+    const evaluation = await evaluateMetaSignature('{}', null)
+    expect(evaluation).toMatchObject({ mode: 'unsigned_allowed', reason: 'no_app_secret' })
+    await reportMetaSignatureFailure({ evaluation, endpoint: 'webhook' })
+    const active = db.rows('account_alerts').filter((a) => a.id === META_APP_SECRET_MISSING_ALERT_ID && a.dismissed === false)
+    expect(active).toHaveLength(1)
   })
 
   it('reenviar o MESMO secret já comprovado (o form reenvia ao salvar) mantém a verificação', async () => {
