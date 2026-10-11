@@ -27,7 +27,14 @@ import {
   Sparkles,
 } from 'lucide-react'
 import { useAttendant } from '@/components/attendant/AttendantProvider'
-import { AttendantApiError, isAttendantAuthError } from '@/hooks/useAttendantConversations'
+import { AttendantReconnectingBanner, AttendantReconnectingPage } from '@/components/attendant/AttendantReconnecting'
+import {
+  AttendantApiError,
+  attendantPollingInterval,
+  isAttendantAuthError,
+  isAttendantTransientError,
+  shouldRetryAttendantQuery,
+} from '@/hooks/useAttendantConversations'
 import { toast } from 'sonner'
 
 // =============================================================================
@@ -442,29 +449,47 @@ export default function ConversaPage() {
   const params = useParams()
   const router = useRouter()
   const queryClient = useQueryClient()
-  const { isReady, isValidating, isAuthenticated, error: authError, canReply, canHandoff } = useAttendant()
+  const {
+    isReady,
+    isValidating,
+    isAuthenticated,
+    isReconnecting,
+    error: authError,
+    canReply,
+    canHandoff,
+    retryNow,
+  } = useAttendant()
 
   const conversationId = params.id as string
   const [newMessage, setNewMessage] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   // Queries
-  const { data: conversation, isLoading: convLoading, error: convError } = useQuery({
+  const {
+    data: conversation,
+    isLoading: convLoading,
+    error: convError,
+    refetch: refetchConversation,
+  } = useQuery({
     queryKey: ['conversation', conversationId],
     queryFn: () => fetchConversation(conversationId),
-    // Só busca com a sessão de atendente validada (cookie); para o polling em 401/403
+    // Só busca com a sessão de atendente validada (cookie); para o polling só em
+    // 401/403 — 503/5xx/rede seguem tentando
     enabled: isAuthenticated,
-    refetchInterval: (q) => (isAttendantAuthError(q.state.error) ? false : 5000),
-    retry: (failureCount, error) => !isAttendantAuthError(error) && failureCount < 3,
+    refetchInterval: (q) => attendantPollingInterval(q.state.error, 5000),
+    retry: shouldRetryAttendantQuery,
   })
 
-  const { data: messagesData, isLoading: msgsLoading } = useQuery({
+  const { data: messagesData, isLoading: msgsLoading, error: msgsError } = useQuery({
     queryKey: ['messages', conversationId],
     queryFn: () => fetchMessages(conversationId, 100),
     enabled: isAuthenticated,
-    refetchInterval: (q) => (isAttendantAuthError(q.state.error) ? false : 3000),
-    retry: (failureCount, error) => !isAttendantAuthError(error) && failureCount < 3,
+    refetchInterval: (q) => attendantPollingInterval(q.state.error, 3000),
+    retry: shouldRetryAttendantQuery,
   })
+
+  const convTransient = isAttendantTransientError(convError)
+  const connectionUnstable = convTransient || isAttendantTransientError(msgsError)
 
   const messages = messagesData?.messages ?? []
   const status = conversation ? mapConversationStatus(conversation) : 'ai_active'
@@ -521,6 +546,11 @@ export default function ConversaPage() {
     )
   }
 
+  // Banco/rede oscilando ao restaurar a sessão: o cookie continua válido — reconectando
+  if (isReconnecting && !isAuthenticated) {
+    return <AttendantReconnectingPage onRetry={retryNow} />
+  }
+
   // Sem sessão de atendente (link sem token e sem cookie, token revogado/expirado)
   if (!isAuthenticated) {
     return (
@@ -534,8 +564,13 @@ export default function ConversaPage() {
     )
   }
 
-  // Error
-  if (convError || !conversation) {
+  // 503/5xx/rede antes de a conversa carregar: não é "não encontrada"; o polling segue
+  if (!conversation && convTransient) {
+    return <AttendantReconnectingPage onRetry={() => void refetchConversation()} />
+  }
+
+  // Error (falha transitória com a conversa já carregada só mostra a faixa abaixo)
+  if ((convError && !convTransient) || !conversation) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center px-4 bg-[var(--geist-background)]">
         <AlertCircle className="w-12 h-12 text-[var(--geist-error)] mb-4" />
@@ -564,6 +599,8 @@ export default function ConversaPage() {
         conversation={conversation}
         onBack={handleBack}
       />
+
+      {connectionUnstable && <AttendantReconnectingBanner />}
 
       <StatusBar
         status={status}

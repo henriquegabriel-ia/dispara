@@ -6,6 +6,7 @@
  */
 
 import { useQuery } from '@tanstack/react-query'
+import { isTransientHttpStatus } from '@/components/attendant/attendant-reconnect'
 
 // =============================================================================
 // TIPOS
@@ -66,6 +67,26 @@ export function isAttendantAuthError(error: unknown): error is AttendantApiError
   return error instanceof AttendantApiError && (error.status === 401 || error.status === 403)
 }
 
+/**
+ * Falha transitória: 503 (banco indisponível — proxy responde com Retry-After),
+ * outros 5xx, 408/429 ou falha de rede (fetch rejeita com TypeError). A sessão
+ * continua válida: o polling segue e a UI mostra "reconectando", nunca "Acesso Negado".
+ */
+export function isAttendantTransientError(error: unknown): boolean {
+  if (error instanceof AttendantApiError) return isTransientHttpStatus(error.status)
+  return error instanceof TypeError
+}
+
+/** refetchInterval das queries da PWA: só para o polling em 401/403. */
+export function attendantPollingInterval(error: unknown, interval: number): number | false {
+  return isAttendantAuthError(error) ? false : interval
+}
+
+/** retry das queries da PWA: nunca em 401/403; nos demais erros, até 3 tentativas. */
+export function shouldRetryAttendantQuery(failureCount: number, error: unknown): boolean {
+  return !isAttendantAuthError(error) && failureCount < 3
+}
+
 // =============================================================================
 // FETCHER
 // =============================================================================
@@ -111,9 +132,10 @@ export function useAttendantConversations(options: UseAttendantConversationsOpti
     queryFn: () => fetchConversations(status, search, buttonPayload, templateName),
     // Só busca depois que a sessão do atendente foi validada (senão toma 401)
     enabled,
-    // Para o polling quando a sessão caiu ou o acesso foi revogado
-    refetchInterval: (q) => (isAttendantAuthError(q.state.error) ? false : refetchInterval),
-    retry: (failureCount, error) => !isAttendantAuthError(error) && failureCount < 3,
+    // Para o polling só quando a sessão caiu ou o acesso foi revogado (401/403);
+    // 503/5xx/rede são transitórios e o polling continua
+    refetchInterval: (q) => attendantPollingInterval(q.state.error, refetchInterval),
+    retry: shouldRetryAttendantQuery,
     staleTime: 5000, // Considera dados frescos por 5 segundos
   })
 
@@ -123,6 +145,7 @@ export function useAttendantConversations(options: UseAttendantConversationsOpti
     isLoading: query.isLoading,
     isRefetching: query.isRefetching,
     error: query.error,
+    isReconnecting: isAttendantTransientError(query.error),
     refetch: query.refetch,
   }
 }
