@@ -7,6 +7,7 @@ import {
   saveCalendarConfig,
   ensureCalendarChannel,
 } from '@/lib/google-calendar'
+import { timingSafeEqualString } from '@/lib/timing-safe-equal'
 
 const STATE_COOKIE = 'gc_oauth_state'
 const RETURN_COOKIE = 'gc_oauth_return'
@@ -22,7 +23,8 @@ export async function GET(request: NextRequest) {
     if (!code) {
       return NextResponse.json({ error: 'Codigo OAuth ausente' }, { status: 400 })
     }
-    if (!state || !cookieState || state !== cookieState) {
+    // Comparação em tempo constante (state é o anti-CSRF do OAuth)
+    if (!timingSafeEqualString(state, cookieState)) {
       return NextResponse.json({ error: 'Estado OAuth invalido' }, { status: 400 })
     }
 

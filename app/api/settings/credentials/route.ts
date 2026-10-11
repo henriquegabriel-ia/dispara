@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { settingsDb } from '@/lib/supabase-db'
 import { isSupabaseConfigured } from '@/lib/supabase'
+import { clearMetaAppSecretCache } from '@/lib/meta-webhook-signature'
 import { fetchWithTimeout, safeJson, isAbortError } from '@/lib/server-http'
 
 export const dynamic = 'force-dynamic'
@@ -169,6 +170,7 @@ export async function DELETE() {
       settingsDb.set('metaAppId', ''),
       settingsDb.set('metaAppSecret', ''),
     ])
+    clearMetaAppSecretCache()
 
     return NextResponse.json({
       success: true,

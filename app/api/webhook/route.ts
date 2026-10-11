@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createHmac, timingSafeEqual } from 'node:crypto'
 
 export const dynamic = 'force-dynamic' // Prevent caching of verification requests
 export const runtime = 'nodejs'
@@ -52,7 +51,13 @@ async function getWhatsAppAccessToken(): Promise<string | null> {
 }
 
 // Get or generate webhook verify token (Supabase settings preferred, env var fallback)
-import { getVerifyToken } from '@/lib/verify-token'
+import { getVerifyToken, isConfiguredVerifyToken } from '@/lib/verify-token'
+import { timingSafeEqualString } from '@/lib/timing-safe-equal'
+import {
+  META_SIGNATURE_HEADER,
+  evaluateMetaSignature,
+  reportMetaSignatureFailure,
+} from '@/lib/meta-webhook-signature'
 
 async function getCalendarBookingSettings(): Promise<{
   timezone: string | null
@@ -98,29 +103,6 @@ async function sendExternalWebhook(payload: Record<string, unknown>): Promise<vo
     console.warn('[Webhook] Falha ao enviar payload para webhook externo (best-effort):', e)
   } finally {
     clearTimeout(timeoutId)
-  }
-}
-
-function verifyMetaWebhookSignature(input: { request: NextRequest; rawBody: string }): boolean {
-  const appSecret = String(process.env.META_APP_SECRET || '').trim()
-  // Compatibility mode: if not configured, do not block (but once configured, enforce).
-  if (!appSecret) return true
-
-  const header =
-    input.request.headers.get('x-hub-signature-256') ||
-    input.request.headers.get('X-Hub-Signature-256') ||
-    ''
-
-  if (!header.startsWith('sha256=')) return false
-
-  const expected = `sha256=${createHmac('sha256', appSecret).update(input.rawBody, 'utf8').digest('hex')}`
-  try {
-    const a = Buffer.from(header)
-    const b = Buffer.from(expected)
-    if (a.length !== b.length) return false
-    return timingSafeEqual(a, b)
-  } catch {
-    return false
   }
 }
 
@@ -652,19 +634,22 @@ export async function GET(request: NextRequest) {
   const challenge = searchParams.get('hub.challenge')
 
   const MY_VERIFY_TOKEN = await getVerifyToken({ readonly: true })
+  // Sentinelas ('token-not-found-readonly' etc.) são previsíveis: nunca podem casar.
+  const hasVerifyToken = isConfiguredVerifyToken(MY_VERIFY_TOKEN)
 
   console.log('🔍 Webhook Verification Request:')
   console.log(`- Mode: ${mode}`)
   console.log(`- Received Token: ${maskTokenPreview(token)}`)
-  console.log(`- Expected Token: ${maskTokenPreview(MY_VERIFY_TOKEN)}`)
+  console.log(`- Verify token configurado: ${hasVerifyToken ? 'sim' : 'não'}`)
 
-  if (MY_VERIFY_TOKEN === 'token-not-found-readonly') {
+  if (!hasVerifyToken) {
     console.warn(
       '⚠️ Webhook verify token ausente em modo readonly. Configure em settings (webhook_verify_token) ou via env WEBHOOK_VERIFY_TOKEN.'
     )
+    return new Response('Forbidden', { status: 403 })
   }
 
-  if (mode === 'subscribe' && token === MY_VERIFY_TOKEN) {
+  if (mode === 'subscribe' && timingSafeEqualString(token, MY_VERIFY_TOKEN)) {
     console.log('✅ Webhook verified successfully')
     return new Response(challenge || '', { status: 200 })
   }
@@ -677,12 +662,21 @@ export async function GET(request: NextRequest) {
 // Supabase: fonte da verdade para status de mensagens
 export async function POST(request: NextRequest) {
   const rawBody = await request.text().catch(() => '')
-  if (!rawBody) {
-    return NextResponse.json({ status: 'ignored', error: 'Body inválido' }, { status: 400 })
+
+  // Assinatura X-Hub-Signature-256 sobre o corpo CRU, antes de qualquer processamento.
+  const signature = await evaluateMetaSignature(rawBody, request.headers.get(META_SIGNATURE_HEADER))
+  if (!signature.ok) {
+    console.warn(`[Webhook] POST rejeitado: assinatura ${signature.reason} (modo ${signature.mode})`)
+    if (signature.reason === 'secret_unavailable') {
+      // Não deu para ler o App Secret: 503 faz a Meta reentregar depois.
+      return NextResponse.json({ status: 'unavailable' }, { status: 503 })
+    }
+    await reportMetaSignatureFailure({ evaluation: signature, endpoint: 'webhook' })
+    return NextResponse.json({ status: 'unauthorized' }, { status: 401 })
   }
 
-  if (!verifyMetaWebhookSignature({ request, rawBody })) {
-    return NextResponse.json({ status: 'unauthorized' }, { status: 401 })
+  if (!rawBody) {
+    return NextResponse.json({ status: 'ignored', error: 'Body inválido' }, { status: 400 })
   }
 
   const body = (() => {

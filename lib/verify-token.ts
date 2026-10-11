@@ -6,6 +6,22 @@ interface VerifyTokenOptions {
 
 let inMemoryToken: string | null = null
 
+const TOKEN_NOT_FOUND_READONLY = 'token-not-found-readonly'
+const TOKEN_RETRIEVAL_ERROR = 'error-retrieving-token'
+
+/**
+ * Valores que getVerifyToken devolve quando NÃO há token. São previsíveis, então
+ * quem compara (handshake GET do webhook) precisa tratá-los como "não configurado".
+ */
+export const VERIFY_TOKEN_SENTINELS: readonly string[] = [TOKEN_NOT_FOUND_READONLY, TOKEN_RETRIEVAL_ERROR] as const
+
+/** true se o valor é um verify token de verdade (não vazio e não sentinela). */
+export function isConfiguredVerifyToken(token: string | null | undefined): token is string {
+    if (typeof token !== 'string') return false
+    const value = token.trim()
+    return value.length > 0 && !VERIFY_TOKEN_SENTINELS.includes(value)
+}
+
 /**
  * Get or generate webhook verify token
  * 
@@ -19,7 +35,7 @@ export async function getVerifyToken(options: VerifyTokenOptions = {}): Promise<
         console.log('🔍 getVerifyToken: Checking DB...')
         const storedToken = await settingsDb.get('webhook_verify_token')
         if (storedToken) {
-            console.log('✅ getVerifyToken: Found in DB:', storedToken)
+            console.log('✅ getVerifyToken: Found in DB')
             return storedToken
         }
 
@@ -36,13 +52,13 @@ export async function getVerifyToken(options: VerifyTokenOptions = {}): Promise<
                 return inMemoryToken
             }
             console.warn('⚠️ getVerifyToken: Token missing and Read-Only. Failing.')
-            return 'token-not-found-readonly'
+            return TOKEN_NOT_FOUND_READONLY
         }
 
         // 4. Generate New Token (fallback to memory if DB unavailable)
         const newToken = crypto.randomUUID()
         inMemoryToken = newToken
-        console.log('🔑 getVerifyToken: Generating new:', newToken)
+        console.log('🔑 getVerifyToken: Generating new token')
         try {
             await settingsDb.set('webhook_verify_token', newToken)
         } catch (err) {
@@ -60,6 +76,6 @@ export async function getVerifyToken(options: VerifyTokenOptions = {}): Promise<
     } catch (err) {
         console.error('💥 getVerifyToken Error:', err)
         if (inMemoryToken) return inMemoryToken
-        return process.env.WEBHOOK_VERIFY_TOKEN?.trim() || 'error-retrieving-token'
+        return process.env.WEBHOOK_VERIFY_TOKEN?.trim() || TOKEN_RETRIEVAL_ERROR
     }
 }
