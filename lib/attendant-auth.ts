@@ -22,11 +22,26 @@ export const ATTENDANT_TOKEN_HEADER = 'x-attendant-token'
 
 const CACHE_TTL_MS = 30_000
 const NEGATIVE_CACHE_TTL_MS = 10_000
+// Em erro de banco, o último resultado POSITIVO conhecido continua valendo por
+// este tempo (stale-if-error). Revogação volta a valer assim que o banco responder.
+const STALE_IF_ERROR_MS = 5 * 60_000
 const MAX_CACHE_ENTRIES = 500
 const MIN_TOKEN_LENGTH = 16
 const MAX_TOKEN_LENGTH = 256
 
-type CacheEntry = { value: AttendantPrincipal | null; expiresAt: number }
+/**
+ * Resultado da resolução de um token de atendente.
+ * - valid       → token ativo e não expirado.
+ * - invalid     → token ausente, malformado, inexistente, inativo ou expirado.
+ * - unavailable → não deu para consultar o banco (Supabase fora/não configurado).
+ *                 Quem chama deve responder 503 e NÃO apagar o cookie do atendente.
+ */
+export type AttendantResolution =
+  | { status: 'valid'; principal: AttendantPrincipal }
+  | { status: 'invalid' }
+  | { status: 'unavailable' }
+
+type CacheEntry = { value: AttendantPrincipal | null; expiresAt: number; staleUntil: number }
 
 const cache = new Map<string, CacheEntry>()
 
@@ -40,12 +55,16 @@ function normalizePermissions(raw: unknown): AttendantPermissions {
 }
 
 function remember(token: string, value: AttendantPrincipal | null, now: number): void {
-  if (cache.size >= MAX_CACHE_ENTRIES) {
+  if (!cache.has(token) && cache.size >= MAX_CACHE_ENTRIES) {
     // Evicção simples: descarta o mais antigo inserido.
     const oldest = cache.keys().next().value
     if (oldest !== undefined) cache.delete(oldest)
   }
-  cache.set(token, { value, expiresAt: now + (value ? CACHE_TTL_MS : NEGATIVE_CACHE_TTL_MS) })
+  cache.set(token, {
+    value,
+    expiresAt: now + (value ? CACHE_TTL_MS : NEGATIVE_CACHE_TTL_MS),
+    staleUntil: value ? now + STALE_IF_ERROR_MS : 0,
+  })
 }
 
 /** Limpa o cache (usado ao revogar/editar tokens e nos testes). */
@@ -53,37 +72,52 @@ export function clearAttendantAuthCache(): void {
   cache.clear()
 }
 
+/** Serve o último positivo conhecido durante uma falha de banco; senão, 'unavailable'. */
+function staleOrUnavailable(token: string, now: number): AttendantResolution {
+  const cached = cache.get(token)
+  if (cached?.value && cached.staleUntil > now) return { status: 'valid', principal: cached.value }
+  return { status: 'unavailable' }
+}
+
 /**
- * Resolve um token de atendente para o principal correspondente.
- * Retorna null para token ausente, malformado, inexistente, inativo ou expirado.
+ * Resolve um token de atendente distinguindo token inválido de banco indisponível.
  */
-export async function resolveAttendantToken(token: string | null | undefined): Promise<AttendantPrincipal | null> {
-  if (!token) return null
+export async function resolveAttendantTokenDetailed(token: string | null | undefined): Promise<AttendantResolution> {
+  if (!token) return { status: 'invalid' }
   const trimmed = token.trim()
-  if (trimmed.length < MIN_TOKEN_LENGTH || trimmed.length > MAX_TOKEN_LENGTH) return null
+  if (trimmed.length < MIN_TOKEN_LENGTH || trimmed.length > MAX_TOKEN_LENGTH) return { status: 'invalid' }
 
   const now = Date.now()
   const cached = cache.get(trimmed)
-  if (cached && cached.expiresAt > now) return cached.value
+  if (cached && cached.expiresAt > now) {
+    return cached.value ? { status: 'valid', principal: cached.value } : { status: 'invalid' }
+  }
 
   const supabase = getSupabaseAdmin()
-  if (!supabase) return null
+  if (!supabase) return staleOrUnavailable(trimmed, now)
 
-  const { data, error } = await supabase
-    .from('attendant_tokens')
-    .select('id, name, permissions, is_active, expires_at')
-    .eq('token', trimmed)
-    .maybeSingle()
+  let data: { id: unknown; name: unknown; permissions: unknown; is_active: unknown; expires_at: unknown } | null = null
+  try {
+    const result = await supabase
+      .from('attendant_tokens')
+      .select('id, name, permissions, is_active, expires_at')
+      .eq('token', trimmed)
+      .maybeSingle()
 
-  if (error) {
-    // Erro de banco: não cacheia (nem positivo nem negativo) e nega.
-    console.error('[attendant-auth] Falha ao validar token de atendente:', error.message)
-    return null
+    if (result.error) {
+      // Erro de banco: não cacheia o resultado; serve o último positivo, se houver.
+      console.error('[attendant-auth] Falha ao validar token de atendente:', result.error.message)
+      return staleOrUnavailable(trimmed, now)
+    }
+    data = result.data
+  } catch (error) {
+    console.error('[attendant-auth] Falha ao validar token de atendente:', error instanceof Error ? error.message : error)
+    return staleOrUnavailable(trimmed, now)
   }
 
   let principal: AttendantPrincipal | null = null
   if (data && data.is_active === true) {
-    const expired = data.expires_at ? new Date(data.expires_at).getTime() <= now : false
+    const expired = data.expires_at ? new Date(String(data.expires_at)).getTime() <= now : false
     if (!expired) {
       principal = {
         id: String(data.id),
@@ -94,7 +128,17 @@ export async function resolveAttendantToken(token: string | null | undefined): P
   }
 
   remember(trimmed, principal, now)
-  return principal
+  return principal ? { status: 'valid', principal } : { status: 'invalid' }
+}
+
+/**
+ * Atalho que achata o resultado: principal quando válido, null caso contrário
+ * (inclusive banco indisponível). Prefira resolveAttendantTokenDetailed quando
+ * precisar responder 503 em vez de 401.
+ */
+export async function resolveAttendantToken(token: string | null | undefined): Promise<AttendantPrincipal | null> {
+  const result = await resolveAttendantTokenDetailed(token)
+  return result.status === 'valid' ? result.principal : null
 }
 
 /** Extrai o token de atendente do cookie (preferido) ou do header X-Attendant-Token. */
