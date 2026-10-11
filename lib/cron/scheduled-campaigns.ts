@@ -1,7 +1,7 @@
 import 'server-only'
 import { supabase } from '@/lib/supabase'
 import { CampaignStatus } from '@/types'
-import { resolveBaseUrl } from '@/lib/self-invoke'
+import { internalAuthHeaders, resolveBaseUrl } from '@/lib/self-invoke'
 
 /**
  * Fase C (migração QStash→pg_cron) — dispara campanhas agendadas vencidas.
@@ -11,6 +11,10 @@ import { resolveBaseUrl } from '@/lib/self-invoke'
  * faz um claim atômico por linha (UPDATE ... WHERE status='Agendado' → 'Enviando': só
  * um tick ganha cada campanha) e chama /api/campaign/dispatch com trigger:'manual'
  * (o claim já cumpriu o papel do guard isStillScheduled).
+ *
+ * A chamada leva `Authorization: Bearer <segredo interno>` (internalAuthHeaders):
+ * /api/campaign/dispatch tem política `session_or_cron`. Sem o header ela levava 401
+ * SEMPRE e a campanha saía degradada pelo sweeper (sem snapshot, perdendo a variante B).
  *
  * Nota: aqui só muda QUANDO a campanha dispara. COMO ela dispara (o motor de disparo em
  * massa) ainda usa o caminho atual — isso é reescrito na Fase F.
@@ -57,7 +61,7 @@ export async function drainScheduledCampaigns(): Promise<{
     try {
       const resp = await fetch(`${baseUrl}/api/campaign/dispatch`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...internalAuthHeaders() },
         body: JSON.stringify({
           campaignId: c.id,
           templateName: (c as { template_name?: string }).template_name,
@@ -65,7 +69,10 @@ export async function drainScheduledCampaigns(): Promise<{
         }),
       })
       if (resp.ok) dispatched++
-      else errors++
+      else {
+        errors++
+        console.error(`[scheduled-campaigns] dispatch de ${c.id} respondeu ${resp.status}; o sweeper religará a campanha.`)
+      }
     } catch {
       errors++
     }

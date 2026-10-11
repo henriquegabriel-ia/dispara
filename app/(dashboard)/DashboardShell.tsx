@@ -253,17 +253,22 @@ export function DashboardShell({
         },
     })
 
+    // Banco fora → overlay. Vale também para o payload público de /api/health
+    // (sessão não validável porque o banco caiu): ele traz services.database.status.
     const needsSetup = !!healthStatus &&
         healthStatus.services.database?.status !== 'ok'
 
+    // WhatsApp/webhook só são confiáveis no payload completo (dono); o público não os checa.
+    const fullHealthStatus = healthStatus?.scope === 'public' ? undefined : healthStatus
+
     // Determina se WhatsApp está conectado
-    const isWhatsAppConnected = healthStatus?.services.whatsapp?.status === 'ok'
+    const isWhatsAppConnected = fullHealthStatus?.services.whatsapp?.status === 'ok'
 
     // Determina se webhook está configurado
-    const isWebhookConfigured = healthStatus?.services.webhook?.status === 'ok'
+    const isWebhookConfigured = fullHealthStatus?.services.webhook?.status === 'ok'
 
     // Determina se precisa configurar webhook (WhatsApp conectado mas webhook não)
-    const needsWebhookSetup = isWhatsAppConnected && !isWebhookConfigured && healthStatus !== undefined
+    const needsWebhookSetup = isWhatsAppConnected && !isWebhookConfigured && fullHealthStatus !== undefined
 
 
     // Handler para salvar credenciais (NÃO marca como completo - o usuário ainda precisa configurar webhook)
@@ -653,10 +658,10 @@ export function DashboardShell({
 
                     {/* Onboarding Checklist LEGADO - mantido para transição */}
                     {/* Mostra se: onboarding completo (banco OU localStorage) E não dismissado E não minimizado E novo checklist não ativo */}
-                    {pathname === '/' && !isOnboardingCompletedInDb && !isOnboardingStatusLoading && (shouldShowChecklist) && !onboardingProgress.isChecklistMinimized && !onboardingProgress.isChecklistDismissed && healthStatus && (
+                    {pathname === '/' && !isOnboardingCompletedInDb && !isOnboardingStatusLoading && (shouldShowChecklist) && !onboardingProgress.isChecklistMinimized && !onboardingProgress.isChecklistDismissed && fullHealthStatus && (
                         <div className="mb-6">
                             <OnboardingChecklist
-                                healthStatus={healthStatus}
+                                healthStatus={fullHealthStatus}
                                 onNavigate={(path) => router.push(path)}
                                 onOpenStep={setForceModalStep}
                             />

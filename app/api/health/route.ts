@@ -3,6 +3,45 @@ import { getWhatsAppCredentials } from '@/lib/whatsapp-credentials'
 import { supabase, isSupabaseConfigured } from '@/lib/supabase'
 import { fetchWithTimeout, safeJson } from '@/lib/server-http'
 import { settingsDb } from '@/lib/supabase-db'
+import { getPrincipal, OWNER_KINDS } from '@/lib/principal'
+import type { HealthStatus } from '@/lib/health-check'
+
+// Payload público: só o necessário para o DashboardShell detectar banco fora
+// (onboarding overlay). Cacheado em memória para não virar amplificador anônimo.
+const PUBLIC_HEALTH_CACHE_TTL_MS = 5_000
+let publicHealthCache: { value: HealthStatus; expiresAt: number } | null = null
+
+async function getPublicHealth(): Promise<HealthStatus> {
+  const now = Date.now()
+  if (publicHealthCache && publicHealthCache.expiresAt > now) return publicHealthCache.value
+
+  let database: HealthStatus['services']['database']
+  if (!isSupabaseConfigured()) {
+    database = { status: 'not_configured', provider: 'none', message: 'Banco de dados não configurado' }
+  } else {
+    try {
+      const { error } = await supabase.from('settings').select('key').limit(1)
+      if (error && !error.message.includes('does not exist')) throw error
+      database = { status: 'ok', provider: 'supabase' }
+    } catch {
+      // Sem mensagem do driver/URL: só o fato de que o banco está fora.
+      database = { status: 'error', provider: 'supabase', message: 'Banco de dados indisponível' }
+    }
+  }
+
+  const value: HealthStatus = {
+    overall: database.status === 'ok' ? 'healthy' : 'unhealthy',
+    services: {
+      database,
+      // Não checado no payload público (sem Graph API, sem dados do número).
+      whatsapp: { status: 'not_configured' },
+    },
+    timestamp: new Date(now).toISOString(),
+    scope: 'public',
+  }
+  publicHealthCache = { value, expiresAt: now + PUBLIC_HEALTH_CACHE_TTL_MS }
+  return value
+}
 
 // Build Vercel dashboard URL dynamically from environment
 function getVercelDashboardUrl(): string | null {
@@ -55,9 +94,19 @@ interface HealthCheckResult {
     env: string
   }
   timestamp: string
+  scope: 'full'
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  // Política `public` (lib/route-policy.ts): payload completo só para o dono.
+  const principal = getPrincipal(request)
+  const isOwner = !!principal && (OWNER_KINDS as readonly string[]).includes(principal.kind)
+  if (!isOwner) {
+    return NextResponse.json(await getPublicHealth(), {
+      headers: { 'Cache-Control': 'private, no-store, max-age=0' },
+    })
+  }
+
   const dashboardUrl = getVercelDashboardUrl()
 
   const result: HealthCheckResult = {
@@ -73,6 +122,7 @@ export async function GET() {
       env: process.env.VERCEL_ENV || 'development',
     },
     timestamp: new Date().toISOString(),
+    scope: 'full',
   }
 
   // 1. Check Database (Supabase)

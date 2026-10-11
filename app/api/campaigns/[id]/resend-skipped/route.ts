@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { reinvokeSelf, resolveBaseUrl } from '@/lib/self-invoke'
+import { internalAuthHeaders, reinvokeSelf, resolveBaseUrl } from '@/lib/self-invoke'
 import { CampaignStatus } from '@/types'
 
 import { supabase } from '@/lib/supabase'
@@ -669,7 +669,7 @@ export async function POST(_request: Request, { params }: Params) {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${process.env.CRON_SECRET || process.env.DISPARA_ADMIN_KEY || ''}`,
+            ...internalAuthHeaders(),
           },
           body: JSON.stringify(drainBody),
           timeoutMs: 30000,

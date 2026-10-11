@@ -1,193 +1,402 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { forbiddenResponse, unauthorizedResponse, verifyApiKey } from '@/lib/auth'
+import { AUTH_REQUIRED_HEADER, buildLoginPath } from '@/lib/auth-redirect'
+import { readAttendantToken, resolveAttendantToken } from '@/lib/attendant-auth'
 import {
-    verifyApiKey,
-    verifyAdminAccess,
-    isAdminEndpoint,
-    isPublicEndpoint,
-    unauthorizedResponse,
-    forbiddenResponse
-} from '@/lib/auth'
+    applyPrincipalHeaders,
+    stripPrincipalHeaders,
+    type Principal,
+    type PrincipalKind,
+} from '@/lib/principal'
+import {
+    INSTALLER_PAGE_PREFIX,
+    isPublicPage,
+    matchPattern,
+    matchSegmentPrefix,
+    resolveApiPolicy,
+    type RoutePolicy,
+} from '@/lib/route-policy'
+import { timingSafeEqualString } from '@/lib/safe-compare'
+import { isValidSessionToken, SESSION_COOKIE_NAME, type SessionTokenValidity } from '@/lib/user-auth'
+
+/**
+ * Proxy (Next 16) — barreira de autenticação de TODAS as rotas.
+ *
+ * - APIs: a política de cada rota vem de lib/route-policy.ts (casamento exato por
+ *   segmento; o default é `session`). O proxy resolve QUEM chama e repassa o
+ *   principal para a rota via headers `x-dispara-*` (lib/principal.ts), sempre
+ *   removendo os que vierem do cliente.
+ * - Sessão: o cookie dispara_session é VALIDADO (isValidSessionToken, lista
+ *   cacheada por ~15s). A mera presença do cookie não autentica nada.
+ * - CRON_SECRET só vale nas rotas com política `cron`/`session_or_cron`.
+ * - Páginas: públicas (PUBLIC_PAGE_PATTERNS) passam; o resto exige sessão válida.
+ */
 
 export const config = {
     matcher: [
-        // Match all pages except static files and _next
+        // APIs: SEMPRE passam pelo proxy, inclusive caminhos com extensão
+        // (ex.: /api/x/5511999.png, /api/campaigns/[id]/report.csv).
+        '/api/:path*',
+        // Páginas: tudo menos estáticos e internals do Next
         // Includes: .json (manifest.json), .js (sw.js), common images/audio, and Next.js internals
         '/((?!_next/static|_next/image|favicon.ico|manifest\\.json|sw\\.js|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|mp3|wav|ogg|m4a|yaml|yml)$).*)',
     ],
 }
 
-// Routes that don't require user authentication
-const PUBLIC_PAGES = ['/login', '/install', '/debug-auth', '/f', '/atendimento', '/docs']
-// Rotas que NÃO precisam de autenticação
-// CUIDADO: adicionar rotas aqui expõe elas publicamente!
-const PUBLIC_API_ROUTES = [
-    '/api/auth',              // Login/logout/status
-    '/api/webhook',           // Meta WhatsApp webhooks (usa HMAC)
-    '/api/health',            // Health checks
-    '/api/system',            // Info básica do sistema
-    '/api/installer',         // Setup inicial (protegido separadamente após install)
-    '/api/campaign/workflow', // Chamado internamente pelo QStash
-    '/api/public',            // Rotas explicitamente públicas (lead forms, etc)
-]
+// Formulário público embutível: CORS aberto, SEM credenciais.
+const PUBLIC_CORS_PATTERNS = [
+    '/api/public/lead-forms/[slug]',
+    '/api/public/lead-forms/[slug]/submit',
+] as const
 
-export async function proxy(request: NextRequest) {
-    const pathname = request.nextUrl.pathname
+type ProtectedPolicy = Exclude<RoutePolicy, 'public' | 'public_route_auth' | 'installer'>
 
-    // Session cookie can exist even when SETUP_COMPLETE env isn't set (dev/local).
-    // If the user has a valid session, we should not force them back into the setup wizard.
-    const sessionCookie = request.cookies.get('dispara_session')
+// Quem cada política aceita (o detalhe fino — permissão do atendente, PATCH só do
+// dono etc. — continua sendo checado na rota).
+const POLICY_ALLOWED: Record<ProtectedPolicy, readonly PrincipalKind[]> = {
+    cron: ['cron'],
+    session_or_cron: ['session', 'api_key', 'admin_key', 'cron'],
+    attendant_or_session: ['session', 'api_key', 'admin_key', 'attendant'],
+    admin: ['session', 'admin_key'],
+    session: ['session', 'api_key', 'admin_key'],
+}
 
-    // Handle OPTIONS requests for CORS preflight.
-    // Alguns scripts (ex.: Vercel feedback/toolbar) disparam OPTIONS/HEAD mesmo em páginas.
-    // Deixar isso cair no roteamento padrão pode virar 400 e poluir o console.
-    if (request.method === 'OPTIONS') {
-        const origin = request.headers.get('origin')
-        const reqHeaders = request.headers.get('access-control-request-headers')
+const PUBLIC_PRINCIPAL: Principal = { kind: 'public' }
 
+type SessionState = SessionTokenValidity | 'absent'
+
+interface KeyCredentials {
+    /** API key via Bearer/X-API-Key: válida (admin/api), 'invalid' se veio e não confere, null se não veio. */
+    key: 'admin_key' | 'api_key' | 'invalid' | null
+    /** Bearer == CRON_SECRET */
+    cronSecret: boolean
+    /** Bearer == DISPARA_ADMIN_KEY (aceito como cron: fallback do reinvokeSelf sem CRON_SECRET) */
+    adminBearer: boolean
+}
+
+type Decision =
+    | { type: 'allow'; principal: Principal }
+    | { type: 'unauthorized'; message: string; clearSessionCookie: boolean }
+    | { type: 'forbidden'; message: string }
+    | { type: 'unavailable' }
+
+// =============================================================================
+// Credenciais
+// =============================================================================
+
+function readBearer(request: NextRequest): string | null {
+    const authHeader = request.headers.get('authorization')
+    return authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : null
+}
+
+async function readKeyCredentials(request: NextRequest): Promise<KeyCredentials> {
+    const bearer = readBearer(request)
+    // Sem curto-circuito: as duas comparações sempre rodam (tempo constante).
+    const cronSecret = bearer ? timingSafeEqualString(bearer, process.env.CRON_SECRET) : false
+    const adminBearer = bearer ? timingSafeEqualString(bearer, process.env.DISPARA_ADMIN_KEY) : false
+
+    let key: KeyCredentials['key'] = null
+    if (request.headers.get('authorization') || request.headers.get('x-api-key')) {
+        const result = await verifyApiKey(request)
+        key = result.valid ? (result.keyType === 'admin' ? 'admin_key' : 'api_key') : 'invalid'
+    }
+    return { key, cronSecret, adminBearer }
+}
+
+/** Valida o cookie de sessão no máximo uma vez por request. */
+function sessionResolver(request: NextRequest): () => Promise<SessionState> {
+    let memo: Promise<SessionState> | null = null
+    return () => {
+        if (!memo) {
+            const token = request.cookies.get(SESSION_COOKIE_NAME)?.value
+            memo = token ? isValidSessionToken(token) : Promise.resolve<SessionState>('absent')
+        }
+        return memo
+    }
+}
+
+// =============================================================================
+// Respostas
+// =============================================================================
+
+function nextWithPrincipal(request: NextRequest, principal: Principal): NextResponse {
+    const headers = new Headers(request.headers)
+    stripPrincipalHeaders(headers)
+    applyPrincipalHeaders(headers, principal)
+    return NextResponse.next({ request: { headers } })
+}
+
+function sessionStoreUnavailableResponse(): NextResponse {
+    return NextResponse.json(
+        {
+            error: 'Service Unavailable',
+            reason: 'session_store_unavailable',
+            message: 'Não foi possível validar a sessão: banco de dados indisponível. Tente novamente em instantes.',
+        },
+        { status: 503, headers: { 'Retry-After': '5', 'Cache-Control': 'no-store' } }
+    )
+}
+
+function loginRedirect(request: NextRequest, opts: { clearSessionCookie: boolean; reason?: string }): NextResponse {
+    const { pathname, search } = request.nextUrl
+    const loginUrl = new URL(buildLoginPath(`${pathname}${search}`), request.url)
+    if (opts.reason) loginUrl.searchParams.set('reason', opts.reason)
+    const response = NextResponse.redirect(loginUrl)
+    if (opts.clearSessionCookie) response.cookies.delete(SESSION_COOKIE_NAME)
+    return response
+}
+
+function isTopLevelNavigation(request: NextRequest): boolean {
+    const method = request.method.toUpperCase()
+    return (method === 'GET' || method === 'HEAD') && request.headers.get('sec-fetch-mode') === 'navigate'
+}
+
+function denyApi(request: NextRequest, decision: Exclude<Decision, { type: 'allow' }>): NextResponse {
+    if (decision.type === 'forbidden') return forbiddenResponse(decision.message)
+    if (decision.type === 'unavailable') return sessionStoreUnavailableResponse()
+
+    // Download de CSV, OAuth connect/callback etc. abertos direto no browser:
+    // manda para o login em vez de mostrar JSON cru.
+    if (isTopLevelNavigation(request)) {
+        return loginRedirect(request, { clearSessionCookie: decision.clearSessionCookie })
+    }
+    const response = unauthorizedResponse(decision.message)
+    // Marca o 401 como "sem sessão" para o tratamento global do client (lib/auth-redirect.ts).
+    response.headers.set(AUTH_REQUIRED_HEADER, '1')
+    return response
+}
+
+// =============================================================================
+// CORS (preflight)
+// =============================================================================
+
+function requestOrigins(request: NextRequest): string[] {
+    const origins = [request.nextUrl.origin]
+    const host = request.headers.get('x-forwarded-host') || request.headers.get('host')
+    if (host) {
+        const proto = request.headers.get('x-forwarded-proto') || request.nextUrl.protocol.replace(/:$/, '')
+        origins.push(`${proto}://${host}`)
+    }
+    return origins
+}
+
+function handlePreflight(request: NextRequest, pathname: string): NextResponse {
+    const origin = request.headers.get('origin')
+    const reqHeaders = request.headers.get('access-control-request-headers')
+
+    // Formulário público (/f/[slug] embutido em sites de terceiros): qualquer origem,
+    // mas SEM credenciais.
+    if (PUBLIC_CORS_PATTERNS.some((pattern) => matchPattern(pattern, pathname))) {
         return new NextResponse(null, {
             status: 204,
             headers: {
-                ...(origin ? { 'Access-Control-Allow-Origin': origin } : {}),
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+                'Access-Control-Allow-Headers': 'Content-Type',
+                'Access-Control-Max-Age': '86400',
+            },
+        })
+    }
+
+    // Resto: CORS só para a própria origem. Antes refletia QUALQUER Origin com
+    // Allow-Credentials:true.
+    if (origin && requestOrigins(request).includes(origin)) {
+        return new NextResponse(null, {
+            status: 204,
+            headers: {
+                'Access-Control-Allow-Origin': origin,
                 'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD',
                 'Access-Control-Allow-Headers': reqHeaders || 'Content-Type, Authorization',
-                ...(origin ? { 'Access-Control-Allow-Credentials': 'true' } : {}),
+                'Access-Control-Allow-Credentials': 'true',
                 'Access-Control-Max-Age': '86400',
                 'Vary': 'Origin, Access-Control-Request-Headers',
             },
         })
     }
 
-    // ==========================================================================
-    // BOOTSTRAP CHECK - Redirect to installer if not configured
-    // ==========================================================================
-    const hasMasterPassword = !!process.env.MASTER_PASSWORD
+    // Alguns scripts (ex.: Vercel feedback/toolbar) disparam OPTIONS mesmo em páginas.
+    // Deixar isso cair no roteamento padrão pode virar 400 e poluir o console.
+    return new NextResponse(null, { status: 204, headers: { 'Vary': 'Origin' } })
+}
 
-    // ==========================================================================
-    // INSTALLER LOCKDOWN (produção)
-    // - Após a instalação, ninguém "anônimo" deveria conseguir abrir o wizard
-    // - As APIs do installer também não devem ficar abertas após concluído
-    //   (exceto com sessão ou admin key)
-    // ==========================================================================
-    // Em produção, se já existe MASTER_PASSWORD, o installer não pode ser público.
-    // Isso protege mesmo quando INSTALLER_ENABLED não estiver setado corretamente.
-    const shouldLockInstaller = process.env.NODE_ENV === 'production' && hasMasterPassword
-    const isInstallerPage = pathname === '/install' || pathname.startsWith('/install/')
-    const isInstallerApi = pathname.startsWith('/api/installer')
+// =============================================================================
+// Decisão por política (APIs)
+// =============================================================================
 
-    if (shouldLockInstaller && (isInstallerPage || isInstallerApi)) {
-        // Para páginas: exige sessão (login)
-        if (isInstallerPage) {
-            if (!sessionCookie?.value) {
-                const loginUrl = new URL('/login', request.url)
-                loginUrl.searchParams.set('reason', 'installer_locked')
-                loginUrl.searchParams.set('redirect', pathname)
-                return NextResponse.redirect(loginUrl)
-            }
-        }
+/** Principal "barato" para rotas públicas: dono se houver credencial válida, senão public. */
+async function resolveOptionalOwner(
+    request: NextRequest,
+    keys: KeyCredentials,
+    getSession: () => Promise<SessionState>
+): Promise<Principal> {
+    if (keys.key === 'admin_key' || keys.key === 'api_key') return { kind: keys.key }
+    if (request.cookies.get(SESSION_COOKIE_NAME)?.value) {
+        if ((await getSession()) === 'valid') return { kind: 'session' }
+    }
+    return PUBLIC_PRINCIPAL
+}
 
-        // Para APIs: permite sessão OU admin key
-        if (isInstallerApi) {
-            if (sessionCookie?.value) {
-                return NextResponse.next()
-            }
+function unauthorizedDecision(keys: KeyCredentials, session: SessionState, fallbackMessage: string): Decision {
+    const message =
+        keys.key === 'invalid'
+            ? 'Invalid API key'
+            : session === 'invalid'
+                ? 'Sessão inválida ou expirada. Faça login novamente.'
+                : fallbackMessage
+    return { type: 'unauthorized', message, clearSessionCookie: session === 'invalid' }
+}
 
-            const adminAuth = await verifyAdminAccess(request)
-            if (!adminAuth.valid) {
-                return unauthorizedResponse('Installer API bloqueada após instalação. Faça login ou use DISPARA_ADMIN_KEY.')
-            }
-            return NextResponse.next()
-        }
+async function decideProtected(
+    request: NextRequest,
+    policy: ProtectedPolicy,
+    keys: KeyCredentials,
+    getSession: () => Promise<SessionState>
+): Promise<Decision> {
+    const allowed = POLICY_ALLOWED[policy]
+    const allows = (kind: PrincipalKind) => allowed.includes(kind)
+    let forbidden: string | null = null
+
+    // 1) Cron: Bearer CRON_SECRET — só onde a política aceita cron (fim do bypass global).
+    if (keys.cronSecret) {
+        if (allows('cron')) return { type: 'allow', principal: { kind: 'cron' } }
+        forbidden = 'CRON_SECRET só é aceito em rotas de cron'
+    }
+    // Bearer DISPARA_ADMIN_KEY vira `cron` onde a admin key não é aceita como dono
+    // (reinvokeSelf cai nela quando CRON_SECRET não existe).
+    if (keys.adminBearer && allows('cron') && !allows('admin_key')) {
+        return { type: 'allow', principal: { kind: 'cron' } }
     }
 
-    // If not configured and not already on install, redirect immediately
-    if (!hasMasterPassword) {
-        if (!pathname.startsWith('/install') && !pathname.startsWith('/api')) {
-            const installUrl = new URL('/install', request.url)
-            return NextResponse.redirect(installUrl)
-        }
+    // 2) API keys (sem banco).
+    if (keys.key === 'admin_key' || keys.key === 'api_key') {
+        if (allows(keys.key)) return { type: 'allow', principal: { kind: keys.key } }
+        forbidden ??= 'Credencial sem permissão para esta rota'
     }
 
-    // If configured but install not complete, go to wizard.
-    // IMPORTANT:
-    // - Não force o wizard aqui. Em dev/local, a completude da instalação pode ser detectada via DB,
-    //   enquanto INSTALLER_ENABLED é uma env que controla se o installer está disponível.
-    // - Para ser mais "à prova de falhas", sempre deixe o usuário cair em /login quando não houver
-    //   sessão, e deixe o /login decidir (via /api/auth/status) se precisa mandar para o wizard.
-    // - Se existir session cookie, deixa passar.
-    //
-    // Obs: o redirect para /login já é feito mais abaixo para páginas protegidas.
-
-    // ==========================================================================
-    // API Routes - Use API Key authentication
-    // ==========================================================================
-    if (pathname.startsWith('/api/')) {
-        // Auth endpoints are always public
-        if (PUBLIC_API_ROUTES.some(route => pathname.startsWith(route))) {
-            return NextResponse.next()
-        }
-
-        // Chamadas INTERNAS do runtime (pg_cron → /api/cron/tick; reinvokeSelf →
-        // execute/resume/dispatch) autenticam com Bearer CRON_SECRET — que não é
-        // uma API key, então o verifyApiKey abaixo as rejeitaria (401) e o relógio
-        // inteiro morreria no proxy. Deixa passar; a rota-alvo re-valida com
-        // verifyCronRequest (comparação timing-safe).
-        const bearerToken = request.headers.get('authorization')?.startsWith('Bearer ')
-            ? request.headers.get('authorization')!.slice(7).trim()
-            : null
-        if (bearerToken && process.env.CRON_SECRET && bearerToken === process.env.CRON_SECRET) {
-            return NextResponse.next()
-        }
-
-        // Public endpoints don't require authentication
-        if (isPublicEndpoint(pathname)) {
-            return NextResponse.next()
-        }
-
-        // Admin endpoints require admin-level access
-        if (isAdminEndpoint(pathname)) {
-            const adminAuth = await verifyAdminAccess(request)
-
-            if (!adminAuth.valid) {
-                return adminAuth.error?.includes('Admin')
-                    ? forbiddenResponse(adminAuth.error)
-                    : unauthorizedResponse(adminAuth.error)
-            }
-
-            return NextResponse.next()
-        }
-
-        // Check for user session cookie (for browser API calls)
-        if (sessionCookie?.value) {
-            // Session exists, allow request (validation happens in API route)
-            return NextResponse.next()
-        }
-
-        // All other API endpoints require at least API key
-        const authResult = await verifyApiKey(request)
-
-        if (!authResult.valid) {
-            return unauthorizedResponse(authResult.error)
-        }
-
-        return NextResponse.next()
+    // 3) Sessão do dashboard (cookie VALIDADO).
+    const session = await getSession()
+    if (session === 'valid') {
+        if (allows('session')) return { type: 'allow', principal: { kind: 'session' } }
+        forbidden ??= 'Sessão do dashboard não é aceita nesta rota'
     }
 
-    // ==========================================================================
-    // Page Routes - Use Session Cookie authentication
-    // ==========================================================================
-
-    // Public pages don't require authentication
-    if (PUBLIC_PAGES.some(page => pathname.startsWith(page))) {
-        return NextResponse.next()
+    // 4) Atendente (só nas rotas attendant_or_session).
+    if (allows('attendant')) {
+        const attendant = await resolveAttendantToken(readAttendantToken(request))
+        if (attendant) return { type: 'allow', principal: { kind: 'attendant', attendant } }
     }
 
-    // No session cookie - redirect to login
-    if (!sessionCookie?.value) {
-        const loginUrl = new URL('/login', request.url)
-        loginUrl.searchParams.set('redirect', pathname)
-        return NextResponse.redirect(loginUrl)
+    if (forbidden) return { type: 'forbidden', message: forbidden }
+    if (session === 'unavailable') return { type: 'unavailable' }
+    return unauthorizedDecision(keys, session, 'Autenticação necessária: faça login ou envie Authorization: Bearer <api_key>')
+}
+
+async function decideInstaller(
+    request: NextRequest,
+    keys: KeyCredentials,
+    getSession: () => Promise<SessionState>
+): Promise<Decision> {
+    // Antes da instalação (sem MASTER_PASSWORD) o wizard é aberto.
+    if (!process.env.MASTER_PASSWORD) {
+        return { type: 'allow', principal: await resolveOptionalOwner(request, keys, getSession) }
     }
 
-    // Session cookie exists - allow access (validation happens in layout)
-    return NextResponse.next()
+    if (keys.key === 'admin_key') return { type: 'allow', principal: { kind: 'admin_key' } }
+
+    const session = await getSession()
+    if (session === 'valid') return { type: 'allow', principal: { kind: 'session' } }
+
+    // Modo degradado de recuperação: Supabase (free) pausado → o dono com cookie cai no
+    // wizard para religar o projeto. Seguro porque TODAS as rotas do installer só operam
+    // com credenciais de terceiros enviadas no body (token Vercel / PAT Supabase /
+    // dbUrl) — nenhuma usa as credenciais deste deploy.
+    if (session === 'unavailable') return { type: 'allow', principal: PUBLIC_PRINCIPAL }
+
+    if (keys.key === 'api_key' || keys.cronSecret) {
+        return { type: 'forbidden', message: 'Installer exige sessão do dono ou DISPARA_ADMIN_KEY' }
+    }
+    return unauthorizedDecision(
+        keys,
+        session,
+        'Installer API bloqueada após instalação. Faça login ou use DISPARA_ADMIN_KEY.'
+    )
+}
+
+async function handleApi(request: NextRequest, pathname: string): Promise<NextResponse> {
+    const method = request.method.toUpperCase()
+    // HEAD executa o handler de GET: usa a mesma política.
+    const policy = resolveApiPolicy(pathname, method === 'HEAD' ? 'GET' : method)
+
+    // Chamador externo (Meta, Google, formulário público): a ROTA verifica
+    // assinatura/token. O proxy não consulta banco e não confia em nada do cliente.
+    if (policy === 'public_route_auth') return nextWithPrincipal(request, PUBLIC_PRINCIPAL)
+
+    const keys = await readKeyCredentials(request)
+    const getSession = sessionResolver(request)
+
+    if (policy === 'public') {
+        return nextWithPrincipal(request, await resolveOptionalOwner(request, keys, getSession))
+    }
+
+    const decision =
+        policy === 'installer'
+            ? await decideInstaller(request, keys, getSession)
+            : await decideProtected(request, policy, keys, getSession)
+
+    if (decision.type === 'allow') return nextWithPrincipal(request, decision.principal)
+    return denyApi(request, decision)
+}
+
+// =============================================================================
+// Páginas
+// =============================================================================
+
+async function handlePage(request: NextRequest, pathname: string): Promise<NextResponse> {
+    const isInstallerPage = matchSegmentPrefix(INSTALLER_PAGE_PREFIX, pathname)
+
+    // BOOTSTRAP CHECK - sem MASTER_PASSWORD a instância não foi instalada: só o wizard abre.
+    if (!process.env.MASTER_PASSWORD) {
+        if (isInstallerPage) return nextWithPrincipal(request, PUBLIC_PRINCIPAL)
+        return NextResponse.redirect(new URL('/install', request.url))
+    }
+
+    // Páginas públicas (casamento por segmento: '/f' não casa '/flows' nem '/forms').
+    if (!isInstallerPage && isPublicPage(pathname)) {
+        return nextWithPrincipal(request, PUBLIC_PRINCIPAL)
+    }
+
+    const token = request.cookies.get(SESSION_COOKIE_NAME)?.value
+    const session: SessionState = token ? await isValidSessionToken(token) : 'absent'
+
+    if (session === 'valid') return nextWithPrincipal(request, { kind: 'session' })
+
+    // Banco fora com cookie presente: deixa a página ABRIR em modo degradado
+    // (o dashboard mostra o overlay de banco fora; /install deixa religar o Supabase).
+    // Só leitura (GET/HEAD): POST em página é Server Action e não roda sem sessão
+    // validada. As APIs continuam protegidas (503).
+    if (session === 'unavailable') {
+        const method = request.method.toUpperCase()
+        if (method === 'GET' || method === 'HEAD') return nextWithPrincipal(request, PUBLIC_PRINCIPAL)
+        return sessionStoreUnavailableResponse()
+    }
+
+    return loginRedirect(request, {
+        clearSessionCookie: session === 'invalid',
+        reason: isInstallerPage ? 'installer_locked' : undefined,
+    })
+}
+
+export async function proxy(request: NextRequest) {
+    const pathname = request.nextUrl.pathname
+
+    // Preflight CORS (páginas e APIs).
+    if (request.method === 'OPTIONS') {
+        return handlePreflight(request, pathname)
+    }
+
+    if (matchSegmentPrefix('/api', pathname)) {
+        return handleApi(request, pathname)
+    }
+
+    return handlePage(request, pathname)
 }

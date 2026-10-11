@@ -14,12 +14,13 @@ info:
 
     ## Rotas Públicas
 
-    As seguintes rotas NÃO exigem autenticação:
-    - `/api/auth/*` - Login/logout
-    - `/api/webhook` - Webhooks da Meta
-    - `/api/health` - Health check
-    - `/api/system` - Info do sistema
-    - `/api/installer/*` - Setup inicial
+    As seguintes rotas NÃO exigem autenticação (fonte da verdade: `lib/route-policy.ts`):
+    - `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/status` - Login/logout/status
+    - `GET /api/brand` - Marca (nome/logo/cor)
+    - `GET /api/health` - Health check (payload mínimo sem autenticação; completo para o dono)
+    - `/api/webhook` - Webhooks da Meta (assinatura X-Hub-Signature-256)
+    - `/api/public/lead-forms/{slug}` - Formulário público
+    - `/api/installer/*` - Setup inicial (só até a instalação; depois exige sessão ou DISPARA_ADMIN_KEY)
   version: 1.0.0
   contact:
     name: Dispara
@@ -915,7 +916,6 @@ paths:
     get:
       tags: [System]
       summary: Informações do sistema
-      security: []
       responses:
         '200':
           description: Info do sistema
