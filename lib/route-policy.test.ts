@@ -123,6 +123,12 @@ describe('route-policy', () => {
       expect(resolveApiPolicy('/api/campaign/dispatch', 'POST')).toBe('session_or_cron')
     })
 
+    it('conversa do inbox: atendente só no GET; PATCH/DELETE exigem o dono no proxy', () => {
+      expect(resolveApiPolicy('/api/inbox/conversations/c1', 'GET')).toBe('attendant_or_session')
+      expect(resolveApiPolicy('/api/inbox/conversations/c1', 'PATCH')).toBe('session')
+      expect(resolveApiPolicy('/api/inbox/conversations/c1', 'DELETE')).toBe('session')
+    })
+
     it('rotas antes expostas por prefixo agora exigem sessão', () => {
       for (const path of [
         '/api/flows/send',

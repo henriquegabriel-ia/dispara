@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { forbiddenResponse, unauthorizedResponse, verifyApiKey } from '@/lib/auth'
 import { AUTH_REQUIRED_HEADER, buildLoginPath } from '@/lib/auth-redirect'
-import { readAttendantToken, resolveAttendantToken } from '@/lib/attendant-auth'
+import { readAttendantToken, resolveAttendantTokenDetailed } from '@/lib/attendant-auth'
 import {
     applyPrincipalHeaders,
     stripPrincipalHeaders,
@@ -28,6 +28,9 @@ import { isValidSessionToken, SESSION_COOKIE_NAME, type SessionTokenValidity } f
  *   removendo os que vierem do cliente.
  * - Sessão: o cookie dispara_session é VALIDADO (isValidSessionToken, lista
  *   cacheada por ~15s). A mera presença do cookie não autentica nada.
+ * - Banco fora: só cookie ASSINADO por este servidor ('unavailable') abre o modo
+ *   degradado (503 nas APIs, página sem dados); UUID puro ('unverified') conta como
+ *   sem sessão, sem apagar o cookie. Atendente com banco fora também recebe 503.
  * - CRON_SECRET só vale nas rotas com política `cron`/`session_or_cron`.
  * - Páginas: públicas (PUBLIC_PAGE_PATTERNS) passam; o resto exige sessão válida.
  */
@@ -74,11 +77,14 @@ interface KeyCredentials {
     adminBearer: boolean
 }
 
+type UnavailableReason = 'session_store_unavailable' | 'attendant_store_unavailable'
+
 type Decision =
-    | { type: 'allow'; principal: Principal }
+    /** clearSessionCookie: cookie de sessão inválido junto de outra credencial aceita (ex.: atendente). */
+    | { type: 'allow'; principal: Principal; clearSessionCookie?: boolean }
     | { type: 'unauthorized'; message: string; clearSessionCookie: boolean }
     | { type: 'forbidden'; message: string }
-    | { type: 'unavailable' }
+    | { type: 'unavailable'; reason: UnavailableReason }
 
 // =============================================================================
 // Credenciais
@@ -126,11 +132,11 @@ function nextWithPrincipal(request: NextRequest, principal: Principal): NextResp
     return NextResponse.next({ request: { headers } })
 }
 
-function sessionStoreUnavailableResponse(): NextResponse {
+function sessionStoreUnavailableResponse(reason: UnavailableReason = 'session_store_unavailable'): NextResponse {
     return NextResponse.json(
         {
             error: 'Service Unavailable',
-            reason: 'session_store_unavailable',
+            reason,
             message: 'Não foi possível validar a sessão: banco de dados indisponível. Tente novamente em instantes.',
         },
         { status: 503, headers: { 'Retry-After': '5', 'Cache-Control': 'no-store' } }
@@ -153,7 +159,7 @@ function isTopLevelNavigation(request: NextRequest): boolean {
 
 function denyApi(request: NextRequest, decision: Exclude<Decision, { type: 'allow' }>): NextResponse {
     if (decision.type === 'forbidden') return forbiddenResponse(decision.message)
-    if (decision.type === 'unavailable') return sessionStoreUnavailableResponse()
+    if (decision.type === 'unavailable') return sessionStoreUnavailableResponse(decision.reason)
 
     // Download de CSV, OAuth connect/callback etc. abertos direto no browser:
     // manda para o login em vez de mostrar JSON cru.
@@ -242,7 +248,10 @@ function unauthorizedDecision(keys: KeyCredentials, session: SessionState, fallb
             ? 'Invalid API key'
             : session === 'invalid'
                 ? 'Sessão inválida ou expirada. Faça login novamente.'
-                : fallbackMessage
+                : session === 'unverified'
+                    ? 'Não foi possível validar a sessão agora (banco indisponível). Faça login novamente.'
+                    : fallbackMessage
+    // 'unverified' (UUID legado com banco fora) NÃO apaga o cookie: pode voltar a valer.
     return { type: 'unauthorized', message, clearSessionCookie: session === 'invalid' }
 }
 
@@ -281,13 +290,25 @@ async function decideProtected(
     }
 
     // 4) Atendente (só nas rotas attendant_or_session).
+    let attendantUnavailable = false
     if (allows('attendant')) {
-        const attendant = await resolveAttendantToken(readAttendantToken(request))
-        if (attendant) return { type: 'allow', principal: { kind: 'attendant', attendant } }
+        const attendant = await resolveAttendantTokenDetailed(readAttendantToken(request))
+        if (attendant.status === 'valid') {
+            return {
+                type: 'allow',
+                principal: { kind: 'attendant', attendant: attendant.principal },
+                // Mesmo navegador com sessão do dono expirada/revogada: apaga o cookie
+                // inválido (a próxima chamada do dashboard cai no /login).
+                clearSessionCookie: session === 'invalid',
+            }
+        }
+        // Banco fora NÃO é "token inválido": 503 (a PWA continua tentando), nunca 401.
+        attendantUnavailable = attendant.status === 'unavailable'
     }
 
     if (forbidden) return { type: 'forbidden', message: forbidden }
-    if (session === 'unavailable') return { type: 'unavailable' }
+    if (session === 'unavailable') return { type: 'unavailable', reason: 'session_store_unavailable' }
+    if (attendantUnavailable) return { type: 'unavailable', reason: 'attendant_store_unavailable' }
     return unauthorizedDecision(keys, session, 'Autenticação necessária: faça login ou envie Authorization: Bearer <api_key>')
 }
 
@@ -309,7 +330,8 @@ async function decideInstaller(
     // Modo degradado de recuperação: Supabase (free) pausado → o dono com cookie cai no
     // wizard para religar o projeto. Seguro porque TODAS as rotas do installer só operam
     // com credenciais de terceiros enviadas no body (token Vercel / PAT Supabase /
-    // dbUrl) — nenhuma usa as credenciais deste deploy.
+    // dbUrl) — nenhuma usa as credenciais deste deploy. Só vale para cookie ASSINADO
+    // ('unavailable'); UUID puro com banco fora ('unverified') não passa.
     if (session === 'unavailable') return { type: 'allow', principal: PUBLIC_PRINCIPAL }
 
     if (keys.key === 'api_key' || keys.cronSecret) {
@@ -343,7 +365,11 @@ async function handleApi(request: NextRequest, pathname: string): Promise<NextRe
             ? await decideInstaller(request, keys, getSession)
             : await decideProtected(request, policy, keys, getSession)
 
-    if (decision.type === 'allow') return nextWithPrincipal(request, decision.principal)
+    if (decision.type === 'allow') {
+        const response = nextWithPrincipal(request, decision.principal)
+        if (decision.clearSessionCookie) response.cookies.delete(SESSION_COOKIE_NAME)
+        return response
+    }
     return denyApi(request, decision)
 }
 
@@ -370,8 +396,10 @@ async function handlePage(request: NextRequest, pathname: string): Promise<NextR
 
     if (session === 'valid') return nextWithPrincipal(request, { kind: 'session' })
 
-    // Banco fora com cookie presente: deixa a página ABRIR em modo degradado
+    // Banco fora com cookie ASSINADO: deixa a página ABRIR em modo degradado
     // (o dashboard mostra o overlay de banco fora; /install deixa religar o Supabase).
+    // O principal é public: os loaders RSC/Server Actions do dashboard não carregam
+    // dados sem principal de dono (lib/server-principal.ts).
     // Só leitura (GET/HEAD): POST em página é Server Action e não roda sem sessão
     // validada. As APIs continuam protegidas (503).
     if (session === 'unavailable') {
@@ -380,6 +408,7 @@ async function handlePage(request: NextRequest, pathname: string): Promise<NextR
         return sessionStoreUnavailableResponse()
     }
 
+    // 'unverified' (UUID legado com banco fora) vai para o login SEM apagar o cookie.
     return loginRedirect(request, {
         clearSessionCookie: session === 'invalid',
         reason: isInstallerPage ? 'installer_locked' : undefined,
