@@ -115,6 +115,18 @@ describe('CentralizedRealtimeProvider (broadcast dispara-db)', () => {
     })
   })
 
+  it('mensagem nova (recebida ou resposta humana) também atualiza a lista de conversas', async () => {
+    // O banco não publica INSERT de conversa nem o contador de saída da conversa:
+    // a lista (ordem, prévia, conversa nova) depende do evento da mensagem.
+    const { invalidatedKeys } = setup(() => {})
+
+    emit({ table: 'inbox_messages', eventType: 'INSERT', new: { id: 'm1', conversation_id: 'c1' }, old: null })
+
+    await waitFor(() => {
+      expect(invalidatedKeys()).toContain('inbox-conversations')
+    })
+  })
+
   it('contacts (trigger por statement, sem linhas) invalida lista e estatísticas', async () => {
     const received: RealtimeEvent[] = []
     const { invalidatedKeys } = setup((e) => received.push(e), 'contacts')

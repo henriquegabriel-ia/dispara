@@ -8,8 +8,8 @@
 --    em campaigns, contacts, templates, flows, inbox_conversations, inbox_messages e
 --    account_alerts. Como a chave publishable (role anon) vai no bundle do browser,
 --    qualquer pessoa conseguia GET /rest/v1/contacts ou /rest/v1/inbox_messages.
---    Aqui as policies são removidas e anon/authenticated perdem TODO privilégio em
---    TODAS as tabelas/views/sequences de public (inventário dinâmico, não lista manual).
+--    Aqui anon/authenticated perdem TODO privilégio em TODAS as tabelas/views/sequences
+--    de public (inventário dinâmico, não lista manual) e as policies são removidas.
 --    O app não usa Supabase Auth: todo acesso legítimo é service role no servidor
 --    (rotas de API, server actions e lib/supabase-server.ts), com a autorização
 --    feita pelo proxy.ts (sessão do dashboard, API key, cron, atendente).
@@ -30,17 +30,35 @@
 --    (e também emitir) mensagens nesse canal. O frontend trata o evento como um
 --    "sinal de invalidação" e busca os dados reais pelas APIs autenticadas.
 --    Cada evento vira 1 linha em realtime.messages (o Realtime só apaga a partição
---    diária dias depois), então o volume é controlado aqui:
---    - campaign_contacts NÃO tem trigger (volume do disparo em massa; o progresso vem
---      de campaigns + lib/realtime-broadcast-server.ts);
+--    diária dias depois), então o volume é controlado aqui, e o disparo de campanha
+--    NÃO gera evento por contato:
+--    - campaign_contacts NÃO tem trigger (o progresso vem de campaigns +
+--      lib/realtime-broadcast-server.ts, que não grava em realtime.messages);
 --    - campaigns: INSERT/DELETE sempre; UPDATE só quando muda status/conclusão/
 --      cancelamento/pasta, ou contadores no máximo 1x a cada 2s por campanha
 --      (increment_campaign_stat faz 1 UPDATE por delivered/read/failed). UPDATE que só
 --      mexe em dispatch_lock_* não publica;
+--    - inbox_messages: a cópia do template de campanha que syncCampaignTemplateToInbox
+--      grava a cada envio (payload.type = 'campaign_template') não publica — nem o
+--      INSERT nem os UPDATEs de status (sent/delivered/read de cada webhook). As demais
+--      mensagens publicam o INSERT e o UPDATE que MUDA delivery_status (webhook repetido
+--      com o mesmo status não publica). DELETE por STATEMENT (apagar uma conversa apaga
+--      N mensagens em cascata);
+--    - inbox_conversations: INSERT não publica (a conversa nova aparece pelo INSERT da
+--      primeira mensagem, que o CentralizedRealtimeProvider também usa para invalidar a
+--      lista). UPDATE só quando muda o estado do atendimento (status, modo, prioridade,
+--      não lidas, agente, pausa, expiração do modo humano): o contador de saída
+--      (increment_conversation_counters: total_messages/last_message_*) e o SET NULL de
+--      contact_id do bulk_delete_contacts não publicam;
 --    - contacts usa trigger por STATEMENT (um evento por import/bulk update);
---    - inbox_messages publica DELETE por STATEMENT (apagar uma conversa apaga N
---      mensagens em cascata) e flow_submissions só INSERT (o frontend só usa isso;
---      o SET NULL em massa de bulk_delete_contacts não gera eventos).
+--    - flow_submissions só INSERT (o frontend só usa isso; o SET NULL em massa de
+--      bulk_delete_contacts não gera eventos).
+--    Por contato de campanha (envio e webhooks sent/delivered/read): 0 linhas em
+--    realtime.messages (antes ~5-6: INSERT da conversa e da mensagem, UPDATE dos
+--    contadores da conversa e um UPDATE por webhook de status — ~300 MB numa campanha
+--    de 100k). Sobra o throttle de campaigns (≤ 1 evento a cada 2s por campanha).
+--    Mensagem recebida, resposta humana/IA, mudança de atendimento e status de entrega
+--    das mensagens fora de campanha continuam ao vivo.
 --    O payload é montado com colunas explícitas (NEW.col), nunca com to_jsonb(NEW): não
 --    destoasta template_snapshot, components, content, response_json etc. a cada escrita.
 --    As tabelas saem da publicação supabase_realtime (postgres_changes não é mais usado).
@@ -50,20 +68,27 @@
 -- /api/inbox/unread-count e lib/supabase-server.ts com service role). Com o frontend
 -- antigo o realtime do dashboard para de atualizar (as listas seguem funcionando
 -- por polling/refetch), e as leituras diretas do browser passam a falhar.
+-- Exige Postgres 14+ (CREATE OR REPLACE TRIGGER); o Supabase roda 15+.
 --
 -- Idempotente e SEGURO DE RE-EXECUTAR: pode rodar mais de uma vez (o installer aplica
 -- todas as migrations em ordem em instalações novas; em produção é aplicada
--- manualmente). Re-executar recria função e triggers com a definição deste arquivo.
+-- manualmente). Re-executar recria a função; cada trigger só é (re)criada quando a
+-- definição deste arquivo muda (marca md5 no COMMENT da trigger), então uma
+-- re-execução sem mudança não trava nenhuma tabela por causa das triggers.
 --
 -- COMO APLICAR EM PRODUÇÃO (operacional):
--- - Rode numa janela de BAIXO TRÁFEGO, fora de um disparo de campanha: ALTER TABLE e
---   DROP/CREATE TRIGGER pegam lock exclusivo nas tabelas e só soltam no COMMIT.
+-- - Rode numa janela de BAIXO TRÁFEGO, fora de um disparo de campanha: ENABLE ROW LEVEL
+--   SECURITY e DROP POLICY pegam ACCESS EXCLUSIVE, e CREATE OR REPLACE TRIGGER pega
+--   SHARE ROW EXCLUSIVE (bloqueia escrita, não leitura), todos até o COMMIT. Por isso o
+--   DROP POLICY fica no fim do arquivo (as 7 tabelas quentes ficam travadas por
+--   milissegundos, não pela migration inteira).
 -- - Antes, confira no pg_stat_activity se há transação longa ou 'idle in transaction'
 --   (ex.: export, ANALYZE manual, aba esquecida no SQL editor) e encerre-a.
 -- - Aplique como UMA transação (SQL editor do Supabase, o installer, ou
 --   `psql --single-transaction -f`). O `SET LOCAL lock_timeout` abaixo limita a espera
 --   por lock a 5s: se estourar, a transação inteira faz rollback (nada fica pela
---   metade) e basta aplicar de novo. Fora de uma transação o SET LOCAL só avisa.
+--   metade: nenhum bloco de exceção deste arquivo engole erro de lock — 55P03 — ou
+--   deadlock) e basta aplicar de novo. Fora de uma transação o SET LOCAL só avisa.
 --
 -- Rollback (emergência): recriar as policies anon_select_* e o GRANT SELECT nessas
 -- 7 tabelas reabre o vazamento — prefira voltar o frontend e manter este arquivo.
@@ -76,16 +101,8 @@ SET LOCAL statement_timeout = '60s';
 
 
 -- -----------------------------------------------------------------------------
--- 1) Policies de leitura anônima
+-- 1) Leitura anônima: privilégios (sem lock pesado; as policies saem na seção 6)
 -- -----------------------------------------------------------------------------
-DROP POLICY IF EXISTS "anon_select_campaigns" ON public.campaigns;
-DROP POLICY IF EXISTS "anon_select_contacts" ON public.contacts;
-DROP POLICY IF EXISTS "anon_select_templates" ON public.templates;
-DROP POLICY IF EXISTS "anon_select_flows" ON public.flows;
-DROP POLICY IF EXISTS "anon_select_inbox_conversations" ON public.inbox_conversations;
-DROP POLICY IF EXISTS "anon_select_inbox_messages" ON public.inbox_messages;
-DROP POLICY IF EXISTS "anon_select_account_alerts" ON public.account_alerts;
-
 REVOKE ALL ON TABLE public.campaigns FROM anon, authenticated;
 REVOKE ALL ON TABLE public.contacts FROM anon, authenticated;
 REVOKE ALL ON TABLE public.templates FROM anon, authenticated;
@@ -123,7 +140,10 @@ BEGIN
     IF r.relkind IN ('r', 'p') AND NOT r.relrowsecurity THEN
       BEGIN
         EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', r.relname);
-      EXCEPTION WHEN OTHERS THEN
+      -- Só a tabela de outro dono é pulada. lock_timeout (lock_not_available), deadlock
+      -- e qualquer outro erro abortam a migration inteira: nenhuma tabela fica sem RLS
+      -- com a migration "aplicada".
+      EXCEPTION WHEN insufficient_privilege THEN
         RAISE WARNING 'security_hardening: não foi possível ligar RLS em public.% (%)', r.relname, SQLERRM;
       END;
     END IF;
@@ -161,8 +181,12 @@ BEGIN
   LOOP
     BEGIN
       EXECUTE format('ALTER FUNCTION %s SET search_path = public, pg_temp', r.signature);
-    EXCEPTION WHEN OTHERS THEN
-      RAISE WARNING 'security_hardening: não foi possível fixar search_path em % (%)', r.signature, SQLERRM;
+    EXCEPTION
+      -- Lock/deadlock nunca é engolido: aborta a migration inteira.
+      WHEN lock_not_available OR deadlock_detected THEN
+        RAISE;
+      WHEN OTHERS THEN
+        RAISE WARNING 'security_hardening: não foi possível fixar search_path em % (%)', r.signature, SQLERRM;
     END;
   END LOOP;
 END $$;
@@ -187,17 +211,23 @@ SECURITY DEFINER
 SET search_path = ''
 AS $$
 DECLARE
+  v_send regprocedure;
   v_new jsonb := NULL;
   v_old jsonb := NULL;
 BEGIN
-  -- Fora do bloco de exceção: sem realtime.send não abre subtransação nenhuma.
-  IF to_regprocedure('realtime.send(jsonb,text,text,boolean)') IS NULL THEN
+  -- Sem realtime.send, ou sem EXECUTE nele (a função é SECURITY DEFINER: vale o dono),
+  -- não publica e nunca derruba a escrita. Checado fora de qualquer bloco de exceção.
+  v_send := to_regprocedure('realtime.send(jsonb,text,text,boolean)');
+  IF v_send IS NULL THEN
+    RETURN NULL;
+  END IF;
+  IF NOT has_function_privilege(v_send::oid, 'EXECUTE') THEN
     RETURN NULL;
   END IF;
 
-  -- UM único bloco de exceção por chamada (cada bloco EXCEPTION abre uma subtransação,
-  -- e realtime.send já abre outra por dentro). Ele cobre a projeção E o envio: realtime
-  -- é best-effort e nunca pode derrubar a escrita no banco (ex.: coluna renomeada).
+  -- Bloco de exceção SÓ na projeção: realtime é best-effort e uma coluna renomeada não
+  -- pode derrubar a escrita no banco. Ele não escreve nada, então a subtransação dele
+  -- não recebe XID: a única subtransação com XID por evento é a do realtime.send.
   BEGIN
     IF TG_LEVEL = 'ROW' THEN
       IF TG_TABLE_NAME = 'campaigns' THEN
@@ -375,22 +405,26 @@ BEGIN
       END IF;
       -- Tabela sem projeção: new/old ficam null (o evento vira só um sinal).
     END IF;
-
-    PERFORM realtime.send(
-      jsonb_build_object(
-        'table', TG_TABLE_NAME,
-        'eventType', TG_OP,
-        'new', v_new,
-        'old', v_old,
-        'commit_timestamp', now()
-      ),
-      'db_change',
-      'dispara-db',
-      false
-    );
   EXCEPTION WHEN OTHERS THEN
     RAISE WARNING 'dispara_broadcast_change(%): %', TG_TABLE_NAME, SQLERRM;
+    RETURN NULL;
   END;
+
+  -- Fora do bloco de exceção: realtime.send tem o próprio BEGIN ... EXCEPTION em volta
+  -- do INSERT em realtime.messages (engole o erro e só avisa, inclusive partição
+  -- ausente), então o envio também é best-effort — com uma subtransação, não duas.
+  PERFORM realtime.send(
+    jsonb_build_object(
+      'table', TG_TABLE_NAME,
+      'eventType', TG_OP,
+      'new', v_new,
+      'old', v_old,
+      'commit_timestamp', now()
+    ),
+    'db_change',
+    'dispara-db',
+    false
+  );
 
   RETURN NULL;
 END;
@@ -401,112 +435,169 @@ COMMENT ON FUNCTION public.dispara_broadcast_change() IS
 
 -- Triggers só onde existe realtime.send (Supabase com Broadcast from Database).
 -- Lista = tabelas que o frontend escuta (CentralizedRealtimeProvider + hooks/*).
--- Cada evento é 1 INSERT em realtime.messages: o recorte por tabela abaixo controla o volume.
+-- Cada evento é 1 INSERT em realtime.messages: o recorte por tabela/evento/WHEN abaixo
+-- controla o volume (ver o cabeçalho).
+--
+-- Lock: CREATE OR REPLACE TRIGGER pega SHARE ROW EXCLUSIVE (bloqueia escrita, não
+-- leitura) até o COMMIT — DROP TRIGGER pegaria ACCESS EXCLUSIVE. E cada trigger só é
+-- (re)criada quando a definição muda: a marca 'dispara_broadcast:<md5 da definição>'
+-- fica no COMMENT da trigger, então re-executar sem mudança não toca nas tabelas.
+-- CREATE OR REPLACE também troca eventos, WHEN e nível (ROW/STATEMENT) de uma trigger
+-- de mesmo nome. Nenhuma trigger deixou de existir entre as versões deste arquivo (só
+-- mudaram eventos/WHEN), por isso não há DROP TRIGGER.
 DO $$
 DECLARE
-  v_table text;
-  -- Volume baixo: por linha, em INSERT/UPDATE/DELETE.
-  v_row_tables text[] := ARRAY[
-    'templates',
-    'flows',
-    'inbox_conversations',
-    'account_alerts',
-    'template_projects',
-    'template_project_items'
-  ];
+  r record;
+  v_definition text;
+  v_marker text;
+  v_current text;
 BEGIN
   IF to_regprocedure('realtime.send(jsonb,text,text,boolean)') IS NULL THEN
     RAISE NOTICE 'security_hardening: realtime.send indisponível; triggers de broadcast não criadas (realtime do dashboard fica só no polling).';
     RETURN;
   END IF;
+  -- O dono da função (quem roda esta migration) precisa de EXECUTE em realtime.send;
+  -- sem ele a trigger não publica nada (e não derruba a escrita). Avisa uma vez aqui.
+  IF NOT has_function_privilege(to_regprocedure('realtime.send(jsonb,text,text,boolean)')::oid, 'EXECUTE') THEN
+    RAISE WARNING 'security_hardening: % sem EXECUTE em realtime.send; o realtime do dashboard fica só no polling.', current_user;
+  END IF;
 
-  FOREACH v_table IN ARRAY v_row_tables LOOP
-    IF to_regclass(format('public.%I', v_table)) IS NULL THEN
+  FOR r IN
+    SELECT t.table_name, t.trigger_name, t.definition
+    FROM (VALUES
+      -- Volume baixo: por linha, em INSERT/UPDATE/DELETE.
+      ('templates', 'dispara_realtime_broadcast',
+        $d$AFTER INSERT OR UPDATE OR DELETE ON public.templates
+          FOR EACH ROW EXECUTE FUNCTION public.dispara_broadcast_change()$d$),
+      ('flows', 'dispara_realtime_broadcast',
+        $d$AFTER INSERT OR UPDATE OR DELETE ON public.flows
+          FOR EACH ROW EXECUTE FUNCTION public.dispara_broadcast_change()$d$),
+      ('account_alerts', 'dispara_realtime_broadcast',
+        $d$AFTER INSERT OR UPDATE OR DELETE ON public.account_alerts
+          FOR EACH ROW EXECUTE FUNCTION public.dispara_broadcast_change()$d$),
+      ('template_projects', 'dispara_realtime_broadcast',
+        $d$AFTER INSERT OR UPDATE OR DELETE ON public.template_projects
+          FOR EACH ROW EXECUTE FUNCTION public.dispara_broadcast_change()$d$),
+      ('template_project_items', 'dispara_realtime_broadcast',
+        $d$AFTER INSERT OR UPDATE OR DELETE ON public.template_project_items
+          FOR EACH ROW EXECUTE FUNCTION public.dispara_broadcast_change()$d$),
+
+      -- campaigns: increment_campaign_stat faz 1 UPDATE por delivered/read/failed de cada
+      -- contato, e o dreno faz try_lock/release_campaign_dispatch_lock (só dispatch_lock_*).
+      -- INSERT/DELETE publicam sempre. UPDATE só publica quando:
+      --   (a) muda status, completed_at, cancelled_at ou folder_id (nunca pode se perder); ou
+      --   (b) muda algo que a UI mostra (contadores, agenda, nome...) E é o primeiro UPDATE
+      --       da campanha nesta janela fixa de 2s (OLD.updated_at, gravado pelo BEFORE
+      --       trigger set_updated_at, caiu em outra janela). Sob fluxo contínuo de webhooks
+      --       isso dá no máximo 1 evento a cada 2s por campanha.
+      -- Não existe "último evento" da janela: o que cair depois do primeiro fica para o
+      -- polling condicional da lista (useCampaignsQuery: refetchInterval enquanto houver
+      -- campanha enviando ou com envio recente), o polling de 30s do dashboard e, no
+      -- detalhe, messageStats + broadcast campaign_progress.
+      -- UPDATE que só mexe em dispatch_lock_* (e updated_at) não entra em nenhum dos dois.
+      ('campaigns', 'dispara_realtime_broadcast',
+        $d$AFTER INSERT OR DELETE ON public.campaigns
+          FOR EACH ROW EXECUTE FUNCTION public.dispara_broadcast_change()$d$),
+      ('campaigns', 'dispara_realtime_broadcast_update',
+        $d$AFTER UPDATE ON public.campaigns
+          FOR EACH ROW
+          WHEN (
+            OLD.status IS DISTINCT FROM NEW.status
+            OR OLD.completed_at IS DISTINCT FROM NEW.completed_at
+            OR OLD.cancelled_at IS DISTINCT FROM NEW.cancelled_at
+            OR OLD.folder_id IS DISTINCT FROM NEW.folder_id
+            OR (
+              (OLD.sent, OLD.delivered, OLD.read, OLD.failed, OLD.skipped, OLD.total_recipients,
+               OLD.auto_reply_sent_count, OLD.quick_reply_match_count, OLD.fallback_sent_count,
+               OLD.scheduled_date, OLD.started_at, OLD.name, OLD.flow_id, OLD.ab_test_enabled)
+              IS DISTINCT FROM
+              (NEW.sent, NEW.delivered, NEW.read, NEW.failed, NEW.skipped, NEW.total_recipients,
+               NEW.auto_reply_sent_count, NEW.quick_reply_match_count, NEW.fallback_sent_count,
+               NEW.scheduled_date, NEW.started_at, NEW.name, NEW.flow_id, NEW.ab_test_enabled)
+              AND (
+                OLD.updated_at IS NULL
+                OR floor(extract(epoch FROM OLD.updated_at) / 2) <> floor(extract(epoch FROM now()) / 2)
+              )
+            )
+          )
+          EXECUTE FUNCTION public.dispara_broadcast_change()$d$),
+
+      -- inbox_messages: a cópia do template de campanha (syncCampaignTemplateToInbox, 1 por
+      -- contato, payload.type = 'campaign_template' — payload pequeno, fica inline) não
+      -- publica. UPDATE só quando o status de entrega MUDA (o webhook repete sent/delivered/
+      -- read). DELETE por STATEMENT: apagar uma conversa apaga as N mensagens em cascata, e
+      -- um evento por linha seriam N INSERTs em realtime.messages dentro do DELETE.
+      ('inbox_messages', 'dispara_realtime_broadcast',
+        $d$AFTER INSERT ON public.inbox_messages
+          FOR EACH ROW
+          WHEN ((NEW.payload ->> 'type') IS DISTINCT FROM 'campaign_template')
+          EXECUTE FUNCTION public.dispara_broadcast_change()$d$),
+      ('inbox_messages', 'dispara_realtime_broadcast_update',
+        $d$AFTER UPDATE ON public.inbox_messages
+          FOR EACH ROW
+          WHEN (
+            OLD.delivery_status IS DISTINCT FROM NEW.delivery_status
+            AND (NEW.payload ->> 'type') IS DISTINCT FROM 'campaign_template'
+          )
+          EXECUTE FUNCTION public.dispara_broadcast_change()$d$),
+      ('inbox_messages', 'dispara_realtime_broadcast_delete',
+        $d$AFTER DELETE ON public.inbox_messages
+          FOR EACH STATEMENT EXECUTE FUNCTION public.dispara_broadcast_change()$d$),
+
+      -- inbox_conversations: sem INSERT (a conversa criada pela campanha não publica; as
+      -- demais aparecem pelo INSERT da primeira mensagem). UPDATE só quando muda o estado
+      -- do atendimento: increment_conversation_counters de saída (total_messages,
+      -- last_message_*) e o SET NULL de contact_id do bulk_delete_contacts não publicam.
+      -- Mensagem recebida muda unread_count (publica).
+      ('inbox_conversations', 'dispara_realtime_broadcast',
+        $d$AFTER DELETE ON public.inbox_conversations
+          FOR EACH ROW EXECUTE FUNCTION public.dispara_broadcast_change()$d$),
+      ('inbox_conversations', 'dispara_realtime_broadcast_update',
+        $d$AFTER UPDATE ON public.inbox_conversations
+          FOR EACH ROW
+          WHEN (
+            (OLD.status, OLD.mode, OLD.priority, OLD.unread_count, OLD.ai_agent_id,
+             OLD.automation_paused_until, OLD.human_mode_expires_at)
+            IS DISTINCT FROM
+            (NEW.status, NEW.mode, NEW.priority, NEW.unread_count, NEW.ai_agent_id,
+             NEW.automation_paused_until, NEW.human_mode_expires_at)
+          )
+          EXECUTE FUNCTION public.dispara_broadcast_change()$d$),
+
+      -- flow_submissions: o frontend só usa INSERT (CampaignFlowPanel). UPDATE/DELETE em
+      -- massa (ON DELETE SET NULL de contact_id no bulk_delete_contacts) não publicam.
+      ('flow_submissions', 'dispara_realtime_broadcast',
+        $d$AFTER INSERT ON public.flow_submissions
+          FOR EACH ROW EXECUTE FUNCTION public.dispara_broadcast_change()$d$),
+
+      -- contacts: import/bulk update mexe em milhares de linhas por statement.
+      -- Um evento por statement basta (o frontend só invalida a lista/estatísticas).
+      ('contacts', 'dispara_realtime_broadcast',
+        $d$AFTER INSERT OR UPDATE OR DELETE ON public.contacts
+          FOR EACH STATEMENT EXECUTE FUNCTION public.dispara_broadcast_change()$d$)
+    ) AS t(table_name, trigger_name, definition)
+  LOOP
+    IF to_regclass(format('public.%I', r.table_name)) IS NULL THEN
       CONTINUE;
     END IF;
-    EXECUTE format('DROP TRIGGER IF EXISTS dispara_realtime_broadcast ON public.%I', v_table);
-    EXECUTE format(
-      'CREATE TRIGGER dispara_realtime_broadcast AFTER INSERT OR UPDATE OR DELETE ON public.%I '
-      || 'FOR EACH ROW EXECUTE FUNCTION public.dispara_broadcast_change()',
-      v_table
-    );
+
+    v_definition := regexp_replace(btrim(r.definition), '\s+', ' ', 'g');
+    v_marker := 'dispara_broadcast:' || md5(v_definition);
+
+    SELECT obj_description(tg.oid, 'pg_trigger') INTO v_current
+    FROM pg_trigger tg
+    WHERE tg.tgrelid = to_regclass(format('public.%I', r.table_name))
+      AND tg.tgname = r.trigger_name
+      AND NOT tg.tgisinternal;
+
+    -- Já existe com esta definição: nenhum lock na tabela.
+    IF v_current IS NOT DISTINCT FROM v_marker THEN
+      CONTINUE;
+    END IF;
+
+    EXECUTE format('CREATE OR REPLACE TRIGGER %I %s', r.trigger_name, v_definition);
+    EXECUTE format('COMMENT ON TRIGGER %I ON public.%I IS %L', r.trigger_name, r.table_name, v_marker);
   END LOOP;
-
-  -- campaigns: increment_campaign_stat faz 1 UPDATE por delivered/read/failed de cada
-  -- contato, e o dreno faz try_lock/release_campaign_dispatch_lock (só dispatch_lock_*).
-  -- INSERT/DELETE publicam sempre. UPDATE só publica quando:
-  --   (a) muda status, completed_at, cancelled_at ou folder_id (nunca pode se perder); ou
-  --   (b) muda algo que a UI mostra (contadores, agenda, nome...) E é o primeiro UPDATE
-  --       da campanha nesta janela fixa de 2s (OLD.updated_at, gravado pelo BEFORE
-  --       trigger set_updated_at, caiu em outra janela). Sob fluxo contínuo de webhooks
-  --       isso dá no máximo 1 evento a cada 2s por campanha. O que cair no fim de uma
-  --       janela é coberto pelo refetch/polling da tela e pelo broadcast campaign_progress.
-  -- UPDATE que só mexe em dispatch_lock_* (e updated_at) não entra em nenhum dos dois.
-  IF to_regclass('public.campaigns') IS NOT NULL THEN
-    DROP TRIGGER IF EXISTS dispara_realtime_broadcast ON public.campaigns;
-    CREATE TRIGGER dispara_realtime_broadcast
-      AFTER INSERT OR DELETE ON public.campaigns
-      FOR EACH ROW EXECUTE FUNCTION public.dispara_broadcast_change();
-
-    DROP TRIGGER IF EXISTS dispara_realtime_broadcast_update ON public.campaigns;
-    CREATE TRIGGER dispara_realtime_broadcast_update
-      AFTER UPDATE ON public.campaigns
-      FOR EACH ROW
-      WHEN (
-        OLD.status IS DISTINCT FROM NEW.status
-        OR OLD.completed_at IS DISTINCT FROM NEW.completed_at
-        OR OLD.cancelled_at IS DISTINCT FROM NEW.cancelled_at
-        OR OLD.folder_id IS DISTINCT FROM NEW.folder_id
-        OR (
-          (OLD.sent, OLD.delivered, OLD.read, OLD.failed, OLD.skipped, OLD.total_recipients,
-           OLD.auto_reply_sent_count, OLD.quick_reply_match_count, OLD.fallback_sent_count,
-           OLD.scheduled_date, OLD.started_at, OLD.name, OLD.flow_id, OLD.ab_test_enabled)
-          IS DISTINCT FROM
-          (NEW.sent, NEW.delivered, NEW.read, NEW.failed, NEW.skipped, NEW.total_recipients,
-           NEW.auto_reply_sent_count, NEW.quick_reply_match_count, NEW.fallback_sent_count,
-           NEW.scheduled_date, NEW.started_at, NEW.name, NEW.flow_id, NEW.ab_test_enabled)
-          AND (
-            OLD.updated_at IS NULL
-            OR floor(extract(epoch FROM OLD.updated_at) / 2) <> floor(extract(epoch FROM now()) / 2)
-          )
-        )
-      )
-      EXECUTE FUNCTION public.dispara_broadcast_change();
-  END IF;
-
-  -- inbox_messages: INSERT/UPDATE por linha (nova mensagem, status de entrega).
-  -- DELETE por STATEMENT: apagar uma conversa apaga as N mensagens em cascata, e um
-  -- evento por linha seriam N INSERTs em realtime.messages (e N subtransações) dentro
-  -- do DELETE. O frontend só invalida a lista nesse caso.
-  IF to_regclass('public.inbox_messages') IS NOT NULL THEN
-    DROP TRIGGER IF EXISTS dispara_realtime_broadcast ON public.inbox_messages;
-    CREATE TRIGGER dispara_realtime_broadcast
-      AFTER INSERT OR UPDATE ON public.inbox_messages
-      FOR EACH ROW EXECUTE FUNCTION public.dispara_broadcast_change();
-
-    DROP TRIGGER IF EXISTS dispara_realtime_broadcast_delete ON public.inbox_messages;
-    CREATE TRIGGER dispara_realtime_broadcast_delete
-      AFTER DELETE ON public.inbox_messages
-      FOR EACH STATEMENT EXECUTE FUNCTION public.dispara_broadcast_change();
-  END IF;
-
-  -- flow_submissions: o frontend só usa INSERT (CampaignFlowPanel). UPDATE/DELETE em
-  -- massa (ON DELETE SET NULL de contact_id no bulk_delete_contacts) não publicam.
-  IF to_regclass('public.flow_submissions') IS NOT NULL THEN
-    DROP TRIGGER IF EXISTS dispara_realtime_broadcast ON public.flow_submissions;
-    CREATE TRIGGER dispara_realtime_broadcast
-      AFTER INSERT ON public.flow_submissions
-      FOR EACH ROW EXECUTE FUNCTION public.dispara_broadcast_change();
-  END IF;
-
-  -- contacts: import/bulk update mexe em milhares de linhas por statement.
-  -- Um evento por statement basta (o frontend só invalida a lista/estatísticas).
-  IF to_regclass('public.contacts') IS NOT NULL THEN
-    DROP TRIGGER IF EXISTS dispara_realtime_broadcast ON public.contacts;
-    CREATE TRIGGER dispara_realtime_broadcast
-      AFTER INSERT OR UPDATE OR DELETE ON public.contacts
-      FOR EACH STATEMENT EXECUTE FUNCTION public.dispara_broadcast_change();
-  END IF;
 END $$;
 
 -- postgres_changes não é mais usado: tira as tabelas de public da publicação do Realtime
@@ -529,7 +620,9 @@ BEGIN
   LOOP
     BEGIN
       EXECUTE format('ALTER PUBLICATION supabase_realtime DROP TABLE %I.%I', r.schemaname, r.tablename);
-    EXCEPTION WHEN OTHERS THEN
+    -- Só "já não está/não existe" e falta de permissão são pulados. lock_timeout
+    -- (lock_not_available), deadlock e o resto abortam a migration inteira.
+    EXCEPTION WHEN undefined_object OR undefined_table OR insufficient_privilege THEN
       RAISE WARNING 'security_hardening: não foi possível tirar %.% da publicação (%)', r.schemaname, r.tablename, SQLERRM;
     END;
   END LOOP;
@@ -537,7 +630,7 @@ END $$;
 
 
 -- -----------------------------------------------------------------------------
--- 5) Funções: EXECUTE só para service_role (por último, cobre também a função acima)
+-- 5) Funções: EXECUTE só para service_role (cobre também a função acima)
 -- -----------------------------------------------------------------------------
 -- Inventário (grep em todas as migrations) de funções de public SEM REVOKE próprio até aqui:
 --   claim_campaign_batch, reap_stuck_campaign_sending, try_lock_campaign_dispatch,
@@ -557,3 +650,21 @@ GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO service_role;
 -- na própria migration (lib/security-hardening-migration.test.ts verifica isso).
 ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC, anon, authenticated;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO service_role;
+
+
+-- -----------------------------------------------------------------------------
+-- 6) Policies de leitura anônima (por último)
+-- -----------------------------------------------------------------------------
+-- DROP POLICY pega ACCESS EXCLUSIVE na tabela quando a policy existe (1ª aplicação) e
+-- segura até o COMMIT: no fim do arquivo, as 7 tabelas quentes ficam travadas por
+-- milissegundos, não durante a migration inteira (nem durante as esperas de até 5s das
+-- seções anteriores). Já sem a policy (re-execução), o IF EXISTS só pega ACCESS SHARE,
+-- que não bloqueia leitura nem escrita. O acesso de anon já foi fechado pelo REVOKE da
+-- seção 1 — mesmo quem aplicar fora de uma transação não fica com a janela aberta.
+DROP POLICY IF EXISTS "anon_select_campaigns" ON public.campaigns;
+DROP POLICY IF EXISTS "anon_select_contacts" ON public.contacts;
+DROP POLICY IF EXISTS "anon_select_templates" ON public.templates;
+DROP POLICY IF EXISTS "anon_select_flows" ON public.flows;
+DROP POLICY IF EXISTS "anon_select_inbox_conversations" ON public.inbox_conversations;
+DROP POLICY IF EXISTS "anon_select_inbox_messages" ON public.inbox_messages;
+DROP POLICY IF EXISTS "anon_select_account_alerts" ON public.account_alerts;

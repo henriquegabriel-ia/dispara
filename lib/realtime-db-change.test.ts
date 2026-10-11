@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   DB_CHANGE_EVENT,
+  dbChangeContentKey,
+  isDbChangeStatusTransition,
   matchesRealtimeFilter,
   parseDbChangeMessage,
   parseRealtimeFilter,
@@ -135,5 +137,71 @@ describe('toRealtimeEvent', () => {
       new: { id: 'conv1', unread_count: 2 },
       old: { id: 'conv1', unread_count: 1 },
     })
+  })
+})
+
+describe('dbChangeContentKey (coalescência só de eventos idênticos)', () => {
+  const event = (overrides: Partial<DbChangeEvent>): DbChangeEvent => ({
+    table: 'flow_submissions',
+    eventType: 'INSERT',
+    new: { id: 's1', campaign_id: 'c1' },
+    old: null,
+    commit_timestamp: null,
+    ...overrides,
+  })
+
+  it('mesmo conteúdo (em qualquer ordem de chaves) dá a mesma chave', () => {
+    expect(dbChangeContentKey(event({ new: { id: 's1', campaign_id: 'c1' } }))).toBe(
+      dbChangeContentKey(event({ new: { campaign_id: 'c1', id: 's1' } }))
+    )
+  })
+
+  it('mesma linha com outro valor de filtro ou outro old é outra chave', () => {
+    const legit = dbChangeContentKey(event({}))
+    expect(dbChangeContentKey(event({ new: { id: 's1', campaign_id: 'zzz' } }))).not.toBe(legit)
+    const update = event({ table: 'campaigns', eventType: 'UPDATE', new: { id: 'c1', status: 'Concluído' } })
+    expect(dbChangeContentKey({ ...update, old: { id: 'c1', status: 'Enviando' } })).not.toBe(
+      dbChangeContentKey({ ...update, old: { id: 'c1', status: 'Concluído' } })
+    )
+  })
+
+  it('não serializa objeto aninhado (input não confiável, sem recursão)', () => {
+    let deep: Record<string, unknown> = {}
+    for (let i = 0; i < 100_000; i++) deep = { nested: deep }
+    expect(() => dbChangeContentKey(event({ new: { id: 's1', campaign_id: deep } }))).not.toThrow()
+  })
+})
+
+describe('isDbChangeStatusTransition', () => {
+  const update = (next: Record<string, unknown>, prev: Record<string, unknown> | null): DbChangeEvent => ({
+    table: 'campaigns',
+    eventType: 'UPDATE',
+    new: next,
+    old: prev,
+    commit_timestamp: null,
+  })
+
+  it('detecta mudança de status e completed_at preenchido', () => {
+    expect(isDbChangeStatusTransition(update({ id: 'c1', status: 'Concluído' }, { id: 'c1', status: 'Enviando' }))).toBe(
+      true
+    )
+    expect(
+      isDbChangeStatusTransition(
+        update({ id: 'c1', status: 'Concluído', completed_at: 'x' }, { id: 'c1', status: 'Concluído', completed_at: null })
+      )
+    ).toBe(true)
+  })
+
+  it('contador, pasta e tabelas sem status no old não são transição', () => {
+    expect(
+      isDbChangeStatusTransition(update({ id: 'c1', status: 'Enviando', sent: 2 }, { id: 'c1', status: 'Enviando' }))
+    ).toBe(false)
+    expect(isDbChangeStatusTransition(update({ id: 'c1', status: 'Concluído' }, null))).toBe(false)
+    expect(
+      isDbChangeStatusTransition({ ...update({ id: 'm1', delivery_status: 'read' }, { id: 'm1' }), table: 'inbox_messages' })
+    ).toBe(false)
+    expect(isDbChangeStatusTransition({ ...update({ id: 'c1', status: 'Concluído' }, null), eventType: 'INSERT' })).toBe(
+      false
+    )
   })
 })

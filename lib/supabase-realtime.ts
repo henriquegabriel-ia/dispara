@@ -21,6 +21,8 @@ import { getSupabaseBrowser } from './supabase'
 import {
     DB_CHANGES_TOPIC,
     DB_CHANGE_EVENT,
+    dbChangeContentKey,
+    isDbChangeStatusTransition,
     matchesRealtimeFilter,
     parseDbChangeMessage,
     type DbChangeEvent,
@@ -78,32 +80,39 @@ let dbChangesStatus: ChannelStatus | null = null
  * eventos legítimos também chegam em rajada (sync de templates, status de entrega):
  * - o 1º evento de uma tabela fora de janela é entregue na hora (leading) e abre uma
  *   janela de DB_CHANGE_WINDOW_MS;
- * - dentro da janela os eventos são agrupados por linha (tipo + id); a mesma linha
- *   repetida fica com o `new` mais recente e o `old` do primeiro (a transição líquida);
+ * - dentro da janela só eventos IDÊNTICOS colapsam (mesmo tipo, mesma linha e mesmo
+ *   conteúdo de new/old — dbChangeContentKey). Payloads diferentes da mesma linha são
+ *   entradas separadas, cada uma entregue intacta: nada de fundir o `new` de um com o
+ *   `old` de outro, senão um evento forjado com o id de uma linha real trocaria o
+ *   campaign_id/conversation_id (o assinante filtrado não seria chamado) ou o
+ *   `old.status` (a transição de conclusão sumiria) do evento legítimo;
  * - no fim da janela o grupo é entregue (trailing) e, se houve evento, abre outra:
  *   sob flood, no máximo 1 entrega por tabela por janela, e nunca adiada para sempre;
- * - acima de DB_CHANGE_MAX_ROWS_PER_WINDOW linhas distintas, o excesso vira UM sinal
+ * - acima de DB_CHANGE_MAX_ROWS_PER_WINDOW entradas distintas, o excesso vira UM sinal
  *   genérico por tipo de evento (new/old nulos), entregue a todos os assinantes da
- *   tabela (inclusive os filtrados), que só invalidam e buscam pela API.
+ *   tabela (inclusive os filtrados), que só invalidam e buscam pela API;
+ * - eventos com transição de status (isDbChangeStatusTransition: campanha que conclui
+ *   ou falha) têm cota própria (DB_CHANGE_MAX_TRANSITIONS_PER_WINDOW): uma rajada
+ *   legítima sem transição (ex.: apagar uma pasta com 21+ campanhas faz um UPDATE de
+ *   folder_id por linha) não rebaixa a conclusão de uma campanha a sinal genérico.
+ *   Mesmo quando a cota estoura (flood forjado), useRealtimeNotifications trata o
+ *   sinal genérico conferindo pela API as campanhas em andamento que ela conhece.
  */
 export const DB_CHANGE_WINDOW_MS = 1000
 export const DB_CHANGE_MAX_ROWS_PER_WINDOW = 20
+export const DB_CHANGE_MAX_TRANSITIONS_PER_WINDOW = 20
 
 interface DbChangeWindow {
     timer: ReturnType<typeof setTimeout>
-    /** Por linha (`eventType:id`), na ordem de chegada */
+    /** Eventos distintos (dbChangeContentKey), na ordem de chegada */
     rows: Map<string, DbChangeEvent>
+    /** Quantas entradas de `rows` são transição de status (cota própria) */
+    transitions: number
     /** Sinal genérico por tipo de evento, quando estoura o limite de linhas */
     overflow: Map<DbChangeEvent['eventType'], DbChangeEvent>
 }
 
 const dbChangeWindows = new Map<string, DbChangeWindow>()
-
-function dbChangeRowKey(event: DbChangeEvent): string {
-    const row = event.new ?? event.old
-    const id = row?.id
-    return `${event.eventType}:${typeof id === 'string' || typeof id === 'number' ? String(id) : '*'}`
-}
 
 /** Entrega um evento aos listeners que casam tabela/evento (e filtro, se não for sinal genérico). */
 function deliverDbChange(event: DbChangeEvent, ignoreFilter = false): void {
@@ -123,6 +132,7 @@ function openDbChangeWindow(table: string): void {
     dbChangeWindows.set(table, {
         timer: setTimeout(() => flushDbChangeWindow(table), DB_CHANGE_WINDOW_MS),
         rows: new Map(),
+        transitions: 0,
         overflow: new Map(),
     })
 }
@@ -150,13 +160,17 @@ export function dispatchDbChange(event: DbChangeEvent): void {
         return
     }
 
-    const key = dbChangeRowKey(event)
-    const previous = batch.rows.get(key)
-    if (previous) {
-        batch.rows.set(key, { ...event, old: previous.old ?? event.old })
-        return
-    }
-    if (batch.rows.size < DB_CHANGE_MAX_ROWS_PER_WINDOW) {
+    const key = dbChangeContentKey(event)
+    // Duplicata exata (o flood barato): já está no lote
+    if (batch.rows.has(key)) return
+
+    if (isDbChangeStatusTransition(event)) {
+        if (batch.transitions < DB_CHANGE_MAX_TRANSITIONS_PER_WINDOW) {
+            batch.rows.set(key, event)
+            batch.transitions += 1
+            return
+        }
+    } else if (batch.rows.size - batch.transitions < DB_CHANGE_MAX_ROWS_PER_WINDOW) {
         batch.rows.set(key, event)
         return
     }
