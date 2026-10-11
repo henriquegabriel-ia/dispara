@@ -2,6 +2,7 @@
 
 import { cache } from 'react'
 import { createClient } from '@/lib/supabase-server'
+import { hasOwnerPrincipal } from '@/lib/server-principal'
 import type { DashboardStats, ChartDataPoint } from '@/services/dashboardService'
 import type { Campaign } from '@/types'
 
@@ -9,11 +10,16 @@ import type { Campaign } from '@/types'
  * Busca dados do dashboard no servidor (RSC).
  * Executa queries em paralelo para stats e campanhas recentes.
  * Usa cache() para deduplicação per-request (evita queries duplicadas no mesmo render).
+ * Sem principal de dono devolve null (o client busca pelas APIs).
  */
 export const getDashboardData = cache(async (): Promise<{
   stats: DashboardStats
   recentCampaigns: Campaign[]
-}> => {
+} | null> => {
+  // Defesa em profundidade: sem principal de dono (ex.: modo degradado com banco
+  // fora), não consulta o banco — a página renderiza só o shell.
+  if (!(await hasOwnerPrincipal())) return null
+
   const supabase = await createClient()
 
   // Buscar stats agregados e campanhas recentes em PARALELO

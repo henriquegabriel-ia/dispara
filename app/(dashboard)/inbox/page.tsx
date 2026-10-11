@@ -20,7 +20,7 @@ const INBOX_LAYOUT = {
 
 async function InboxWithData() {
   const initialData = await getInboxInitialData()
-  return <InboxClientWrapper initialData={initialData} />
+  return <InboxClientWrapper initialData={initialData ?? undefined} />
 }
 
 function LoadingFallback() {

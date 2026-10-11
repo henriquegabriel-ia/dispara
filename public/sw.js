@@ -4,22 +4,29 @@
  * Estratégias de cache:
  * - Cache-first: assets estáticos (JS, CSS, fontes, imagens)
  * - /api/*: NUNCA passa pelo SW nem pelo cache (dados autenticados/PII)
- * - Stale-while-revalidate: páginas HTML
+ * - Stale-while-revalidate: SÓ páginas públicas (shell da PWA /atendimento, /login)
+ * - Páginas do dashboard (HTML e RSC): só rede, nunca cache — o HTML vem do servidor
+ *   com dados (contatos, conversas) e não pode sobreviver ao logout. Offline mostra
+ *   uma página genérica, sem dados.
  */
 
-// v2: descarta caches das versões anteriores (podem conter respostas antigas).
-const CACHE_VERSION = 'dispara-v2'
+// v3: descarta os caches das versões anteriores (a v2 guardava HTML/RSC do dashboard).
+const CACHE_VERSION = 'dispara-v3'
 const STATIC_CACHE = `${CACHE_VERSION}-static`
 const DYNAMIC_CACHE = `${CACHE_VERSION}-dynamic`
 
-// Assets para pre-cache (shell do app)
+// Assets para pre-cache (shell do app). Sem '/': o dashboard tem dados do dono e o
+// pre-cache roda com os cookies da sessão.
 const PRECACHE_ASSETS = [
-  '/',
   '/atendimento',
   '/manifest.webmanifest',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
 ]
+
+// Páginas cujo HTML/RSC pode ir para o cache (casamento por segmento). Só shells
+// públicos, renderizados sem dados do dono.
+const CACHEABLE_PAGE_PREFIXES = ['/atendimento', '/login']
 
 // Padrões para cache estático
 const STATIC_PATTERNS = [
@@ -110,9 +117,17 @@ self.addEventListener('fetch', (event) => {
     return
   }
 
-  // HTML pages: Stale-while-revalidate
+  // HTML pages: Stale-while-revalidate só nas públicas; dashboard só rede.
   if (request.mode === 'navigate' || request.headers.get('accept')?.includes('text/html')) {
-    event.respondWith(staleWhileRevalidate(request, DYNAMIC_CACHE))
+    event.respondWith(
+      isCacheablePage(url) ? staleWhileRevalidate(request, DYNAMIC_CACHE) : networkOnlyPage(request)
+    )
+    return
+  }
+
+  // RSC (navegação client-side do App Router) de página não pública: só rede, sem
+  // passar pelo SW — o payload traz os mesmos dados do HTML.
+  if (isRscRequest(request, url) && !isCacheablePage(url)) {
     return
   }
 
@@ -266,8 +281,35 @@ async function staleWhileRevalidate(request, cacheName) {
     })
     .catch(() => null)
 
-  return cached || fetchPromise || new Response('Offline', { status: 503 })
+  // fetchPromise resolve null quando a rede falha: sem cache, cai no 503.
+  return cached || (await fetchPromise) || new Response('Offline', { status: 503 })
 }
+
+/**
+ * Network-only para páginas do dashboard: nunca lê nem grava cache. Offline devolve
+ * uma página genérica (sem dados).
+ */
+async function networkOnlyPage(request) {
+  try {
+    return await fetch(request)
+  } catch (error) {
+    return new Response(OFFLINE_PAGE_HTML, {
+      status: 503,
+      headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
+    })
+  }
+}
+
+const OFFLINE_PAGE_HTML = `<!doctype html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Sem conexão</title></head>
+<body style="font-family: system-ui, sans-serif; background: #0a0a0a; color: #e5e5e5; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0;">
+<main style="text-align: center; padding: 24px;">
+<h1 style="font-size: 20px; margin: 0 0 8px;">Sem conexão</h1>
+<p style="margin: 0; color: #a3a3a3;">Verifique sua internet e tente novamente.</p>
+</main>
+</body>
+</html>`
 
 // =============================================================================
 // HELPERS
@@ -281,15 +323,37 @@ function isApiRequest(url) {
   return url.pathname === '/api' || url.pathname.startsWith('/api/')
 }
 
-/** Nunca grava no cache respostas de /api/* nem redirects (ex.: 307 para /login). */
+/**
+ * Nunca grava no cache respostas de /api/*, redirects (ex.: 307 para /login) nem
+ * HTML/RSC de página não pública (dados do dono), venha de onde vier a request.
+ */
 function isCacheable(request, response) {
   if (!response || !response.ok || request.method !== 'GET') return false
   if (response.redirected) return false
-  return !isApiRequest(new URL(request.url))
+  const url = new URL(request.url)
+  if (isApiRequest(url)) return false
+  const contentType = response.headers.get('content-type') || ''
+  if ((contentType.includes('text/html') || contentType.includes('text/x-component')) && !isCacheablePage(url)) {
+    return false
+  }
+  return true
 }
 
 function isStaticAsset(url) {
   return STATIC_PATTERNS.some((pattern) => pattern.test(url.href))
+}
+
+/** Só páginas públicas do PRÓPRIO origin podem ir para o cache. */
+function isCacheablePage(url) {
+  if (url.origin !== self.location.origin) return false
+  return CACHEABLE_PAGE_PREFIXES.some(
+    (prefix) => url.pathname === prefix || url.pathname.startsWith(prefix + '/')
+  )
+}
+
+/** Request de payload RSC do App Router (header RSC ou ?_rsc=). */
+function isRscRequest(request, url) {
+  return request.headers.get('rsc') === '1' || url.searchParams.has('_rsc')
 }
 
 // =============================================================================

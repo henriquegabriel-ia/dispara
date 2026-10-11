@@ -50,6 +50,7 @@ import {
 } from '@/components/features/setup'
 import { useOnboardingStatus } from '@/hooks/useOnboardingStatus'
 import { useBrand } from '@/hooks/useBrand'
+import { logoutAndRedirect } from '@/lib/logout-client'
 
 export function DashboardShell({
     children,
@@ -155,19 +156,16 @@ export function DashboardShell({
     // Whitelabel: nome/logo da marca do deploy (fallback 'Dispara' / /brand/logo.svg)
     const { brand } = useBrand()
 
-    // Logout handler
+    // Logout handler: revoga a sessão, limpa o cache do service worker e navega com
+    // reload completo (descarta Router Cache e React Query) — lib/logout-client.ts.
     const handleLogout = useCallback(async () => {
         setIsLoggingOut(true)
         try {
-            await fetch('/api/auth/logout', { method: 'POST' })
-            router.push('/login')
-            router.refresh()
-        } catch (error) {
-            console.error('Logout error:', error)
+            await logoutAndRedirect()
         } finally {
             setIsLoggingOut(false)
         }
-    }, [router])
+    }, [])
 
     // Prefetch data on hover for faster page loads
     const prefetchRoute = useCallback((path: string) => {

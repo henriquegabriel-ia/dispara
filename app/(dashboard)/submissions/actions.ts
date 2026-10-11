@@ -2,6 +2,7 @@
 
 import { cache } from 'react'
 import { getSupabaseAdmin } from '@/lib/supabase'
+import { hasOwnerPrincipal } from '@/lib/server-principal'
 
 export interface SubmissionsInitialData {
   submissions: any[]
@@ -16,6 +17,10 @@ export interface SubmissionsInitialData {
  */
 export const getSubmissionsInitialData = cache(
   async (params: { campaignId?: string; flowId?: string }): Promise<SubmissionsInitialData | null> => {
+    // Defesa em profundidade: sem principal de dono (ex.: modo degradado com banco
+    // fora), não consulta o banco — a página renderiza só o shell.
+    if (!(await hasOwnerPrincipal())) return null
+
     const supabase = getSupabaseAdmin()
     if (!supabase) return null
 

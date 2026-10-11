@@ -71,7 +71,7 @@ export const API_ROUTE_POLICIES: readonly RoutePolicyRule[] = [
 
   // --- attendant_or_session (a rota exige a permissão do atendente) --------
   { pattern: '/api/attendant/conversations', policy: 'attendant_or_session', methods: ['GET'], reason: 'Lista da PWA (canView)' },
-  { pattern: '/api/inbox/conversations/[id]', policy: 'attendant_or_session', reason: 'GET canView na PWA; PATCH/DELETE só dono (checado na rota)' },
+  { pattern: '/api/inbox/conversations/[id]', policy: 'attendant_or_session', methods: ['GET'], reason: 'GET canView na PWA; PATCH/DELETE caem no default session (só dono)' },
   { pattern: '/api/inbox/conversations/[id]/messages', policy: 'attendant_or_session', methods: ['GET', 'POST'], reason: 'GET canView, POST canReply' },
   { pattern: '/api/inbox/conversations/[id]/takeover', policy: 'attendant_or_session', methods: ['POST'], reason: 'PWA: assumir conversa (canReply)' },
   { pattern: '/api/inbox/conversations/[id]/return-to-bot', policy: 'attendant_or_session', methods: ['POST'], reason: 'PWA: devolver à IA (canReply + canHandoff)' },

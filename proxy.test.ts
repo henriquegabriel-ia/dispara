@@ -10,15 +10,15 @@ vi.mock('@/lib/user-auth', () => ({
 
 vi.mock('@/lib/attendant-auth', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/attendant-auth')>()
-  return { ...actual, resolveAttendantToken: vi.fn() }
+  return { ...actual, resolveAttendantTokenDetailed: vi.fn() }
 })
 
 import { proxy, config } from './proxy'
 import { isValidSessionToken } from '@/lib/user-auth'
-import { resolveAttendantToken } from '@/lib/attendant-auth'
+import { resolveAttendantTokenDetailed } from '@/lib/attendant-auth'
 
 const mockedSession = vi.mocked(isValidSessionToken)
-const mockedAttendant = vi.mocked(resolveAttendantToken)
+const mockedAttendant = vi.mocked(resolveAttendantTokenDetailed)
 
 const ENV_KEYS = ['MASTER_PASSWORD', 'DISPARA_API_KEY', 'DISPARA_ADMIN_KEY', 'CRON_SECRET'] as const
 const BASE = 'https://app.example.com'
@@ -62,7 +62,7 @@ describe('proxy', () => {
     mockedSession.mockReset()
     mockedSession.mockImplementation(async (token: string) => (token === 'good-token' ? 'valid' : 'invalid'))
     mockedAttendant.mockReset()
-    mockedAttendant.mockResolvedValue(null)
+    mockedAttendant.mockResolvedValue({ status: 'invalid' })
   })
 
   afterEach(() => {
@@ -185,6 +185,14 @@ describe('proxy', () => {
       expect(body).toMatchObject({ error: 'Service Unavailable', reason: 'session_store_unavailable' })
     })
 
+    it('banco fora + UUID legado (unverified) → 401 que leva ao login, sem apagar o cookie', async () => {
+      mockedSession.mockResolvedValue('unverified')
+      const res = await proxy(req('/api/campaigns', { headers: { cookie: 'dispara_session=00000000-0000-4000-8000-000000000000' } }))
+      expect(res.status).toBe(401)
+      expect(res.headers.get('x-auth-required')).toBe('1')
+      expect(res.headers.get('set-cookie')).toBeNull()
+    })
+
     it('caminho com extensão em /api é protegido', async () => {
       const res = await proxy(req('/api/campaigns/abc/report.csv'))
       expect(res.status).toBe(401)
@@ -203,7 +211,10 @@ describe('proxy', () => {
     })
 
     it('atendente NÃO é aceito em rota session', async () => {
-      mockedAttendant.mockResolvedValue({ id: 'a1', name: 'Ana', permissions: { canView: true, canReply: true, canHandoff: true } })
+      mockedAttendant.mockResolvedValue({
+        status: 'valid',
+        principal: { id: 'a1', name: 'Ana', permissions: { canView: true, canReply: true, canHandoff: true } },
+      })
       const res = await proxy(req('/api/campaigns', { headers: { cookie: 'dispara_attendant=tok-1234567890abcdef' } }))
       expect(res.status).toBe(401)
       expect(mockedAttendant).not.toHaveBeenCalled()
@@ -315,7 +326,10 @@ describe('proxy', () => {
     })
 
     it('attendant_or_session: atendente com token válido passa com permissões', async () => {
-      mockedAttendant.mockResolvedValue({ id: 'att-1', name: 'Ana', permissions: { canView: true, canReply: false, canHandoff: false } })
+      mockedAttendant.mockResolvedValue({
+        status: 'valid',
+        principal: { id: 'att-1', name: 'Ana', permissions: { canView: true, canReply: false, canHandoff: false } },
+      })
       const res = await proxy(
         req('/api/inbox/conversations/c1/messages', { headers: { cookie: 'dispara_attendant=tok-1234567890abcdef' } })
       )
@@ -335,6 +349,51 @@ describe('proxy', () => {
       expect(principalOf(res)).toBe('session')
     })
 
+    it('attendant_or_session: banco fora ao validar o atendente → 503 com Retry-After (não 401)', async () => {
+      mockedAttendant.mockResolvedValue({ status: 'unavailable' })
+      const res = await proxy(
+        req('/api/attendant/conversations', { headers: { cookie: 'dispara_attendant=tok-1234567890abcdef' } })
+      )
+      // Antes: 401 + x-auth-required → a PWA parava o polling e mostrava "Acesso Negado".
+      expect(res.status).toBe(503)
+      expect(res.headers.get('retry-after')).toBe('5')
+      expect(res.headers.get('x-auth-required')).toBeNull()
+      expect((await res.json()).reason).toBe('attendant_store_unavailable')
+    })
+
+    it('attendant_or_session: atendente aceito com cookie de sessão inválido → apaga o cookie de sessão', async () => {
+      mockedAttendant.mockResolvedValue({
+        status: 'valid',
+        principal: { id: 'att-1', name: 'Ana', permissions: { canView: true, canReply: true, canHandoff: false } },
+      })
+      const res = await proxy(
+        req('/api/inbox/conversations/c1', {
+          headers: { cookie: 'dispara_session=revogado; dispara_attendant=tok-1234567890abcdef' },
+        })
+      )
+      expect(principalOf(res)).toBe('attendant')
+      expect(res.headers.get('set-cookie')).toMatch(/dispara_session=; Path=\/;/)
+    })
+
+    it('PATCH/DELETE de conversa com sessão expirada e cookie de atendente → 401 que leva ao /login', async () => {
+      mockedAttendant.mockResolvedValue({
+        status: 'valid',
+        principal: { id: 'att-1', name: 'Ana', permissions: { canView: true, canReply: true, canHandoff: true } },
+      })
+      for (const method of ['PATCH', 'DELETE']) {
+        const res = await proxy(
+          req('/api/inbox/conversations/c1', {
+            method,
+            headers: { cookie: 'dispara_session=revogado; dispara_attendant=tok-1234567890abcdef' },
+          })
+        )
+        // Antes: o atendente era aceito e a rota devolvia 403 sem x-auth-required.
+        expect(res.status, method).toBe(401)
+        expect(res.headers.get('x-auth-required'), method).toBe('1')
+      }
+      expect(mockedAttendant).not.toHaveBeenCalled()
+    })
+
     it('installer aberto antes da instalação (sem MASTER_PASSWORD)', async () => {
       delete process.env.MASTER_PASSWORD
       const res = await proxy(req('/api/installer/bootstrap', { method: 'POST' }))
@@ -349,11 +408,23 @@ describe('proxy', () => {
       expect((await proxy(req('/api/installer/provision', { method: 'POST', headers: { authorization: 'Bearer api-key-123' } }))).status).toBe(403)
     })
 
-    it('installer em modo degradado: banco fora + cookie presente → passa', async () => {
+    it('installer em modo degradado: banco fora + cookie assinado → passa', async () => {
       mockedSession.mockResolvedValue('unavailable')
       const res = await proxy(req('/api/installer/supabase/project-status', { method: 'POST', headers: { cookie: VALID_COOKIE } }))
       expect(isPassThrough(res)).toBe(true)
       expect(principalOf(res)).toBe('public')
+    })
+
+    it('installer: banco fora + UUID legado (não verificável) → 401, sem apagar o cookie', async () => {
+      mockedSession.mockResolvedValue('unverified')
+      const res = await proxy(
+        req('/api/installer/supabase/project-status', {
+          method: 'POST',
+          headers: { cookie: 'dispara_session=00000000-0000-4000-8000-000000000000' },
+        })
+      )
+      expect(res.status).toBe(401)
+      expect(res.headers.get('set-cookie')).toBeNull()
     })
   })
 
@@ -433,6 +504,17 @@ describe('proxy', () => {
       const res = await proxy(req('/campaigns', { headers: { cookie: VALID_COOKIE } }))
       expect(isPassThrough(res)).toBe(true)
       expect(principalOf(res)).toBe('public')
+    })
+
+    it('banco fora + UUID forjado/legado → login SEM abrir a página e sem apagar o cookie', async () => {
+      // Cenário do achado: qualquer UUID abria /inbox em modo degradado.
+      mockedSession.mockResolvedValue('unverified')
+      for (const path of ['/inbox', '/contacts', '/', '/install']) {
+        const res = await proxy(req(path, { headers: { cookie: 'dispara_session=00000000-0000-4000-8000-000000000000' } }))
+        expect(res.status, path).toBe(307)
+        expect(new URL(res.headers.get('location')!).pathname, path).toBe('/login')
+        expect(res.headers.get('set-cookie'), path).toBeNull()
+      }
     })
 
     it('banco fora: Server Action (POST em página) NÃO passa no modo degradado', async () => {

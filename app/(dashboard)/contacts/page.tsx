@@ -9,7 +9,7 @@ export const revalidate = 0
 
 async function ContactsWithData() {
   const initialData = await getContactsInitialData()
-  return <ContactsClientWrapper initialData={initialData} />
+  return <ContactsClientWrapper initialData={initialData ?? undefined} />
 }
 
 /**
