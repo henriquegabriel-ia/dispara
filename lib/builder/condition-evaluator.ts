@@ -39,7 +39,10 @@
  *   function, regex, comentários. Tamanho e profundidade limitados.
  */
 
-export const MAX_CONDITION_EXPRESSION_LENGTH = 50_000;
+// Folga larga para as expressões geradas pela UI (dezenas de branches com
+// valores longos) e teto para as regex da camada antiga do validador, que são
+// superlineares em entrada adversarial.
+export const MAX_CONDITION_EXPRESSION_LENGTH = 20_000;
 const MAX_NESTING_DEPTH = 100;
 const MAX_METHOD_ARGS = 2;
 

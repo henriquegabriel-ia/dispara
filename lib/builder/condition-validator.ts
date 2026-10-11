@@ -34,7 +34,10 @@
  * - Chamada de qualquer coisa que não seja um método da whitelist via ponto
  */
 
-import { parseConditionExpression } from "@/lib/builder/condition-evaluator";
+import {
+  MAX_CONDITION_EXPRESSION_LENGTH,
+  parseConditionExpression,
+} from "@/lib/builder/condition-evaluator";
 
 // Dangerous patterns that should never appear in conditions
 const DANGEROUS_PATTERNS = [
@@ -95,7 +98,9 @@ const ALLOWED_METHODS = new Set([
 const METHOD_CALL_PATTERN = /\.(\w+)\s*\(/g;
 
 // Pattern to match bracket expressions: captures what's before and inside the brackets
-const BRACKET_EXPRESSION_PATTERN = /(\w+)\s*\[([^\]]+)\]/g;
+// (?<!\w): só tenta a partir do INÍCIO de uma palavra — mesmas capturas da
+// versão antiga, mas sem o custo quadrático em palavras longas.
+const BRACKET_EXPRESSION_PATTERN = /(?<!\w)(\w+)\s*\[([^\]]+)\]/g;
 
 // Pattern for valid variable property access: __v0[0], __v0["key"], __v0['key']
 const VALID_BRACKET_ACCESS_PATTERN = /^__v\d+$/;
@@ -342,6 +347,14 @@ export function validateConditionExpression(
     return { valid: false, error: "Condition expression cannot be empty" };
   }
 
+  // Limite ANTES das regex abaixo (algumas são superlineares em entrada hostil).
+  if (expression.length > MAX_CONDITION_EXPRESSION_LENGTH) {
+    return {
+      valid: false,
+      error: `Condition expression is too long (max ${MAX_CONDITION_EXPRESSION_LENGTH} characters)`,
+    };
+  }
+
   // Valida CÓDIGO como código: mascara o conteúdo dos literais de string (dados
   // do usuário) antes de qualquer checagem estrutural. Ver maskStringLiterals.
   const masked = maskStringLiterals(expression);
@@ -397,6 +410,15 @@ export function preValidateConditionExpression(
 ): ValidationResult {
   if (!expression || typeof expression !== "string") {
     return { valid: false, error: "Condition must be a non-empty string" };
+  }
+
+  // Limite antes de qualquer processamento (inclusive a troca de templates no
+  // executor, que roda logo depois deste pre-check).
+  if (expression.length > MAX_CONDITION_EXPRESSION_LENGTH) {
+    return {
+      valid: false,
+      error: `Condition expression is too long (max ${MAX_CONDITION_EXPRESSION_LENGTH} characters)`,
+    };
   }
 
   // Check for obviously dangerous patterns before any processing

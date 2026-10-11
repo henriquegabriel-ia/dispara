@@ -685,6 +685,27 @@ function conditionNode(id: string, condition: unknown, label = id) {
   }
 }
 
+describe('limite de tamanho (antes das regex superlineares)', () => {
+  it('validate e preValidate rejeitam expressão acima do limite sem processar', () => {
+    const huge = 'a['.repeat(15_000)
+    expect(validateConditionExpression(huge)).toEqual({
+      valid: false,
+      error: expect.stringContaining('too long'),
+    })
+    expect(preValidateConditionExpression(huge)).toEqual({
+      valid: false,
+      error: expect.stringContaining('too long'),
+    })
+  })
+
+  it('palavra longa seguida de "[" não é quadrática na checagem de colchetes', () => {
+    const started = Date.now()
+    const result = validateConditionExpression(`${'a'.repeat(19_000)}[`)
+    expect(result.valid).toBe(false)
+    expect(Date.now() - started).toBeLessThan(1500)
+  })
+})
+
 describe('validateRawConditionExpression', () => {
   it('aceita referências {{@id:Label.campo}} e {{var.chave}} como o executor', () => {
     expect(validateRawConditionExpression('{{@ask__var:Resposta.value}} === "Sim"')).toEqual({ valid: true })
