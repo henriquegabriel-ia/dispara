@@ -493,7 +493,8 @@ export async function GET() {
 
   return NextResponse.json(response, {
     headers: {
-      'Cache-Control': 'public, s-maxage=30, stale-while-revalidate=60',
+      // Dados operacionais do dono: nunca em cache compartilhado (CDN).
+      'Cache-Control': 'private, no-store',
       'X-Response-Time': `${Date.now() - startTime}ms`,
     },
   })

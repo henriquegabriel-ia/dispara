@@ -29,6 +29,13 @@ export interface HealthStatus {
         env: string
     }
     timestamp: string
+    /**
+     * 'public' = payload mínimo de /api/health para quem não é o dono (ou quando a
+     * sessão não pôde ser validada, ex.: banco fora). Só `services.database.status`
+     * e `overall` são confiáveis; whatsapp/webhook NÃO foram checados.
+     * Ausente ou 'full' = payload completo (dono).
+     */
+    scope?: 'public' | 'full'
 }
 
 interface HealthCheckOptions {

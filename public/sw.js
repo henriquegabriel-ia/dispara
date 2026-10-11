@@ -3,11 +3,12 @@
  *
  * Estratégias de cache:
  * - Cache-first: assets estáticos (JS, CSS, fontes, imagens)
- * - Network-first: API calls (dados sempre atualizados)
+ * - /api/*: NUNCA passa pelo SW nem pelo cache (dados autenticados/PII)
  * - Stale-while-revalidate: páginas HTML
  */
 
-const CACHE_VERSION = 'dispara-v1'
+// v2: descarta caches das versões anteriores (podem conter respostas antigas).
+const CACHE_VERSION = 'dispara-v2'
 const STATIC_CACHE = `${CACHE_VERSION}-static`
 const DYNAMIC_CACHE = `${CACHE_VERSION}-dynamic`
 
@@ -92,14 +93,14 @@ self.addEventListener('fetch', (event) => {
   const { request } = event
   const url = new URL(request.url)
 
-  // Ignorar requests que não devem ser cacheados
-  if (shouldIgnore(url)) {
+  // API: nunca intercepta nem cacheia (respostas autenticadas, PII, CSVs).
+  // Checagem explícita e ANTES de tudo — não depende do IGNORE_PATTERNS.
+  if (isApiRequest(url)) {
     return
   }
 
-  // API requests: Network-first
-  if (url.pathname.startsWith('/api/')) {
-    event.respondWith(networkFirst(request, DYNAMIC_CACHE))
+  // Ignorar requests que não devem ser cacheados
+  if (shouldIgnore(url)) {
     return
   }
 
@@ -209,8 +210,8 @@ async function cacheFirst(request, cacheName) {
 
   try {
     const response = await fetch(request)
-    // Só cacheia requisições GET (Cache API não suporta HEAD/POST)
-    if (response.ok && request.method === 'GET') {
+    // Só cacheia GET ok, fora de /api e sem redirect (Cache API não suporta HEAD/POST)
+    if (isCacheable(request, response)) {
       const cache = await caches.open(cacheName)
       cache.put(request, response.clone())
     }
@@ -229,8 +230,8 @@ async function cacheFirst(request, cacheName) {
 async function networkFirst(request, cacheName) {
   try {
     const response = await fetch(request)
-    // Só cacheia requisições GET (Cache API não suporta HEAD/POST)
-    if (response.ok && request.method === 'GET') {
+    // Só cacheia GET ok, fora de /api e sem redirect (Cache API não suporta HEAD/POST)
+    if (isCacheable(request, response)) {
       const cache = await caches.open(cacheName)
       cache.put(request, response.clone())
     }
@@ -257,8 +258,8 @@ async function staleWhileRevalidate(request, cacheName) {
 
   const fetchPromise = fetch(request)
     .then((response) => {
-      // Só cacheia requisições GET (Cache API não suporta HEAD/POST)
-      if (response.ok && request.method === 'GET') {
+      // Só cacheia GET ok, fora de /api e sem redirect (Cache API não suporta HEAD/POST)
+      if (isCacheable(request, response)) {
         cache.put(request, response.clone())
       }
       return response
@@ -274,6 +275,17 @@ async function staleWhileRevalidate(request, cacheName) {
 
 function shouldIgnore(url) {
   return IGNORE_PATTERNS.some((pattern) => pattern.test(url.href))
+}
+
+function isApiRequest(url) {
+  return url.pathname === '/api' || url.pathname.startsWith('/api/')
+}
+
+/** Nunca grava no cache respostas de /api/* nem redirects (ex.: 307 para /login). */
+function isCacheable(request, response) {
+  if (!response || !response.ok || request.method !== 'GET') return false
+  if (response.redirected) return false
+  return !isApiRequest(new URL(request.url))
 }
 
 function isStaticAsset(url) {
