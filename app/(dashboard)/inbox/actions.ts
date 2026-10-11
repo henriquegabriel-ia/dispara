@@ -2,6 +2,7 @@
 
 import { cache } from 'react'
 import { createClient } from '@/lib/supabase-server'
+import { hasOwnerPrincipal } from '@/lib/server-principal'
 import type { InboxConversation, InboxLabel, InboxQuickReply } from '@/types'
 
 export interface InboxInitialData {
@@ -15,8 +16,13 @@ export interface InboxInitialData {
  * Busca dados iniciais do inbox no servidor (RSC).
  * Carrega conversas, labels e quick replies em paralelo.
  * Usa cache() para deduplicação per-request.
+ * Sem principal de dono devolve null (o client busca pelas APIs).
  */
-export const getInboxInitialData = cache(async (): Promise<InboxInitialData> => {
+export const getInboxInitialData = cache(async (): Promise<InboxInitialData | null> => {
+  // Defesa em profundidade: sem principal de dono (ex.: modo degradado com banco
+  // fora), não consulta o banco — a página renderiza só o shell.
+  if (!(await hasOwnerPrincipal())) return null
+
   const supabase = await createClient()
 
   // Buscar tudo em paralelo

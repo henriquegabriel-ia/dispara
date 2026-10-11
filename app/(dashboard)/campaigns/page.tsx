@@ -11,7 +11,7 @@ export const revalidate = 60
  */
 async function CampaignsWithData() {
   const initialData = await getCampaignsInitialData()
-  return <CampaignsClientWrapper initialData={initialData} />
+  return <CampaignsClientWrapper initialData={initialData ?? undefined} />
 }
 
 /**

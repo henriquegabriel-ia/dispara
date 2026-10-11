@@ -13,7 +13,7 @@ export const revalidate = 30
  */
 async function DashboardWithData() {
   const initialData = await getDashboardData()
-  return <DashboardClientLoader initialData={initialData} />
+  return <DashboardClientLoader initialData={initialData ?? undefined} />
 }
 
 /**
