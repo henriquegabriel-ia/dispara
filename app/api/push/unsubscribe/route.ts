@@ -1,12 +1,13 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase-server'
-import { requireAttendantPermission } from '@/lib/principal'
+import { getPrincipal, requireAttendantPermission } from '@/lib/principal'
 
 /**
  * POST /api/push/unsubscribe
  *
  * Remove uma subscription de push do banco.
  * Dono (dashboard) ou atendente com canView (PWA).
+ * O atendente só remove as subscriptions ligadas ao próprio token (nunca a do dono).
  */
 export async function POST(request: Request) {
   const denied = requireAttendantPermission(request, 'canView')
@@ -19,9 +20,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Endpoint obrigatório' }, { status: 400 })
     }
 
+    const principal = getPrincipal(request)
+    const attendantTokenId = principal?.kind === 'attendant' ? principal.attendant?.id ?? null : null
+
     const supabase = await createClient()
 
-    const { error } = await supabase.from('push_subscriptions').delete().eq('endpoint', endpoint)
+    let query = supabase.from('push_subscriptions').delete().eq('endpoint', endpoint)
+    if (attendantTokenId) query = query.eq('attendant_token_id', attendantTokenId)
+
+    const { error } = await query
 
     if (error) {
       console.error('[Push Unsubscribe] Erro:', error)
