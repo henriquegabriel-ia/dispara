@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { canonicalTemplateCategory } from '@/lib/template-category'
 import { createHash } from 'crypto'
 import { fetchWithTimeout, safeJson } from '@/lib/server-http'
+import { OWNER_KINDS, requireAttendantPermission, requirePrincipal } from '@/lib/principal'
 
 // Cache GET requests for 5 minutes - templates rarely change
 // POST/PUT/DELETE remain dynamic by default
@@ -183,6 +184,14 @@ async function syncTemplatesToLocalDb(templates: ReturnType<typeof fetchTemplate
 export async function GET(request: NextRequest) {
   const url = new URL(request.url)
   const source = url.searchParams.get('source')
+
+  // Atendente (PWA) só lê a cópia local (?source=local, com canView). Sem source=local
+  // o GET sincroniza com a Meta e apaga linhas locais — isso fica restrito ao dono.
+  const denied = source === 'local'
+    ? requireAttendantPermission(request, 'canView')
+    : requirePrincipal(request, OWNER_KINDS)
+  if (denied) return denied
+
   if (source === 'local') {
     try {
       const templates = await templateDb.getAll()
@@ -252,6 +261,10 @@ export async function GET(request: NextRequest) {
 
 // POST /api/templates - Busca templates (body opcional; fallback para Supabase/env)
 export async function POST(request: NextRequest) {
+  // Só o dono (o proxy já exige sessão; defesa em profundidade)
+  const denied = requirePrincipal(request, OWNER_KINDS)
+  if (denied) return denied
+
   let businessAccountId: string | undefined
   let accessToken: string | undefined
 

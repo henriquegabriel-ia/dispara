@@ -5,12 +5,17 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabase'
+import { requireAttendantPermission } from '@/lib/principal'
 
 interface RouteContext {
   params: Promise<{ id: string }>
 }
 
 export async function POST(request: NextRequest, context: RouteContext) {
+  // Dono ou atendente com canReply (assumir = passar a responder)
+  const denied = requireAttendantPermission(request, 'canReply')
+  if (denied) return denied
+
   try {
     const { id } = await context.params
     const supabase = getSupabaseAdmin()

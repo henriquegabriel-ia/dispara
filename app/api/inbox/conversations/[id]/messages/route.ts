@@ -5,6 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { listMessages, sendMessage } from '@/lib/inbox/inbox-service'
+import { getPrincipal, requireAttendantPermission } from '@/lib/principal'
 
 // Regex para ISO 8601 datetime com precisão variável (Supabase pode retornar 1-6 dígitos)
 const ISO_DATETIME_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/
@@ -29,6 +30,10 @@ export async function GET(
   request: NextRequest,
   { params }: RouteParams
 ) {
+  // Dono ou atendente com canView
+  const denied = requireAttendantPermission(request, 'canView')
+  if (denied) return denied
+
   try {
     const { id } = await params
     const { searchParams } = new URL(request.url)
@@ -64,6 +69,10 @@ export async function POST(
   request: NextRequest,
   { params }: RouteParams
 ) {
+  // Dono ou atendente com canReply
+  const denied = requireAttendantPermission(request, 'canReply')
+  if (denied) return denied
+
   try {
     const { id } = await params
     const body = await request.json()
@@ -78,6 +87,17 @@ export async function POST(
     }
 
     const { content, message_type, template_name, template_params } = parsed.data
+
+    // A PWA de atendente só envia texto livre; template (pago) fica restrito ao dono
+    if (
+      getPrincipal(request)?.kind === 'attendant' &&
+      (message_type !== 'text' || template_name !== undefined || template_params !== undefined)
+    ) {
+      return NextResponse.json(
+        { error: 'Forbidden', message: 'Atendente só pode enviar mensagens de texto' },
+        { status: 403 }
+      )
+    }
 
     // Validate template requirements
     if (message_type === 'template' && !template_name) {
