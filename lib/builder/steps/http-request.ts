@@ -3,6 +3,7 @@
  */
 import "server-only";
 
+import { safeHttpRequest } from "@/lib/builder/utils/safe-http";
 import { getErrorMessage } from "../utils";
 import { type StepInput, withStepLogging } from "./step-handler";
 
@@ -15,21 +16,37 @@ export type HttpRequestInput = StepInput & {
   httpMethod: string;
   httpHeaders?: string;
   httpBody?: string;
+  /** Timeout do passo (config do nó); limitado a HTTP_REQUEST_MAX_TIMEOUT_MS. */
+  timeoutMs?: number | string;
 };
 
-function parseHeaders(httpHeaders?: string): Record<string, string> {
+const HTTP_REQUEST_DEFAULT_TIMEOUT_MS = 15_000;
+const HTTP_REQUEST_MAX_TIMEOUT_MS = 60_000;
+
+function resolveTimeoutMs(value: unknown): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return HTTP_REQUEST_DEFAULT_TIMEOUT_MS;
+  }
+  return Math.min(parsed, HTTP_REQUEST_MAX_TIMEOUT_MS);
+}
+
+function parseHeaders(httpHeaders?: string): Record<string, unknown> {
   if (!httpHeaders) {
     return {};
   }
   try {
-    return JSON.parse(httpHeaders);
+    const parsed: unknown = JSON.parse(httpHeaders);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
   } catch {
     return {};
   }
 }
 
 function parseBody(httpMethod: string, httpBody?: string): string | undefined {
-  if (httpMethod === "GET" || !httpBody) {
+  if (httpMethod === "GET" || httpMethod === "HEAD" || !httpBody) {
     return;
   }
   try {
@@ -43,16 +60,20 @@ function parseBody(httpMethod: string, httpBody?: string): string | undefined {
   }
 }
 
-function parseResponse(response: Response): Promise<unknown> {
-  const contentType = response.headers.get("content-type");
+function parseResponse(contentType: string | undefined, body: Buffer): unknown {
+  const text = body.toString("utf8");
   if (contentType?.includes("application/json")) {
-    return response.json();
+    return JSON.parse(text);
   }
-  return response.text();
+  return text;
 }
 
 /**
  * HTTP request logic
+ *
+ * Segurança (SSRF): a requisição sai por safeHttpRequest — só http/https,
+ * destino resolvido e validado (nada de IP privado/loopback/link-local/
+ * metadata), redirects revalidados a cada salto, timeout e limite de tamanho.
  */
 async function httpRequest(
   input: HttpRequestInput
@@ -65,14 +86,16 @@ async function httpRequest(
   }
 
   try {
-    const response = await fetch(input.endpoint, {
-      method: input.httpMethod,
+    const method = String(input.httpMethod || "GET").trim().toUpperCase();
+    const response = await safeHttpRequest(input.endpoint, {
+      method,
       headers: parseHeaders(input.httpHeaders),
-      body: parseBody(input.httpMethod, input.httpBody),
+      body: parseBody(method, input.httpBody),
+      timeoutMs: resolveTimeoutMs(input.timeoutMs),
     });
 
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => "Unknown error");
+    if (response.status < 200 || response.status > 299) {
+      const errorText = response.body.toString("utf8");
       return {
         success: false,
         error: `HTTP request failed with status ${response.status}: ${errorText}`,
@@ -80,7 +103,7 @@ async function httpRequest(
       };
     }
 
-    const data = await parseResponse(response);
+    const data = parseResponse(response.headers["content-type"], response.body);
     return { success: true, data, status: response.status };
   } catch (error) {
     return {

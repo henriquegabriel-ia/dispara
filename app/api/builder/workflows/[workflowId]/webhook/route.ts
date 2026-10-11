@@ -7,6 +7,7 @@ import {
   toSavedWorkflow,
 } from "@/lib/builder/workflow-db";
 import { executeWorkflow } from "@/lib/builder/workflow-executor.workflow";
+import { safeSecretEqual } from "@/lib/builder/utils/secret-compare";
 import { settingsDb } from "@/lib/supabase-db";
 
 type RouteParams = {
@@ -27,8 +28,10 @@ export async function POST(request: Request, { params }: RouteParams) {
     (await settingsDb.get("workflow_builder_webhook_secret")) ||
     process.env.WORKFLOW_BUILDER_WEBHOOK_SECRET ||
     null;
+  // Sem secret configurado continua aceitando (a rota já exige sessão ou API
+  // key pelo proxy — política default); com secret, compara em tempo constante.
   const provided = request.headers.get("x-workflow-secret");
-  if (secret && provided !== secret) {
+  if (secret && !safeSecretEqual(provided, secret)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

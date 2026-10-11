@@ -3,6 +3,10 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { getCompanyId } from "@/lib/builder/workflow-db";
 import { clearWorkflowSchedule, syncWorkflowSchedule } from "@/lib/builder/workflow-schedule";
 import { settingsDb } from "@/lib/supabase-db";
+import {
+  describeWorkflowConditionIssues,
+  findInvalidWorkflowConditions,
+} from "@/lib/builder/condition-validator";
 
 type RouteParams = {
   params: Promise<{ workflowId: string }>;
@@ -29,14 +33,28 @@ export async function POST(request: Request, { params }: RouteParams) {
 
   const { data: selectedVersion } = await supabase
     .from("workflow_versions")
-    .select("id, workflow_id")
+    .select("id, workflow_id, nodes")
     .eq("id", versionId)
-    .maybeSingle<{ id: string; workflow_id: string }>();
+    .maybeSingle<{ id: string; workflow_id: string; nodes: unknown }>();
 
   if (!selectedVersion || selectedVersion.workflow_id !== workflowId) {
     return NextResponse.json(
       { error: "Version not found" },
       { status: 404 }
+    );
+  }
+
+  // Reativar uma versão antiga = publicá-la de novo: revalida as condições
+  // (versões gravadas antes da revalidação no servidor podem conter uma
+  // expressão inválida/maliciosa).
+  const conditionIssues = findInvalidWorkflowConditions(selectedVersion.nodes);
+  if (conditionIssues.length > 0) {
+    return NextResponse.json(
+      {
+        error: describeWorkflowConditionIssues(conditionIssues),
+        details: conditionIssues,
+      },
+      { status: 400 }
     );
   }
 
