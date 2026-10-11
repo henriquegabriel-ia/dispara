@@ -10,7 +10,7 @@ import {
   type SendMessageParams,
   type UpdateConversationParams,
 } from '@/services/inboxService'
-import type { InboxConversation, InboxMessage, ConversationMode } from '@/types'
+import type { InboxConversation, InboxMessage, ConversationMode, DeliveryStatus } from '@/types'
 import { CACHE, REALTIME } from '@/lib/constants'
 import { useRealtimeQuery } from './useRealtimeQuery'
 import {
@@ -26,6 +26,34 @@ const MESSAGES_KEY = 'inbox-messages'
 // Query key builders
 export const getConversationQueryKey = (id: string) => [CONVERSATION_KEY, id]
 export const getMessagesQueryKey = (conversationId: string) => [MESSAGES_KEY, conversationId]
+
+const DELIVERY_STATUSES: readonly DeliveryStatus[] = ['pending', 'sent', 'delivered', 'read', 'failed'] as const
+
+export interface MessageStatusUpdate {
+  id: string
+  conversation_id: string
+  patch: Pick<InboxMessage, 'delivery_status'>
+}
+
+/**
+ * Extrai do payload realtime (canal público, colunas whitelisted) só o que dá para
+ * aplicar no cache com segurança: o status de entrega de uma mensagem.
+ * Qualquer coisa fora do formato esperado é ignorada.
+ */
+export function pickMessageStatusUpdate(
+  row: Record<string, unknown> | null | undefined
+): MessageStatusUpdate | null {
+  if (!row) return null
+  const { id, conversation_id: conversationId, delivery_status: deliveryStatus } = row
+  if (typeof id !== 'string' || typeof conversationId !== 'string') return null
+  if (typeof deliveryStatus !== 'string') return null
+  if (!(DELIVERY_STATUSES as readonly string[]).includes(deliveryStatus)) return null
+  return {
+    id,
+    conversation_id: conversationId,
+    patch: { delivery_status: deliveryStatus as DeliveryStatus },
+  }
+}
 
 // =============================================================================
 // Conversation Detail Hook
@@ -223,30 +251,39 @@ export function useMessages(conversationId: string | null) {
     )
 
     // Also subscribe to UPDATE events (delivery status changes)
+    // O broadcast traz só colunas whitelisted (sem conteúdo): aplica apenas os campos
+    // de status de entrega; falha precisa do failure_reason → refetch pela API.
     subscribeToTable(
       channel,
       'inbox_messages',
       'UPDATE',
       (payload) => {
-        const updatedRecord = payload.new as unknown as InboxMessage
-        if (updatedRecord?.conversation_id === conversationId) {
-          // Update the specific message in cache (optimistic)
-          queryClient.setQueryData(
-            getMessagesQueryKey(conversationId),
-            (old: typeof messagesQuery.data) => {
-              if (!old) return old
-              return {
-                ...old,
-                pages: old.pages.map((page) => ({
-                  ...page,
-                  messages: page.messages.map((m) =>
-                    m.id === updatedRecord.id ? { ...m, ...updatedRecord } : m
-                  ),
-                })),
-              }
-            }
-          )
+        const statusUpdate = pickMessageStatusUpdate(payload.new)
+        if (!statusUpdate || statusUpdate.conversation_id !== conversationId) return
+
+        if (statusUpdate.patch.delivery_status === 'failed') {
+          queryClient.invalidateQueries({
+            queryKey: getMessagesQueryKey(conversationId),
+          })
+          return
         }
+
+        // Update the specific message in cache (optimistic)
+        queryClient.setQueryData(
+          getMessagesQueryKey(conversationId),
+          (old: typeof messagesQuery.data) => {
+            if (!old) return old
+            return {
+              ...old,
+              pages: old.pages.map((page) => ({
+                ...page,
+                messages: page.messages.map((m) =>
+                  m.id === statusUpdate.id ? { ...m, ...statusUpdate.patch } : m
+                ),
+              })),
+            }
+          }
+        )
       },
       `conversation_id=eq.${conversationId}`
     )
