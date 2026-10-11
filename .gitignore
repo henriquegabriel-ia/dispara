@@ -79,6 +79,7 @@ metadata.json
 # exceções pontuais. Por isso usamos scripts/* e liberamos explicitamente o arquivo.
 scripts/*
 !scripts/meta-audit.mjs
+!scripts/check-migrations.mjs
 
 # OS
 .DS_Store

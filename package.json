@@ -15,6 +15,7 @@
     "whatsapp:context": "tsx scripts/build-whatsapp-context.ts",
     "schema:parity": "tsx scripts/schema-parity-check.ts",
     "schema:baseline:generate": "tsx scripts/generate-baseline-from-fullchain.ts",
+    "db:check": "node scripts/check-migrations.mjs",
     "db:migrate:0020": "node scripts/apply-migration-pg.mjs supabase/migrations/0020_add_whatsapp_status_events.sql",
     "db:migrate:0018": "node scripts/apply-migration-pg.mjs supabase/migrations/0020_add_whatsapp_status_events.sql",
     "logs:follow:prod": "node scripts/vercel-logs-follow.mjs YOUR_VERCEL_URL tmp/vercel-logs-follow.jsonl",
@@ -116,6 +117,7 @@
     "zustand": "^5.0.9"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.3.16",
     "@next/eslint-plugin-next": "^16.1.6",
     "@playwright/test": "^1.49.0",
     "@testing-library/jest-dom": "^6.6.3",
