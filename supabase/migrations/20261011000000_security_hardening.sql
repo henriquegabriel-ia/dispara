@@ -52,7 +52,13 @@
 --      contact_id do bulk_delete_contacts não publicam;
 --    - contacts usa trigger por STATEMENT (um evento por import/bulk update);
 --    - flow_submissions só INSERT (o frontend só usa isso; o SET NULL em massa de
---      bulk_delete_contacts não gera eventos).
+--      bulk_delete_contacts não gera eventos);
+--    - templates, flows e template_project_items: INSERT/DELETE sempre; UPDATE só quando
+--      muda uma coluna que a UI mostra (WHEN explícito por tabela). O sync de templates
+--      (GET /api/templates, refresh do template no disparo) faz upsert de TODOS os
+--      templates com fetched_at/updated_at novos; o sync de projetos regrava meta_id/
+--      meta_status de cada item; e updated_at/meta_last_checked_at de flows mudam a cada
+--      salvar/checar. Sem mudança real, nada disso publica (antes: 1 evento por linha).
 --    Por contato de campanha (envio e webhooks sent/delivered/read): 0 linhas em
 --    realtime.messages (antes ~5-6: INSERT da conversa e da mensagem, UPDATE dos
 --    contadores da conversa e um UPDATE por webhook de status — ~300 MB numa campanha
@@ -62,6 +68,20 @@
 --    O payload é montado com colunas explícitas (NEW.col), nunca com to_jsonb(NEW): não
 --    destoasta template_snapshot, components, content, response_json etc. a cada escrita.
 --    As tabelas saem da publicação supabase_realtime (postgres_changes não é mais usado).
+--
+--    PREMISSA do realtime.send: a trigger chama realtime.send FORA de bloco de exceção
+--    (uma subtransação por evento, não duas), contando que ele tenha o próprio
+--    EXCEPTION WHEN OTHERS — o do Supabase tem: o INSERT em realtime.messages fica num
+--    BEGIN ... EXCEPTION WHEN OTHERS THEN RAISE WARNING 'ErrorSendingBroadcastMessage'.
+--    Isso é verificado, não presumido: as triggers só são criadas se o fonte de
+--    realtime.send(jsonb,text,text,boolean) tiver EXCEPTION WHEN OTHERS (pg_proc.prosrc), e
+--    dispara_broadcast_change refaz a checagem a cada evento (se o Supabase trocar a
+--    função depois, a trigger para de publicar em vez de derrubar a escrita).
+--    Preferimos ficar sem realtime a arriscar derrubar escritas do app.
+--    Sem realtime.send (Broadcast from Database indisponível) ou sem o tratamento de
+--    erro, a migration aplica o resto normalmente, NÃO cria as triggers e emite um
+--    WARNING: o dashboard fica só no polling até esta migration ser reaplicada depois
+--    que o Realtime estiver ativo.
 --
 -- EXIGE a versão correspondente do frontend (realtime via broadcast em
 -- lib/supabase-realtime.ts + CentralizedRealtimeProvider, useUnreadCount via
@@ -215,13 +235,22 @@ DECLARE
   v_new jsonb := NULL;
   v_old jsonb := NULL;
 BEGIN
-  -- Sem realtime.send, ou sem EXECUTE nele (a função é SECURITY DEFINER: vale o dono),
-  -- não publica e nunca derruba a escrita. Checado fora de qualquer bloco de exceção.
+  -- Sem realtime.send, sem EXECUTE nele (a função é SECURITY DEFINER: vale o dono) ou
+  -- sem o EXCEPTION WHEN OTHERS próprio dele (o PERFORM abaixo fica fora de bloco de
+  -- exceção: ver a PREMISSA no cabeçalho), não publica e nunca derruba a escrita.
+  -- Checado fora de qualquer bloco de exceção, a cada evento (o Supabase pode trocar a
+  -- função depois desta migration).
   v_send := to_regprocedure('realtime.send(jsonb,text,text,boolean)');
   IF v_send IS NULL THEN
     RETURN NULL;
   END IF;
   IF NOT has_function_privilege(v_send::oid, 'EXECUTE') THEN
+    RETURN NULL;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_proc p
+    WHERE p.oid = v_send::oid AND p.prosrc ~* '\mexception\s+when\s+others\M'
+  ) THEN
     RETURN NULL;
   END IF;
 
@@ -410,9 +439,10 @@ BEGIN
     RETURN NULL;
   END;
 
-  -- Fora do bloco de exceção: realtime.send tem o próprio BEGIN ... EXCEPTION em volta
-  -- do INSERT em realtime.messages (engole o erro e só avisa, inclusive partição
-  -- ausente), então o envio também é best-effort — com uma subtransação, não duas.
+  -- Fora do bloco de exceção: realtime.send tem o próprio BEGIN ... EXCEPTION WHEN OTHERS
+  -- em volta do INSERT em realtime.messages (engole o erro e só avisa, inclusive partição
+  -- ausente — verificado pela guarda do início), então o envio também é best-effort, com
+  -- uma subtransação, não duas.
   PERFORM realtime.send(
     jsonb_build_object(
       'table', TG_TABLE_NAME,
@@ -433,7 +463,9 @@ $$;
 COMMENT ON FUNCTION public.dispara_broadcast_change() IS
   'Realtime do dashboard: publica no canal público dispara-db (evento db_change) só colunas whitelisted (sem PII), projetadas coluna a coluna. Ver 20261011000000_security_hardening.sql.';
 
--- Triggers só onde existe realtime.send (Supabase com Broadcast from Database).
+-- Triggers só onde existe realtime.send (Supabase com Broadcast from Database) E ele tem
+-- o próprio EXCEPTION WHEN OTHERS (a PREMISSA do cabeçalho); senão, WARNING e nenhuma
+-- trigger — o resto da migration aplica normalmente.
 -- Lista = tabelas que o frontend escuta (CentralizedRealtimeProvider + hooks/*).
 -- Cada evento é 1 INSERT em realtime.messages: o recorte por tabela/evento/WHEN abaixo
 -- controla o volume (ver o cabeçalho).
@@ -448,17 +480,27 @@ COMMENT ON FUNCTION public.dispara_broadcast_change() IS
 DO $$
 DECLARE
   r record;
+  v_send regprocedure;
   v_definition text;
   v_marker text;
   v_current text;
 BEGIN
-  IF to_regprocedure('realtime.send(jsonb,text,text,boolean)') IS NULL THEN
-    RAISE NOTICE 'security_hardening: realtime.send indisponível; triggers de broadcast não criadas (realtime do dashboard fica só no polling).';
+  v_send := to_regprocedure('realtime.send(jsonb,text,text,boolean)');
+  IF v_send IS NULL THEN
+    RAISE WARNING 'security_hardening: realtime.send indisponível — triggers de broadcast NÃO criadas e o realtime do dashboard fica só no polling. Reaplique esta migration depois que o Realtime estiver ativo (Broadcast from Database).';
+    RETURN;
+  END IF;
+  -- Mesmo critério da guarda de dispara_broadcast_change (fonte com EXCEPTION WHEN OTHERS).
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_proc p
+    WHERE p.oid = v_send::oid AND p.prosrc ~* '\mexception\s+when\s+others\M'
+  ) THEN
+    RAISE WARNING 'security_hardening: realtime.send não trata os próprios erros (falta o bloco EXCEPTION ... WHEN OTHERS) — triggers de broadcast NÃO criadas: a trigger chama realtime.send fora de bloco de exceção e uma falha no envio derrubaria a escrita do app (preferimos ficar sem realtime; o dashboard fica só no polling). Triggers de uma aplicação anterior não publicam (a função refaz esta checagem a cada evento). Reaplique esta migration quando realtime.send voltar a tratar os próprios erros.';
     RETURN;
   END IF;
   -- O dono da função (quem roda esta migration) precisa de EXECUTE em realtime.send;
   -- sem ele a trigger não publica nada (e não derruba a escrita). Avisa uma vez aqui.
-  IF NOT has_function_privilege(to_regprocedure('realtime.send(jsonb,text,text,boolean)')::oid, 'EXECUTE') THEN
+  IF NOT has_function_privilege(v_send::oid, 'EXECUTE') THEN
     RAISE WARNING 'security_hardening: % sem EXECUTE em realtime.send; o realtime do dashboard fica só no polling.', current_user;
   END IF;
 
@@ -466,21 +508,72 @@ BEGIN
     SELECT t.table_name, t.trigger_name, t.definition
     FROM (VALUES
       -- Volume baixo: por linha, em INSERT/UPDATE/DELETE.
-      ('templates', 'dispara_realtime_broadcast',
-        $d$AFTER INSERT OR UPDATE OR DELETE ON public.templates
-          FOR EACH ROW EXECUTE FUNCTION public.dispara_broadcast_change()$d$),
-      ('flows', 'dispara_realtime_broadcast',
-        $d$AFTER INSERT OR UPDATE OR DELETE ON public.flows
-          FOR EACH ROW EXECUTE FUNCTION public.dispara_broadcast_change()$d$),
       ('account_alerts', 'dispara_realtime_broadcast',
         $d$AFTER INSERT OR UPDATE OR DELETE ON public.account_alerts
           FOR EACH ROW EXECUTE FUNCTION public.dispara_broadcast_change()$d$),
       ('template_projects', 'dispara_realtime_broadcast',
         $d$AFTER INSERT OR UPDATE OR DELETE ON public.template_projects
           FOR EACH ROW EXECUTE FUNCTION public.dispara_broadcast_change()$d$),
-      ('template_project_items', 'dispara_realtime_broadcast',
-        $d$AFTER INSERT OR UPDATE OR DELETE ON public.template_project_items
+
+      -- templates / flows / template_project_items: INSERT/DELETE sempre; UPDATE só quando
+      -- muda coluna que a UI mostra (lista/detalhe refazem o fetch pela API). Ficam de fora
+      -- só as colunas de controle que mudam sem mudança visível:
+      --   templates: updated_at, fetched_at e spec_hash (o sync da Meta regrava todos a cada
+      --     GET /api/templates e o disparo faz refresh do template), created_at e
+      --     header_media_preview_* (URL assinada do preview, regravada pelo disparo);
+      --   flows: updated_at e meta_last_checked_at (a cada salvar/checar na Meta);
+      --   template_project_items: updated_at e created_at (o sync de projetos regrava
+      --     meta_id/meta_status iguais em todos os itens).
+      -- `(OLD.a, OLD.b) IS DISTINCT FROM (NEW.a, NEW.b)` vira um OR coluna a coluna (com
+      -- curto-circuito): as jsonb ficam por último e só são comparadas quando o resto é igual.
+      -- Coluna nova que a UI mostra entra no WHEN (lib/security-hardening-migration.test.ts
+      -- falha enquanto a coluna não for classificada).
+      ('templates', 'dispara_realtime_broadcast',
+        $d$AFTER INSERT OR DELETE ON public.templates
           FOR EACH ROW EXECUTE FUNCTION public.dispara_broadcast_change()$d$),
+      ('templates', 'dispara_realtime_broadcast_update',
+        $d$AFTER UPDATE ON public.templates
+          FOR EACH ROW
+          WHEN (
+            (OLD.name, OLD.status, OLD.category, OLD.language, OLD.parameter_format, OLD.components)
+            IS DISTINCT FROM
+            (NEW.name, NEW.status, NEW.category, NEW.language, NEW.parameter_format, NEW.components)
+          )
+          EXECUTE FUNCTION public.dispara_broadcast_change()$d$),
+      ('flows', 'dispara_realtime_broadcast',
+        $d$AFTER INSERT OR DELETE ON public.flows
+          FOR EACH ROW EXECUTE FUNCTION public.dispara_broadcast_change()$d$),
+      ('flows', 'dispara_realtime_broadcast_update',
+        $d$AFTER UPDATE ON public.flows
+          FOR EACH ROW
+          WHEN (
+            (OLD.name, OLD.status, OLD.meta_flow_id, OLD.meta_status, OLD.meta_preview_url,
+             OLD.meta_published_at, OLD.template_key, OLD.flow_version,
+             OLD.meta_validation_errors, OLD.mapping, OLD.spec, OLD.flow_json)
+            IS DISTINCT FROM
+            (NEW.name, NEW.status, NEW.meta_flow_id, NEW.meta_status, NEW.meta_preview_url,
+             NEW.meta_published_at, NEW.template_key, NEW.flow_version,
+             NEW.meta_validation_errors, NEW.mapping, NEW.spec, NEW.flow_json)
+          )
+          EXECUTE FUNCTION public.dispara_broadcast_change()$d$),
+      ('template_project_items', 'dispara_realtime_broadcast',
+        $d$AFTER INSERT OR DELETE ON public.template_project_items
+          FOR EACH ROW EXECUTE FUNCTION public.dispara_broadcast_change()$d$),
+      ('template_project_items', 'dispara_realtime_broadcast_update',
+        $d$AFTER UPDATE ON public.template_project_items
+          FOR EACH ROW
+          WHEN (
+            (OLD.project_id, OLD.name, OLD.status, OLD.meta_status, OLD.meta_id, OLD.rejected_reason,
+             OLD.submitted_at, OLD.category, OLD.language, OLD.content,
+             OLD.header, OLD.footer, OLD.buttons, OLD.variables, OLD.sample_variables,
+             OLD.marketing_variables, OLD.components)
+            IS DISTINCT FROM
+            (NEW.project_id, NEW.name, NEW.status, NEW.meta_status, NEW.meta_id, NEW.rejected_reason,
+             NEW.submitted_at, NEW.category, NEW.language, NEW.content,
+             NEW.header, NEW.footer, NEW.buttons, NEW.variables, NEW.sample_variables,
+             NEW.marketing_variables, NEW.components)
+          )
+          EXECUTE FUNCTION public.dispara_broadcast_change()$d$),
 
       -- campaigns: increment_campaign_stat faz 1 UPDATE por delivered/read/failed de cada
       -- contato, e o dreno faz try_lock/release_campaign_dispatch_lock (só dispatch_lock_*).

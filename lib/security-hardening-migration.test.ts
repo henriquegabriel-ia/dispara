@@ -100,6 +100,90 @@ function triggerDefinition(specs: TriggerSpec[], table: string, name: string): s
   return found[0].definition
 }
 
+/** Fonte de realtime.send exigida (EXCEPTION WHEN OTHERS próprio), no DO block e na função. */
+const SEND_HANDLES_ERRORS_REGEX = "p.prosrc ~* '\\mexception\\s+when\\s+others\\M'"
+
+interface ColumnInfo {
+  name: string
+  /** Primeira palavra do tipo (text, jsonb, timestamp, integer...) */
+  type: string
+}
+
+/**
+ * Colunas de public.<table> segundo as migrations: CREATE TABLE + ADD/DROP COLUMN
+ * posteriores, em ordem de arquivo. Serve de tripwire para os WHEN das triggers.
+ */
+function tableColumns(table: string): ColumnInfo[] {
+  const columns = new Map<string, string>()
+  const files = readdirSync(MIGRATIONS_DIR)
+    .filter((f) => f.endsWith('.sql'))
+    .sort()
+  const name = `"?${table}"?`
+  for (const file of files) {
+    const sql = readMigration(file)
+      .split(/\r?\n/)
+      .map((line) => line.replace(/--.*$/, ''))
+      .join('\n')
+    const create = new RegExp(`CREATE TABLE (?:IF NOT EXISTS )?(?:public\\.)?${name} \\(([\\s\\S]*?)\\n\\);`, 'i').exec(sql)
+    if (create) {
+      for (const line of create[1].split('\n')) {
+        const column = /^\s*"?([a-z_][a-z0-9_]*)"?\s+([a-z][a-z0-9_]*)/i.exec(line)
+        if (!column || /^(constraint|primary|unique|check|foreign|exclude)$/i.test(column[1])) continue
+        columns.set(column[1], column[2].toLowerCase())
+      }
+    }
+    for (const statement of sql.split(';')) {
+      if (!new RegExp(`ALTER TABLE (?:ONLY )?(?:IF EXISTS )?(?:ONLY )?(?:public\\.)?${name}\\s`, 'i').test(statement)) continue
+      for (const added of statement.matchAll(/ADD COLUMN (?:IF NOT EXISTS )?"?([a-z_][a-z0-9_]*)"?\s+([a-z][a-z0-9_]*)/gi)) {
+        columns.set(added[1], added[2].toLowerCase())
+      }
+      for (const dropped of statement.matchAll(/DROP COLUMN (?:IF EXISTS )?"?([a-z_][a-z0-9_]*)"?/gi)) {
+        columns.delete(dropped[1])
+      }
+    }
+  }
+  return Array.from(columns, ([column, type]) => ({ name: column, type }))
+}
+
+/** Colunas do WHEN `( (OLD.a, ...) IS DISTINCT FROM (NEW.a, ...) )` (mesma lista e ordem nos dois lados). */
+function whenTupleColumns(definition: string): string[] {
+  const match = / WHEN \( \(([^()]*)\) IS DISTINCT FROM \(([^()]*)\) \) EXECUTE FUNCTION /.exec(definition)
+  expect(match, `WHEN em tupla: ${definition}`).not.toBeNull()
+  const side = (list: string, record: 'OLD' | 'NEW') =>
+    list.split(',').map((item) => {
+      const column = new RegExp(`^${record}\\.([a-z_]+)$`).exec(item.trim())?.[1]
+      expect(column, `${record}: ${item}`).toBeDefined()
+      return column!
+    })
+  const oldColumns = side(match![1], 'OLD')
+  expect(side(match![2], 'NEW')).toEqual(oldColumns)
+  expect(new Set(oldColumns).size, 'coluna repetida no WHEN').toBe(oldColumns.length)
+  return oldColumns
+}
+
+/**
+ * Colunas que NÃO disparam o UPDATE (mudam sem mudança visível na UI). Todo o resto da
+ * tabela tem de estar no WHEN: coluna nova faz o teste falhar até ser classificada.
+ */
+const UPDATE_WHEN_IGNORED: Record<'templates' | 'flows' | 'template_project_items', string[]> = {
+  // sync da Meta / refresh no disparo regravam fetched_at/updated_at/spec_hash; o disparo
+  // regrava a URL assinada do preview do header
+  templates: [
+    'id',
+    'created_at',
+    'updated_at',
+    'fetched_at',
+    'spec_hash',
+    'header_media_preview_url',
+    'header_media_preview_expires_at',
+    'header_media_preview_updated_at',
+  ],
+  // salvar sem mudança e checar status na Meta
+  flows: ['id', 'created_at', 'updated_at', 'meta_last_checked_at'],
+  // sync de projetos regrava meta_id/meta_status iguais
+  template_project_items: ['id', 'created_at', 'updated_at'],
+}
+
 // -----------------------------------------------------------------------------
 // Mini avaliador das triggers (eventos, nível e WHEN) para simular o volume em
 // realtime.messages. Cobre só o subconjunto de SQL usado nos WHEN das tabelas do inbox:
@@ -501,13 +585,18 @@ describe('migration 20261011000000_security_hardening.sql', () => {
       const block = normalizedBody.slice(blockStart, handler)
       expect(block).not.toMatch(/PERFORM|EXECUTE|INSERT INTO|UPDATE [a-z]|DELETE FROM|realtime\./i)
 
-      // Guardas ANTES do bloco: sem realtime.send, ou sem EXECUTE nele, não publica
-      // (e o send fora do bloco nunca derruba a escrita por permissão revogada).
+      // Guardas ANTES do bloco: sem realtime.send, sem EXECUTE nele, ou sem o EXCEPTION
+      // WHEN OTHERS próprio dele, não publica (o send fora do bloco nunca derruba a
+      // escrita por permissão revogada nem por falha no INSERT em realtime.messages).
       const guard = normalizedBody.indexOf(
-        "v_send := to_regprocedure('realtime.send(jsonb,text,text,boolean)'); IF v_send IS NULL THEN RETURN NULL; END IF; IF NOT has_function_privilege(v_send::oid, 'EXECUTE') THEN RETURN NULL; END IF;"
+        "v_send := to_regprocedure('realtime.send(jsonb,text,text,boolean)'); IF v_send IS NULL THEN RETURN NULL; END IF; IF NOT has_function_privilege(v_send::oid, 'EXECUTE') THEN RETURN NULL; END IF; " +
+          `IF NOT EXISTS ( SELECT 1 FROM pg_catalog.pg_proc p WHERE p.oid = v_send::oid AND ${SEND_HANDLES_ERRORS_REGEX} ) THEN RETURN NULL; END IF;`
       )
       expect(guard).toBeGreaterThanOrEqual(0)
       expect(guard).toBeLessThan(blockStart)
+      // A checagem é a cada evento: nada entre as guardas e o send pula a verificação
+      expect(normalizedBody.indexOf('PERFORM realtime.send(')).toBeGreaterThan(guard)
+      expect(normalizedBody.match(/PERFORM realtime\.send\(/g)).toHaveLength(1)
     })
   })
 
@@ -515,8 +604,37 @@ describe('migration 20261011000000_security_hardening.sql', () => {
     const specs = parseTriggerSpecs(raw)
     const def = (table: string, name: string) => triggerDefinition(specs, table, name)
 
-    it('só são criadas se realtime.send existir', () => {
-      expect(sql).toContain("IF to_regprocedure('realtime.send(jsonb,text,text,boolean)') IS NULL THEN RAISE NOTICE")
+    it('sem realtime.send: WARNING acionável (não NOTICE) e nenhuma trigger', () => {
+      const missing = sql.indexOf(
+        "v_send := to_regprocedure('realtime.send(jsonb,text,text,boolean)'); IF v_send IS NULL THEN RAISE WARNING 'security_hardening: realtime.send indisponível"
+      )
+      expect(missing).toBeGreaterThan(0)
+      // Diz o que fazer, e sai do DO block antes de criar qualquer trigger
+      const statement = sql.slice(missing, sql.indexOf('END IF;', missing))
+      expect(statement).toMatch(/Reaplique esta migration depois que o Realtime estiver ativo/)
+      expect(statement).toMatch(/'; RETURN; $/)
+      expect(missing).toBeLessThan(sql.indexOf("EXECUTE format('CREATE OR REPLACE TRIGGER"))
+      // NOTICE some no log do SQL editor/installer
+      expect(sql).not.toMatch(/RAISE NOTICE/i)
+    })
+
+    it('só cria as triggers se realtime.send tiver o próprio EXCEPTION WHEN OTHERS (send fora de bloco de exceção)', () => {
+      const check = sql.indexOf(
+        `IF NOT EXISTS ( SELECT 1 FROM pg_catalog.pg_proc p WHERE p.oid = v_send::oid AND ${SEND_HANDLES_ERRORS_REGEX} ) THEN RAISE WARNING 'security_hardening: realtime.send não trata os próprios erros`
+      )
+      expect(check).toBeGreaterThan(sql.indexOf('IF v_send IS NULL THEN RAISE WARNING'))
+      const statement = sql.slice(check, sql.indexOf('END IF;', check))
+      // Explica o motivo e sai antes de criar triggers
+      expect(statement).toMatch(/derrubaria a escrita do app/)
+      expect(statement).toMatch(/Reaplique esta migration/)
+      expect(statement).toMatch(/'; RETURN; $/)
+      expect(check).toBeLessThan(sql.indexOf("EXECUTE format('CREATE OR REPLACE TRIGGER"))
+
+      // Mesmo critério na guarda da função (vale também para triggers já existentes).
+      // O comportamento real (send do Supabase aceito; send sem handler recusado, sem
+      // derrubar escrita) é verificado em Postgres por `npm run db:check`.
+      expect(sql.split(SEND_HANDLES_ERRORS_REGEX)).toHaveLength(3)
+      expect(raw).toMatch(/PREMISSA do realtime\.send/)
     })
 
     it('cobrem as tabelas do frontend, todas pela função de broadcast', () => {
@@ -530,9 +648,18 @@ describe('migration 20261011000000_security_hardening.sql', () => {
       }
 
       // Volume baixo: por linha, em INSERT/UPDATE/DELETE
-      for (const table of ['templates', 'flows', 'account_alerts', 'template_projects', 'template_project_items']) {
+      for (const table of ['account_alerts', 'template_projects']) {
         expect(def(table, 'dispara_realtime_broadcast')).toBe(
           `AFTER INSERT OR UPDATE OR DELETE ON public.${table} FOR EACH ROW EXECUTE FUNCTION public.dispara_broadcast_change()`
+        )
+      }
+      // INSERT/DELETE sem condição; UPDATE com WHEN (ver o teste dos WHEN abaixo)
+      for (const table of ['templates', 'flows', 'template_project_items']) {
+        expect(def(table, 'dispara_realtime_broadcast')).toBe(
+          `AFTER INSERT OR DELETE ON public.${table} FOR EACH ROW EXECUTE FUNCTION public.dispara_broadcast_change()`
+        )
+        expect(def(table, 'dispara_realtime_broadcast_update')).toMatch(
+          new RegExp(`^AFTER UPDATE ON public\\.${table} FOR EACH ROW WHEN \\(`)
         )
       }
       expect(def('contacts', 'dispara_realtime_broadcast')).toBe(
@@ -619,6 +746,60 @@ describe('migration 20261011000000_security_hardening.sql', () => {
       // Contador de saída e SET NULL de contact_id (bulk_delete_contacts) não publicam
       for (const column of ['total_messages', 'last_message_at', 'last_message_preview', 'contact_id', 'updated_at']) {
         expect(update).not.toContain(column)
+      }
+    })
+
+    it('templates/flows/template_project_items: UPDATE só quando muda coluna que a UI mostra', () => {
+      for (const [table, ignored] of Object.entries(UPDATE_WHEN_IGNORED)) {
+        const update = def(table, 'dispara_realtime_broadcast_update')
+        const watched = whenTupleColumns(update)
+        const columns = tableColumns(table)
+        expect(columns.length, `colunas de public.${table}`).toBeGreaterThan(5)
+        const names = columns.map((c) => c.name)
+
+        // Toda coluna é classificada: ou entra no WHEN ou está na lista de ignoradas
+        const unclassified = names.filter((c) => !watched.includes(c) && !ignored.includes(c))
+        expect(unclassified, `${table}: coluna nova? inclua no WHEN ou em UPDATE_WHEN_IGNORED`).toEqual([])
+        expect(watched.filter((c) => !names.includes(c)), `${table}: WHEN com coluna inexistente`).toEqual([])
+        expect(ignored.filter((c) => !names.includes(c)), `${table}: ignorada inexistente`).toEqual([])
+        expect(watched.filter((c) => ignored.includes(c)), `${table}: ignorada no WHEN`).toEqual([])
+
+        // Colunas de controle nunca disparam sozinhas
+        for (const column of ['updated_at', 'created_at', 'id']) expect(watched).not.toContain(column)
+        expect(watched).toEqual(expect.arrayContaining(['name', 'status']))
+
+        // Comparação barata primeiro: jsonb só no fim da tupla (OR com curto-circuito)
+        const types = new Map(columns.map((c) => [c.name, c.type]))
+        const firstJsonb = watched.findIndex((c) => types.get(c) === 'jsonb')
+        if (firstJsonb >= 0) {
+          expect(watched.slice(firstJsonb).every((c) => types.get(c) === 'jsonb'), `${table}: ${watched.join(', ')}`).toBe(true)
+        }
+        // json (sem =) quebraria o IS DISTINCT FROM em tempo de execução, derrubando a escrita
+        expect(watched.filter((c) => types.get(c) === 'json'), `${table}: coluna json no WHEN`).toEqual([])
+      }
+
+      // O que muda a cada sync/salvar fica de fora
+      expect(whenTupleColumns(def('templates', 'dispara_realtime_broadcast_update'))).not.toEqual(
+        expect.arrayContaining(['fetched_at'])
+      )
+      expect(whenTupleColumns(def('templates', 'dispara_realtime_broadcast_update'))).toEqual(
+        expect.arrayContaining(['name', 'status', 'category', 'language', 'parameter_format', 'components'])
+      )
+      expect(whenTupleColumns(def('flows', 'dispara_realtime_broadcast_update'))).toEqual(
+        expect.arrayContaining(['meta_status', 'meta_flow_id', 'spec', 'flow_json'])
+      )
+      expect(whenTupleColumns(def('template_project_items', 'dispara_realtime_broadcast_update'))).toEqual(
+        expect.arrayContaining(['project_id', 'meta_status', 'meta_id', 'content'])
+      )
+    })
+
+    it('toda trigger por linha de UPDATE em tabela com escrita recorrente tem WHEN', () => {
+      const conditional = ['campaigns', 'inbox_messages', 'inbox_conversations', 'templates', 'flows', 'template_project_items']
+      for (const spec of specs.filter((s) => conditional.includes(s.table))) {
+        const trigger = parseTrigger(spec.definition)
+        if (trigger.level === 'ROW' && trigger.events.includes('UPDATE')) {
+          expect(trigger.when, `${spec.table}.${spec.name}`).not.toBeNull()
+        }
       }
     })
 
@@ -780,6 +961,134 @@ describe('migration 20261011000000_security_hardening.sql', () => {
       // Apagar uma conversa com N mensagens em cascata: 1 evento (STATEMENT), não N
       const cascade = Array.from({ length: 500 }, (_, i) => ({ old: message({ id: `m${i}` }), new: null }))
       expect(count({ table: 'inbox_messages', op: 'DELETE', rows: cascade })).toBe(1)
+    })
+  })
+
+  describe('volume em realtime.messages (templates, flows e itens de projeto)', () => {
+    const specs = parseTriggerSpecs(raw)
+    const count = (write: TableWrite) => countBroadcastEvents(specs, write)
+
+    const template = (index: number, overrides: Row = {}): Row => ({
+      id: `tpl_${index}`,
+      name: `template_${index}`,
+      category: 'MARKETING',
+      language: 'pt_BR',
+      status: 'APPROVED',
+      parameter_format: 'positional',
+      components: [{ type: 'BODY', text: `Olá {{1}} (${index})` }],
+      spec_hash: `hash_${index}`,
+      fetched_at: '2026-10-11T10:00:00Z',
+      created_at: '2026-10-01T10:00:00Z',
+      updated_at: '2026-10-11T10:00:00Z',
+      header_media_preview_url: null,
+      header_media_preview_expires_at: null,
+      header_media_preview_updated_at: null,
+      ...overrides,
+    })
+
+    it('sync de templates (upsert de todos a cada GET) sem mudança real não publica', () => {
+      const rows = Array.from({ length: 200 }, (_, i) => {
+        const old = template(i)
+        // syncTemplatesToLocalDb: fetched_at/updated_at novos, spec_hash recalculado (igual)
+        return { old, new: { ...old, fetched_at: '2026-10-11T11:00:00Z', updated_at: '2026-10-11T11:00:00Z' } }
+      })
+      expect(count({ table: 'templates', op: 'UPDATE', rows })).toBe(0)
+
+      // Referência: com a trigger anterior (UPDATE sem WHEN) eram 200 linhas por sync
+      const previous: TriggerSpec[] = [
+        {
+          table: 'templates',
+          name: 'dispara_realtime_broadcast',
+          definition: 'AFTER INSERT OR UPDATE OR DELETE ON public.templates FOR EACH ROW EXECUTE FUNCTION public.dispara_broadcast_change()',
+        },
+      ]
+      expect(countBroadcastEvents(previous, { table: 'templates', op: 'UPDATE', rows })).toBe(200)
+
+      // Disparo regravando a URL assinada do preview do header: não publica
+      const preview = template(1)
+      expect(
+        count({
+          table: 'templates',
+          op: 'UPDATE',
+          rows: [{ old: preview, new: { ...preview, header_media_preview_url: 'https://x/signed?t=2', updated_at: 'y' } }],
+        })
+      ).toBe(0)
+    })
+
+    it('templates: mudança visível publica 1 evento por linha mudada; INSERT/DELETE sempre', () => {
+      const rows = Array.from({ length: 200 }, (_, i) => {
+        const old = template(i)
+        const changed: Row =
+          i === 3 ? { status: 'REJECTED' } : i === 7 ? { components: [{ type: 'BODY', text: 'novo' }] } : i === 9 ? { category: 'UTILIDADE' } : {}
+        return { old, new: { ...old, ...changed, fetched_at: 'x', updated_at: 'x' } }
+      })
+      expect(count({ table: 'templates', op: 'UPDATE', rows })).toBe(3)
+      expect(count({ table: 'templates', op: 'INSERT', rows: [{ old: null, new: template(500) }] })).toBe(1)
+      expect(count({ table: 'templates', op: 'DELETE', rows: [{ old: template(1), new: null }] })).toBe(1)
+    })
+
+    it('flows: salvar/checar sem mudança não publica; nome, status Meta e spec publicam', () => {
+      const flow: Row = {
+        id: 'fl_1',
+        name: 'Agendamento',
+        status: 'DRAFT',
+        meta_flow_id: null,
+        meta_status: null,
+        meta_preview_url: null,
+        meta_published_at: null,
+        meta_validation_errors: null,
+        meta_last_checked_at: null,
+        template_key: null,
+        flow_version: null,
+        mapping: {},
+        spec: { form: { fields: [] } },
+        flow_json: null,
+        created_at: 'c',
+        updated_at: 'u',
+      }
+      const update = (changes: Row) =>
+        count({ table: 'flows', op: 'UPDATE', rows: [{ old: flow, new: { ...flow, updated_at: 'u2', ...changes } }] })
+
+      expect(update({})).toBe(0)
+      expect(update({ meta_last_checked_at: 'agora' })).toBe(0)
+      expect(update({ name: 'Agendamento 2' })).toBe(1)
+      expect(update({ meta_status: 'PUBLISHED', meta_flow_id: '123' })).toBe(1)
+      expect(update({ spec: { form: { fields: [{ id: 'nome' }] } } })).toBe(1)
+      expect(update({ meta_validation_errors: { source: 'local', errors: ['x'] }, meta_last_checked_at: 'agora' })).toBe(1)
+    })
+
+    it('template_project_items: sync de projeto que regrava o mesmo meta_id/meta_status não publica', () => {
+      const item = (index: number, overrides: Row = {}): Row => ({
+        id: `tpi_${index}`,
+        project_id: 'tp_1',
+        name: `item_${index}`,
+        content: 'Olá {{1}}',
+        language: 'pt_BR',
+        category: 'UTILITY',
+        status: 'submitted',
+        meta_id: `meta_${index}`,
+        meta_status: 'PENDING',
+        rejected_reason: null,
+        submitted_at: 's',
+        components: null,
+        header: null,
+        footer: null,
+        buttons: null,
+        variables: null,
+        sample_variables: null,
+        marketing_variables: null,
+        created_at: 'c',
+        updated_at: null,
+        ...overrides,
+      })
+      const sync = Array.from({ length: 50 }, (_, i) => ({ old: item(i), new: item(i) }))
+      expect(count({ table: 'template_project_items', op: 'UPDATE', rows: sync })).toBe(0)
+
+      const approved = Array.from({ length: 50 }, (_, i) => ({ old: item(i), new: item(i, i < 2 ? { meta_status: 'APPROVED' } : {}) }))
+      expect(count({ table: 'template_project_items', op: 'UPDATE', rows: approved })).toBe(2)
+      expect(
+        count({ table: 'template_project_items', op: 'UPDATE', rows: [{ old: item(1), new: item(1, { content: 'Oi {{1}}' }) }] })
+      ).toBe(1)
     })
   })
 

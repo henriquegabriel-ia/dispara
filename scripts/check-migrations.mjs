@@ -21,7 +21,11 @@
  *  2. upgrade: banco no estado de produção (todas menos a de hardening) + dados → aplica
  *     a migration de hardening → confere dados e garantias;
  *  3. idempotência: reaplica a migration de hardening (não pode falhar nem recriar triggers);
- *  4. resiliência: escrita nunca falha se o realtime quebrar (send ausente/sem permissão).
+ *  4. resiliência: escrita nunca falha se o realtime quebrar (send ausente/sem permissão);
+ *     WHEN de templates/flows/itens de projeto (reescrita sem mudança visível não publica);
+ *  5. realtime indisponível na instalação: sem realtime.send, ou com um send sem o próprio
+ *     EXCEPTION WHEN OTHERS, a migration aplica, avisa (WARNING) e não cria triggers;
+ *     reaplicar com o Realtime ativo cria; send trocado depois não derruba escrita.
  *
  * Sai com código 1 se qualquer verificação falhar.
  */
@@ -53,6 +57,32 @@ const SERVER_RPCS = [
 const KNOWN_MISSING_RPCS = new Set(['get_ab_variant_metrics', 'get_db_size'])
 
 const PII_KEYS = ['phone', 'name', 'email', 'content', 'body', 'custom_fields', 'text', 'message', 'contact_name', 'last_message_preview']
+
+// realtime.send como no Supabase: o INSERT em realtime.messages fica num bloco
+// EXCEPTION WHEN OTHERS próprio (a migration de hardening exige isso para criar as triggers).
+const REALTIME_SEND_SQL = `
+CREATE OR REPLACE FUNCTION realtime.send(payload jsonb, event text, topic text, private boolean DEFAULT true)
+RETURNS void LANGUAGE plpgsql AS $fn$
+BEGIN
+  BEGIN
+    EXECUTE format('SET LOCAL realtime.topic TO %L', topic);
+    INSERT INTO realtime.messages (payload, event, topic, private, extension)
+    VALUES (payload, event, topic, private, 'broadcast');
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'ErrorSendingBroadcastMessage: %', SQLERRM;
+  END;
+END;
+$fn$`
+
+// Variante hipotética sem tratamento de erro: uma falha no INSERT propaga para quem chamou.
+const REALTIME_SEND_UNSAFE_SQL = `
+CREATE OR REPLACE FUNCTION realtime.send(payload jsonb, event text, topic text, private boolean DEFAULT true)
+RETURNS void LANGUAGE plpgsql AS $fn$
+BEGIN
+  INSERT INTO realtime.messages (payload, event, topic, private, extension)
+  VALUES (payload, event, topic, private, 'broadcast');
+END;
+$fn$`
 
 // ---------------------------------------------------------------------------
 // Bootstrap "Supabase" (roda como superusuário, antes das migrations)
@@ -92,18 +122,7 @@ CREATE TABLE realtime.messages (
   id uuid NOT NULL DEFAULT gen_random_uuid()
 );
 GRANT SELECT, INSERT ON realtime.messages TO ${OWNER}, service_role;
-CREATE FUNCTION realtime.send(payload jsonb, event text, topic text, private boolean DEFAULT true)
-RETURNS void LANGUAGE plpgsql AS $fn$
-BEGIN
-  BEGIN
-    EXECUTE format('SET LOCAL realtime.topic TO %L', topic);
-    INSERT INTO realtime.messages (payload, event, topic, private, extension)
-    VALUES (payload, event, topic, private, 'broadcast');
-  EXCEPTION WHEN OTHERS THEN
-    RAISE WARNING 'ErrorSendingBroadcastMessage: %', SQLERRM;
-  END;
-END;
-$fn$;
+${REALTIME_SEND_SQL};
 CREATE FUNCTION realtime.topic() RETURNS text LANGUAGE sql STABLE AS $fn$
   SELECT nullif(current_setting('realtime.topic', true), '')::text
 $fn$;
@@ -456,10 +475,74 @@ async function verifyRealtime(db, label) {
     check(`[${label}] cópia de template de campanha no inbox NÃO publica (volume do disparo)`, (await realtimeCount(db)) === t0, `eventos=${(await realtimeCount(db)) - t0}`)
   }
 
+  await verifyRealtimeUpdateFilters(db, label, write)
+
   // Nenhum payload com PII
   const all = await rows(db, `SELECT payload FROM realtime.messages`)
   const leaks = all.flatMap((m) => findPii(m.payload, piiValues).map((h) => `${m.payload?.table}: ${h}`))
   check(`[${label}] nenhum payload de broadcast contém PII (${all.length} eventos)`, leaks.length === 0, [...new Set(leaks)].slice(0, 10).join('; '))
+}
+
+/**
+ * WHEN do UPDATE de templates / flows / template_project_items: reescrita sem mudança
+ * visível (sync da Meta, salvar/checar flow, sync de projeto) não publica.
+ */
+async function verifyRealtimeUpdateFilters(db, label, write) {
+  const delta = async (sql) => {
+    const before = await realtimeCount(db)
+    await write(sql)
+    return (await realtimeCount(db)) - before
+  }
+
+  // templates: syncTemplatesToLocalDb faz upsert de TODOS (onConflict name,language) com
+  // fetched_at/updated_at novos a cada GET /api/templates
+  const templateSync = (rejectFirst) => `
+    INSERT INTO public.templates (name, language, category, status, parameter_format, components, spec_hash, fetched_at, updated_at)
+    SELECT 'rt_tpl_' || g, 'pt_BR', 'MARKETING', CASE WHEN g = 1 AND ${rejectFirst} THEN 'REJECTED' ELSE 'APPROVED' END,
+           'positional', jsonb_build_array(jsonb_build_object('type', 'BODY', 'text', 'Olá {{1}} #' || g)), 'hash_' || g, now(), now()
+    FROM generate_series(1, 20) AS g
+    ON CONFLICT (name, language) DO UPDATE SET
+      category = EXCLUDED.category, status = EXCLUDED.status, parameter_format = EXCLUDED.parameter_format,
+      components = EXCLUDED.components, spec_hash = EXCLUDED.spec_hash,
+      fetched_at = EXCLUDED.fetched_at, updated_at = EXCLUDED.updated_at`
+  let n = await delta(templateSync(false))
+  check(`[${label}] templates: 1º sync (20 novos) publica 20 INSERTs`, n === 20, `eventos=${n}`)
+  n = await delta(templateSync(false))
+  check(`[${label}] templates: sync sem mudança real (upsert dos 20) não publica`, n === 0, `eventos=${n}`)
+  n = await delta(templateSync(true))
+  check(`[${label}] templates: sync com 1 status mudado publica só 1 UPDATE`, n === 1, `eventos=${n}`)
+  const [tpl] = await lastMessages(db, 1)
+  check(`[${label}] templates: o UPDATE publicado traz id/status (sem PII)`,
+    tpl?.payload?.table === 'templates' && tpl?.payload?.eventType === 'UPDATE' && tpl?.payload?.new?.status === 'REJECTED' && !!tpl?.payload?.new?.id,
+    JSON.stringify(tpl?.payload ?? {}))
+  n = await delta(`UPDATE public.templates SET header_media_preview_url = 'https://exemplo.test/assinada?t=' || md5(random()::text), header_media_preview_updated_at = now() WHERE name = 'rt_tpl_2'`)
+  check(`[${label}] templates: URL assinada do preview regravada pelo disparo não publica`, n === 0, `eventos=${n}`)
+  n = await delta(`UPDATE public.templates SET components = '[{"type":"BODY","text":"novo"}]'::jsonb WHERE name = 'rt_tpl_3'`)
+  check(`[${label}] templates: conteúdo (components) mudado publica`, n === 1, `eventos=${n}`)
+  n = await delta(`DELETE FROM public.templates WHERE name = 'rt_tpl_20'`)
+  check(`[${label}] templates: DELETE publica`, n === 1, `eventos=${n}`)
+
+  // flows: salvar sem mudança e checar status na Meta só mexem em updated_at/meta_last_checked_at
+  await write(`INSERT INTO public.flows (id, name) VALUES ('rt_fl1', 'Fluxo RT')`)
+  n = await delta(`UPDATE public.flows SET updated_at = now(), meta_last_checked_at = now() WHERE id = 'rt_fl1'`)
+  check(`[${label}] flows: UPDATE só de updated_at/meta_last_checked_at não publica`, n === 0, `eventos=${n}`)
+  n = await delta(`UPDATE public.flows SET spec = '{"form":{"fields":[{"id":"nome"}]}}'::jsonb WHERE id = 'rt_fl1'`)
+  check(`[${label}] flows: spec mudado publica`, n === 1, `eventos=${n}`)
+  n = await delta(`UPDATE public.flows SET meta_status = 'PUBLISHED', meta_flow_id = '123', meta_last_checked_at = now() WHERE id = 'rt_fl1'`)
+  check(`[${label}] flows: status na Meta mudado publica`, n === 1, `eventos=${n}`)
+
+  // template_project_items: o sync de projeto regrava meta_id/meta_status de todos os itens
+  await write(`
+    INSERT INTO public.template_projects (id, title) VALUES ('rt_tp1', 'Projeto RT');
+    INSERT INTO public.template_project_items (id, project_id, name, content, meta_id, meta_status)
+    SELECT 'rt_tpi' || g, 'rt_tp1', 'item_rt_' || g, 'Olá {{1}}', 'meta_' || g, 'PENDING' FROM generate_series(1, 10) AS g`)
+  n = await delta(`UPDATE public.template_project_items SET meta_id = meta_id, meta_status = meta_status WHERE project_id = 'rt_tp1'`)
+  check(`[${label}] template_project_items: sync sem mudança (10 itens) não publica`, n === 0, `eventos=${n}`)
+  n = await delta(`UPDATE public.template_project_items SET meta_status = 'APPROVED' WHERE id = 'rt_tpi1'`)
+  const [item] = await lastMessages(db, 1)
+  check(`[${label}] template_project_items: meta_status mudado publica 1 evento com project_id (filtro do detalhe)`,
+    n === 1 && item?.payload?.new?.project_id === 'rt_tp1' && item?.payload?.old?.project_id === 'rt_tp1',
+    `eventos=${n} ${JSON.stringify(item?.payload ?? {})}`)
 }
 
 async function verifyRealtimeResilience(db) {
@@ -593,6 +676,73 @@ async function scenarioUpgrade(files) {
   await db.close()
 }
 
+async function scenarioRealtimeUnavailable(files) {
+  scenario('5. Realtime indisponível na instalação (realtime.send ausente ou sem tratamento de erro próprio)')
+  const db = await createSupabaseLikeDb()
+
+  // a) Projeto sem Broadcast from Database: não existe realtime.send
+  await db.exec(`ALTER FUNCTION realtime.send(jsonb, text, text, boolean) RENAME TO send_disabled`)
+  await asOwner(db)
+  let hardening = null
+  for (const file of files) {
+    const r = await applyMigration(db, file)
+    if (!r.ok) {
+      check(`aplica ${file} sem realtime.send`, false, r.error)
+      await db.close()
+      return
+    }
+    if (file === HARDENING) hardening = r
+  }
+  check('sem realtime.send: todas as migrations aplicam', hardening?.ok)
+  check('sem realtime.send: WARNING acionável ("Reaplique esta migration depois que o Realtime estiver ativo")',
+    hardening.warnings.some((w) => /Reaplique esta migration depois que o Realtime estiver ativo/.test(w)),
+    hardening.warnings.join(' | ') || '(nenhum WARNING)')
+  await asSuperuser(db)
+  let fingerprint = await triggerFingerprint(db)
+  check('sem realtime.send: nenhuma trigger de broadcast criada', fingerprint.length === 0, JSON.stringify(fingerprint.map((f) => `${f.relname}.${f.tgname}`)))
+  const anonErr = await tryAsRole(db, 'anon', `SELECT * FROM public.contacts LIMIT 1`)
+  check('sem realtime.send: o resto da migration vale (anon sem SELECT em contacts)', anonErr === '42501', `resultado: ${anonErr ?? 'PASSOU (vazamento!)'}`)
+
+  // b) realtime.send sem EXCEPTION WHEN OTHERS próprio: a trigger o chama fora de bloco de
+  //    exceção, então uma falha no envio derrubaria a escrita — a migration não cria triggers
+  await db.exec(`DROP FUNCTION realtime.send_disabled(jsonb, text, text, boolean)`)
+  await db.exec(REALTIME_SEND_UNSAFE_SQL)
+  await asOwner(db)
+  const unsafe = await applyMigration(db, HARDENING)
+  check('send sem tratamento de erro: reaplicar a migration não falha', unsafe.ok, unsafe.error)
+  check('send sem tratamento de erro: WARNING explica o motivo',
+    unsafe.warnings.some((w) => /não trata os próprios erros/.test(w) && /derrubaria a escrita/.test(w)),
+    unsafe.warnings.join(' | ') || '(nenhum WARNING)')
+  await asSuperuser(db)
+  fingerprint = await triggerFingerprint(db)
+  check('send sem tratamento de erro: nenhuma trigger de broadcast criada', fingerprint.length === 0, JSON.stringify(fingerprint.map((f) => `${f.relname}.${f.tgname}`)))
+
+  // c) Realtime ativo (send como o do Supabase): reaplicar cria as triggers, sem aviso
+  await db.exec(REALTIME_SEND_SQL)
+  await asOwner(db)
+  const enabled = await applyMigration(db, HARDENING)
+  check('Realtime ativo: reaplicar não falha nem avisa', enabled.ok && enabled.warnings.length === 0, enabled.error ?? enabled.warnings.join(' | '))
+  await asSuperuser(db)
+  fingerprint = await triggerFingerprint(db)
+  check(`Realtime ativo: reaplicar cria as triggers (${fingerprint.length})`, fingerprint.length >= 5)
+  const ok0 = await realtimeCount(db)
+  const okErr = await tryAsRole(db, 'service_role', `INSERT INTO public.campaigns (id, name, status) VALUES ('rt_on', 'Campanha on', 'Rascunho')`)
+  check('Realtime ativo: INSERT em campaigns publica', okErr === null && (await realtimeCount(db)) === ok0 + 1, `erro: ${okErr}`)
+
+  // d) Triggers já criadas e o send trocado depois por um sem tratamento de erro que falha:
+  //    a guarda da função (a cada evento) não chama o send e a escrita segue
+  await db.exec(REALTIME_SEND_UNSAFE_SQL)
+  await db.exec(`ALTER TABLE realtime.messages ADD CONSTRAINT harness_block CHECK (false) NOT VALID`)
+  const controlErr = await tryAsRole(db, 'service_role', `SELECT realtime.send('{}'::jsonb, 'db_change', 'dispara-db', false)`)
+  check('(controle) esse realtime.send propaga a falha do INSERT', controlErr === '23514', `resultado: ${controlErr ?? 'não falhou'}`)
+  const guardErr = await tryAsRole(db, 'service_role', `
+    INSERT INTO public.campaigns (id, name, status) VALUES ('rt_guard', 'Campanha guarda', 'Rascunho');
+    UPDATE public.campaigns SET status = 'Enviando' WHERE id = 'rt_guard';`)
+  check('send trocado depois por um sem tratamento de erro: a escrita segue (guarda por evento)', guardErr === null, `erro: ${guardErr}`)
+  await db.exec(`ALTER TABLE realtime.messages DROP CONSTRAINT harness_block`)
+  await db.close()
+}
+
 async function main() {
   const files = listMigrations()
   console.log(`Migrations encontradas: ${files.length} (${files[0]} … ${files[files.length - 1]})`)
@@ -603,6 +753,7 @@ async function main() {
   verifyRpcList()
   await scenarioFreshInstall(files)
   await scenarioUpgrade(files)
+  await scenarioRealtimeUnavailable(files)
 
   const failed = results.filter((r) => !r.ok)
   console.log(`\n${results.length - failed.length}/${results.length} verificações passaram`)
