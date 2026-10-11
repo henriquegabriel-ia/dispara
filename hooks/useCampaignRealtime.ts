@@ -21,6 +21,7 @@ import { useEffect, useRef, useCallback, useState, useMemo } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { CampaignStatus } from '@/types'
 import { createRealtimeChannel, subscribeToTable, subscribeToBroadcast, activateChannel, removeChannel } from '@/lib/supabase-realtime'
+import { REALTIME_FILTERS } from '@/lib/realtime-db-change'
 import type { RealtimePayload } from '@/types'
 import type { CampaignProgressBroadcastPayload } from '@/types'
 import type { RealtimeLatencyTelemetry } from '@/types'
@@ -271,8 +272,8 @@ export function useCampaignRealtime({
 
   // Connect/disconnect Realtime
   useEffect(() => {
-    // Disconnect if shouldn't connect
-    if (!shouldConnect) {
+    // Disconnect if shouldn't connect (shouldConnect já é false sem campaignId; o !campaignId estreita o tipo)
+    if (!shouldConnect || !campaignId) {
       if (channelRef.current) {
         removeChannel(channelRef.current)
         channelRef.current = null
@@ -296,7 +297,7 @@ export function useCampaignRealtime({
     channelRef.current = channel
 
     // Subscribe to campaign table updates (broadcast `dispara-db`: só status/contadores)
-    subscribeToTable(channel, 'campaigns', 'UPDATE', handleCampaignUpdate, `id=eq.${campaignId}`)
+    subscribeToTable(channel, 'campaigns', 'UPDATE', handleCampaignUpdate, REALTIME_FILTERS.campaignById(campaignId))
 
     // campaign_contacts não tem trigger de broadcast (volume do disparo em massa):
     // o progresso por mensagem vem do broadcast 'campaign_progress' abaixo

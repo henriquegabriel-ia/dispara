@@ -6,6 +6,7 @@ import { FormInput, ArrowUpRight, Users, Percent } from 'lucide-react';
 import { PrefetchLink } from '@/components/ui/PrefetchLink';
 import { onDbChangesStatus, subscribeToDbChanges } from '@/lib/supabase-realtime';
 import { createRealtimeInvalidator } from '@/lib/realtime-invalidation';
+import { REALTIME_FILTERS } from '@/lib/realtime-db-change';
 import type { Campaign } from '@/types';
 
 interface CampaignFlowPanelProps {
@@ -42,7 +43,7 @@ export const CampaignFlowPanel: React.FC<CampaignFlowPanelProps> = ({ campaign }
       () => {
         invalidator.invalidate(['campaign', campaign.id]);
       },
-      { table: 'flow_submissions', event: 'INSERT', filter: `campaign_id=eq.${campaign.id}` }
+      { table: 'flow_submissions', event: 'INSERT', filter: REALTIME_FILTERS.flowSubmissionsByCampaign(campaign.id) }
     );
     const unsubscribeStatus = onDbChangesStatus((status) => {
       setIsLive(status === 'SUBSCRIBED');

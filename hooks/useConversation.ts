@@ -13,6 +13,7 @@ import {
 import type { InboxConversation, InboxMessage, ConversationMode } from '@/types'
 import { CACHE, REALTIME } from '@/lib/constants'
 import { createRealtimeInvalidator } from '@/lib/realtime-invalidation'
+import { REALTIME_FILTERS } from '@/lib/realtime-db-change'
 import { useRealtimeQuery } from './useRealtimeQuery'
 import {
   createRealtimeChannel,
@@ -52,7 +53,7 @@ export function useConversation(conversationId: string | null) {
     // Real-time
     table: 'inbox_conversations',
     events: ['UPDATE'],
-    filter: conversationId ? `id=eq.${conversationId}` : undefined,
+    filter: conversationId ? REALTIME_FILTERS.conversationById(conversationId) : undefined,
     debounceMs: REALTIME.debounceDefault,
   })
 
@@ -216,10 +217,10 @@ export function useMessages(conversationId: string | null) {
     }
 
     // Subscribe to INSERT events (new messages) — filtro por conversa no hub
-    subscribeToTable(channel, 'inbox_messages', 'INSERT', invalidateMessages, `conversation_id=eq.${conversationId}`)
+    subscribeToTable(channel, 'inbox_messages', 'INSERT', invalidateMessages, REALTIME_FILTERS.messagesByConversation(conversationId))
 
     // Also subscribe to UPDATE events (delivery status changes)
-    subscribeToTable(channel, 'inbox_messages', 'UPDATE', invalidateMessages, `conversation_id=eq.${conversationId}`)
+    subscribeToTable(channel, 'inbox_messages', 'UPDATE', invalidateMessages, REALTIME_FILTERS.messagesByConversation(conversationId))
 
     // Activate the channel
     activateChannel(channel).catch((err) => {

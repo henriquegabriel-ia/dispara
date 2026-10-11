@@ -5,9 +5,9 @@
  * Aplica TODAS as migrations num Postgres 17 real (PGlite, pelas funções exportadas de
  * scripts/check-migrations.mjs), gera eventos com escritas reais como service_role (igual
  * ao app) e passa cada payload de realtime.messages pelo caminho do frontend:
- * parseDbChangeMessage (mensagem do realtime-js), matchesRealtimeFilter com os filtros reais
- * dos hooks, toRealtimePayload e a detecção de transição de campanha
- * (getCampaignFinalTransition / isDbChangeStatusTransition).
+ * parseDbChangeMessage (mensagem do realtime-js), matchesRealtimeFilter com os MESMOS
+ * filtros dos hooks/componentes (REALTIME_FILTERS, que eles importam), toRealtimePayload e a
+ * detecção de transição de campanha (getCampaignFinalTransition / isDbChangeStatusTransition).
  *
  * Se a migration mudar a projeção (coluna renomeada, chave de filtro fora do payload,
  * old.status removido), este teste quebra antes do dashboard ficar mudo.
@@ -16,6 +16,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
   ageCampaignWindow,
+  BROADCAST_PAYLOAD_KEYS,
   createMigratedDb,
   describeTrigger,
   EXPECTED_BROADCAST_TRIGGERS,
@@ -35,6 +36,9 @@ import {
   isDbChangeStatusTransition,
   matchesRealtimeFilter,
   parseDbChangeMessage,
+  parseRealtimeFilter,
+  REALTIME_FILTERS,
+  type DbBroadcastTable,
   type DbChangeEvent,
 } from '@/lib/realtime-db-change'
 import { toRealtimePayload } from '@/lib/supabase-realtime'
@@ -103,14 +107,34 @@ describe('contrato do realtime: banco (migrations) ↔ lib/realtime-db-change.ts
     expect([...new Set(triggers.map((t) => t.table))].sort()).toEqual([...DB_BROADCAST_TABLES].sort())
   })
 
-  it('campaigns: filtro id=eq do detalhe (useCampaignRealtime) e transição final (useRealtimeNotifications)', async () => {
+  it('cada filtro de REALTIME_FILTERS usa uma coluna que sai em new E old do payload da tabela filtrada', () => {
+    // Tabela de cada filtro (um filtro novo sem tabela aqui não compila)
+    const tableOf: Record<keyof typeof REALTIME_FILTERS, DbBroadcastTable> = {
+      campaignById: 'campaigns',
+      conversationById: 'inbox_conversations',
+      messagesByConversation: 'inbox_messages',
+      projectItemsByProject: 'template_project_items',
+      flowSubmissionsByCampaign: 'flow_submissions',
+    }
+    const payloadKeys = BROADCAST_PAYLOAD_KEYS as Record<DbBroadcastTable, { new: string[]; old: string[] }>
+    for (const [name, build] of Object.entries(REALTIME_FILTERS)) {
+      const table = tableOf[name as keyof typeof REALTIME_FILTERS]
+      const column = parseRealtimeFilter(build('valor'))?.column
+      // new: INSERT/UPDATE; old: DELETE (matchesRealtimeFilter compara com new e, sem ele, com old)
+      expect(payloadKeys[table].new, `${name} → ${table}.new`).toContain(column)
+      expect(payloadKeys[table].old, `${name} → ${table}.old`).toContain(column)
+    }
+  })
+
+  it('campaigns: filtro do detalhe (useCampaignRealtime: REALTIME_FILTERS.campaignById) e transição final (useRealtimeNotifications)', async () => {
+    const byId = REALTIME_FILTERS.campaignById
     const inserted = await capture(() =>
       write(`INSERT INTO public.campaigns (id, name, status) VALUES ('ct_c1', 'Campanha contrato', 'Rascunho'), ('ct_c2', 'Outra campanha', 'Rascunho')`))
     expect(inserted.map((e) => `${e.table}/${e.eventType}`)).toEqual(['campaigns/INSERT', 'campaigns/INSERT'])
 
     const [started] = await capture(() => write(`UPDATE public.campaigns SET status = 'Enviando', started_at = now() WHERE id = 'ct_c1'`))
-    expect(matchesRealtimeFilter(started, 'id=eq.ct_c1')).toBe(true)
-    expect(matchesRealtimeFilter(started, 'id=eq.ct_c2')).toBe(false)
+    expect(matchesRealtimeFilter(started, byId('ct_c1'))).toBe(true)
+    expect(matchesRealtimeFilter(started, byId('ct_c2'))).toBe(false)
     expect(isDbChangeStatusTransition(started)).toBe(true)
     expect(getCampaignFinalTransition(toRealtimePayload(started))).toBeNull()
 
@@ -118,7 +142,7 @@ describe('contrato do realtime: banco (migrations) ↔ lib/realtime-db-change.ts
     await ageCampaignWindow(db, 'ct_c1')
     const [counter] = await capture(() => write(`SELECT public.increment_campaign_stat('ct_c1'::text, 'delivered'::text)`))
     expect(counter.new?.delivered).toBe(1)
-    expect(matchesRealtimeFilter(counter, 'id=eq.ct_c1')).toBe(true)
+    expect(matchesRealtimeFilter(counter, byId('ct_c1'))).toBe(true)
     expect(isDbChangeStatusTransition(counter)).toBe(false)
     expect(getCampaignFinalTransition(toRealtimePayload(counter))).toBeNull()
 
@@ -138,10 +162,10 @@ describe('contrato do realtime: banco (migrations) ↔ lib/realtime-db-change.ts
 
     const [deleted] = await capture(() => write(`DELETE FROM public.campaigns WHERE id = 'ct_c2'`))
     expect(deleted).toMatchObject({ table: 'campaigns', eventType: 'DELETE', new: null })
-    expect(matchesRealtimeFilter(deleted, 'id=eq.ct_c2')).toBe(true)
+    expect(matchesRealtimeFilter(deleted, byId('ct_c2'))).toBe(true)
   })
 
-  it('inbox: filtros do useConversation (conversation_id=eq nas mensagens, id=eq na conversa)', async () => {
+  it('inbox: filtros do useConversation (REALTIME_FILTERS.messagesByConversation nas mensagens, conversationById na conversa)', async () => {
     const phone = '+5511900000201'
     const inbound = (wamid: string) =>
       queryAs(db, 'service_role', `SELECT public.process_inbound_message($1, $2, $3)`, [phone, 'mensagem secreta do cliente', wamid])
@@ -150,16 +174,16 @@ describe('contrato do realtime: banco (migrations) ↔ lib/realtime-db-change.ts
     const [first] = await capture(() => inbound('wamid.contract.1'))
     expect(first).toMatchObject({ table: 'inbox_messages', eventType: 'INSERT' })
     const conversationId = String(first.new?.conversation_id)
-    const messageFilter = `conversation_id=eq.${conversationId}`
+    const messageFilter = REALTIME_FILTERS.messagesByConversation(conversationId)
     expect(matchesRealtimeFilter(first, messageFilter)).toBe(true)
-    expect(matchesRealtimeFilter(first, 'conversation_id=eq.00000000-0000-0000-0000-000000000000')).toBe(false)
+    expect(matchesRealtimeFilter(first, REALTIME_FILTERS.messagesByConversation('00000000-0000-0000-0000-000000000000'))).toBe(false)
 
     // 2ª mensagem: UPDATE da conversa (não lidas) + INSERT da mensagem
     const second = await capture(() => inbound('wamid.contract.2'))
     const conversation = second.find((e) => e.table === 'inbox_conversations')
     const message = second.find((e) => e.table === 'inbox_messages')
     expect(conversation?.eventType).toBe('UPDATE')
-    expect(matchesRealtimeFilter(conversation as DbChangeEvent, `id=eq.${conversationId}`)).toBe(true)
+    expect(matchesRealtimeFilter(conversation as DbChangeEvent, REALTIME_FILTERS.conversationById(conversationId))).toBe(true)
     expect(matchesRealtimeFilter(message as DbChangeEvent, messageFilter)).toBe(true)
 
     // Status de entrega de uma resposta (fora de campanha) chega pelo filtro de UPDATE
@@ -179,7 +203,7 @@ describe('contrato do realtime: banco (migrations) ↔ lib/realtime-db-change.ts
     expect(matchesRealtimeFilter(removed, messageFilter)).toBe(false)
   })
 
-  it('template_project_items: filtro project_id=eq do detalhe do projeto vale para INSERT, UPDATE e DELETE', async () => {
+  it('template_project_items: filtro do detalhe do projeto (REALTIME_FILTERS.projectItemsByProject) vale para INSERT, UPDATE e DELETE', async () => {
     await write(`INSERT INTO public.template_projects (id, title) VALUES ('ct_tp1', 'Projeto'), ('ct_tp2', 'Outro projeto')`)
     const events = await capture(async () => {
       await write(`INSERT INTO public.template_project_items (id, project_id, name, content) VALUES ('ct_i1', 'ct_tp1', 'item', 'Olá {{1}}')`)
@@ -188,19 +212,19 @@ describe('contrato do realtime: banco (migrations) ↔ lib/realtime-db-change.ts
     })
     expect(events.map((e) => e.eventType)).toEqual(['INSERT', 'UPDATE', 'DELETE'])
     for (const event of events) {
-      expect(matchesRealtimeFilter(event, 'project_id=eq.ct_tp1')).toBe(true)
-      expect(matchesRealtimeFilter(event, 'project_id=eq.ct_tp2')).toBe(false)
+      expect(matchesRealtimeFilter(event, REALTIME_FILTERS.projectItemsByProject('ct_tp1'))).toBe(true)
+      expect(matchesRealtimeFilter(event, REALTIME_FILTERS.projectItemsByProject('ct_tp2'))).toBe(false)
     }
   })
 
-  it('flow_submissions: filtro campaign_id=eq do CampaignFlowPanel', async () => {
+  it('flow_submissions: filtro do CampaignFlowPanel (REALTIME_FILTERS.flowSubmissionsByCampaign)', async () => {
     await write(`INSERT INTO public.campaigns (id, name) VALUES ('ct_c3', 'Campanha com flow')`)
     const [submission] = await capture(() =>
       write(`INSERT INTO public.flow_submissions (id, message_id, from_phone, response_json_raw, campaign_id)
              VALUES ('ct_fs1', 'wamid.contract.fs', '+5511900000202', '{}', 'ct_c3')`))
     expect(submission).toMatchObject({ table: 'flow_submissions', eventType: 'INSERT' })
-    expect(matchesRealtimeFilter(submission, 'campaign_id=eq.ct_c3')).toBe(true)
-    expect(matchesRealtimeFilter(submission, 'campaign_id=eq.ct_c1')).toBe(false)
+    expect(matchesRealtimeFilter(submission, REALTIME_FILTERS.flowSubmissionsByCampaign('ct_c3'))).toBe(true)
+    expect(matchesRealtimeFilter(submission, REALTIME_FILTERS.flowSubmissionsByCampaign('ct_c1'))).toBe(false)
   })
 
   it('listas sem filtro (templates, flows, account_alerts, template_projects, contacts): todo evento chega ao assinante', async () => {

@@ -119,6 +119,25 @@ export function parseRealtimeFilter(filter: string | undefined | null): Realtime
 }
 
 /**
+ * Filtros `coluna=eq.valor` que os hooks/componentes passam ao hub de realtime. Ficam aqui
+ * (e não como literais espalhados) para o teste de contrato com o banco
+ * (lib/realtime-db-change.contract.test.ts) usar EXATAMENTE os mesmos: a coluna de cada um
+ * precisa estar na projeção de dispara_broadcast_change (migration de hardening).
+ */
+export const REALTIME_FILTERS = {
+  /** useCampaignRealtime: UPDATE da campanha aberta no detalhe (campaigns) */
+  campaignById: (campaignId: string): string => `id=eq.${campaignId}`,
+  /** useConversation: UPDATE da conversa aberta (inbox_conversations) */
+  conversationById: (conversationId: string): string => `id=eq.${conversationId}`,
+  /** useMessages: INSERT/UPDATE das mensagens da conversa (inbox_messages) */
+  messagesByConversation: (conversationId: string): string => `conversation_id=eq.${conversationId}`,
+  /** useTemplateProjectDetailsQuery: itens do projeto aberto (template_project_items) */
+  projectItemsByProject: (projectId: string): string => `project_id=eq.${projectId}`,
+  /** CampaignFlowPanel: submissões do Flow da campanha (flow_submissions) */
+  flowSubmissionsByCampaign: (campaignId: string): string => `campaign_id=eq.${campaignId}`,
+} as const
+
+/**
  * Aplica no cliente o filtro que o postgres_changes aplicava no servidor.
  * Compara contra a linha nova e, se não houver (DELETE), contra a antiga.
  * Filtro em formato não suportado → não casa (fail-closed, evita invalidar errado).
