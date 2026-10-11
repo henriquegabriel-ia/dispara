@@ -148,6 +148,10 @@ export function CentralizedRealtimeProvider({
         debouncedInvalidate(['inbox-messages'])
         // Also invalidate unread count when new messages arrive
         debouncedInvalidate(['inbox-unread-count'])
+        // A lista de conversas (ordem, prévia, conversa nova) também muda com a mensagem:
+        // o banco não publica INSERT de conversa nem o contador de saída
+        // (increment_conversation_counters) — ver a migration de hardening.
+        debouncedInvalidate(['inbox-conversations'])
       }
     })
 
