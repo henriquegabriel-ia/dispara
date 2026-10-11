@@ -9,25 +9,37 @@
  * Usa Supabase (PostgreSQL) como banco de dados
  */
 
+import { createHmac } from 'crypto'
 import { cookies } from 'next/headers'
-import { supabase } from './supabase'
-import { normalizePhoneNumber, validateAnyPhoneNumber } from './phone-formatter'
-
-function getFirstName(fullName: string): string {
-  const normalized = fullName.trim().replace(/\s+/gu, ' ')
-  if (!normalized) return ''
-  const [first] = normalized.split(' ')
-  return first || normalized
-}
+import { supabase, getSupabaseAdmin } from '@/lib/supabase'
+import { timingSafeEqualString } from '@/lib/safe-compare'
 
 // ============================================================================
 // CONSTANTS
 // ============================================================================
 
-const SESSION_COOKIE_NAME = 'dispara_session'
+export const SESSION_COOKIE_NAME = 'dispara_session'
 const SESSION_MAX_AGE = 60 * 60 * 24 * 7 // 7 days in seconds
 const MAX_LOGIN_ATTEMPTS = 5
 const LOCKOUT_DURATION = 15 * 60 * 1000 // 15 minutes
+const MAX_STORED_SESSIONS = 50
+
+// Cache da LISTA de sessões usado pelo proxy (hot path de TODA request).
+// Um flood de cookies forjados custa no máximo 1 query a cada 15s por instância.
+const SESSION_LIST_CACHE_TTL_MS = 15_000
+// Falha de banco também é lembrada por pouco tempo (evita martelar um Supabase fora).
+const SESSION_STORE_ERROR_TTL_MS = 5_000
+const MAX_SESSION_TOKEN_LENGTH = 256
+const MAX_RECHECKED_TOKENS = 1_000
+
+// Formato novo do token: `s1.<uuid>.<hmac>` (HMAC-SHA256 com a MASTER_PASSWORD).
+// - Cookie forjado sem assinatura válida é rejeitado sem tocar no banco.
+// - Token assinado que não está na lista em cache pode ter sido criado por OUTRA
+//   instância depois da leitura (login recente) → relê a lista UMA vez por token.
+// - Trocar a MASTER_PASSWORD invalida todas as sessões assinadas.
+// Tokens antigos (UUID puro) continuam aceitos se estiverem na lista (compat).
+const SIGNED_TOKEN_PREFIX = 's1.'
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 // Novo formato: múltiplas sessões simultâneas (evita invalidação entre domínios/devices)
 // Persistido em `settings.key = 'session_tokens'` como JSON.
@@ -126,18 +138,217 @@ function pruneExpiredSessions(sessions: StoredSession[], now: Date): StoredSessi
   })
 }
 
-async function getStoredSessions(): Promise<StoredSession[] | null> {
-  const setting = await getSetting('session_tokens')
-  if (!setting?.value) return null
-  return parseStoredSessions(setting.value)
+type SessionSnapshot = {
+  /** null = `session_tokens` não existe (instância antiga: vale o token legado). */
+  sessions: StoredSession[] | null
+  /** Token legado único (`settings.session_token`). */
+  legacy: { token: string; updatedAt: string } | null
+}
+
+/**
+ * Lê `session_tokens` e o legado `session_token` numa única query, SEM escrever nada.
+ * Lança quando o Supabase não está configurado ou o banco falha — quem chama decide
+ * se isso é "indisponível" (proxy) ou erro (login/logout). Nunca trata erro como
+ * "lista vazia": isso apagaria as outras sessões no próximo createSession.
+ */
+async function readSessionSnapshot(): Promise<SessionSnapshot> {
+  const client = getSupabaseAdmin()
+  if (!client) throw new Error('Supabase não configurado')
+
+  const { data, error } = await client
+    .from('settings')
+    .select('key, value, updated_at')
+    .in('key', ['session_tokens', 'session_token'])
+
+  if (error) throw new Error(`Falha ao ler sessões: ${error.message}`)
+
+  let sessions: StoredSession[] | null = null
+  let legacy: SessionSnapshot['legacy'] = null
+  for (const row of (data || []) as Array<{ key: string; value: string | null; updated_at: string | null }>) {
+    if (row.key === 'session_tokens' && row.value) {
+      sessions = parseStoredSessions(row.value)
+    } else if (row.key === 'session_token' && row.value) {
+      legacy = { token: row.value, updatedAt: row.updated_at || '' }
+    }
+  }
+  return { sessions, legacy }
 }
 
 async function setStoredSessions(sessions: StoredSession[]): Promise<void> {
-  await upsertSetting('session_tokens', JSON.stringify(sessions))
+  await upsertSetting('session_tokens', JSON.stringify(sessions.slice(-MAX_STORED_SESSIONS)))
+}
+
+// ============================================================================
+// SESSION TOKENS (formato + assinatura)
+// ============================================================================
+
+function getSessionSigningSecret(): string | null {
+  return process.env.MASTER_PASSWORD || null
+}
+
+function signSessionId(id: string, secret: string): string {
+  return createHmac('sha256', secret).update(`dispara-session:${SIGNED_TOKEN_PREFIX}${id}`).digest('base64url')
+}
+
+/** Gera um token de sessão novo (assinado quando há MASTER_PASSWORD). */
+function generateSessionToken(): string {
+  const id = crypto.randomUUID()
+  const secret = getSessionSigningSecret()
+  if (!secret) return id
+  return `${SIGNED_TOKEN_PREFIX}${id}.${signSessionId(id, secret)}`
+}
+
+type TokenFormat = 'signed' | 'legacy' | 'malformed'
+
+function classifySessionToken(token: string): TokenFormat {
+  if (token.startsWith(SIGNED_TOKEN_PREFIX)) {
+    const rest = token.slice(SIGNED_TOKEN_PREFIX.length)
+    const dot = rest.indexOf('.')
+    if (dot <= 0) return 'malformed'
+    const id = rest.slice(0, dot)
+    const sig = rest.slice(dot + 1)
+    if (!UUID_RE.test(id) || !sig) return 'malformed'
+    const secret = getSessionSigningSecret()
+    if (!secret) return 'malformed'
+    return timingSafeEqualString(sig, signSessionId(id, secret)) ? 'signed' : 'malformed'
+  }
+  return UUID_RE.test(token) ? 'legacy' : 'malformed'
+}
+
+// ============================================================================
+// SESSION VALIDATION (hot path do proxy — NUNCA escreve no banco)
+// ============================================================================
+
+export type SessionTokenValidity = 'valid' | 'invalid' | 'unavailable'
+
+type CachedSnapshot =
+  | { ok: true; snapshot: SessionSnapshot; fetchedAt: number; expiresAt: number }
+  | { ok: false; expiresAt: number }
+
+let sessionSnapshotCache: CachedSnapshot | null = null
+let sessionSnapshotInflight: Promise<CachedSnapshot> | null = null
+// Incrementado a cada invalidação: leitura que começou antes não grava no cache.
+let sessionCacheGeneration = 0
+/** Tokens assinados que já forçaram releitura nesta janela de cache (anti-flood). */
+const recheckedSignedTokens = new Set<string>()
+
+/** Descarta o cache local da lista de sessões (login/logout nesta instância e testes). */
+export function invalidateSessionCache(): void {
+  sessionCacheGeneration++
+  sessionSnapshotCache = null
+  sessionSnapshotInflight = null
+  recheckedSignedTokens.clear()
+}
+
+function loadSessionSnapshot(force: boolean): Promise<CachedSnapshot> {
+  const cached = sessionSnapshotCache
+  if (!force && cached && cached.expiresAt > Date.now()) {
+    return Promise.resolve(cached)
+  }
+  // Requests concorrentes compartilham a mesma leitura.
+  if (sessionSnapshotInflight) return sessionSnapshotInflight
+
+  const generation = sessionCacheGeneration
+  const isTtlRefresh = !force
+  const fetchSnapshot = async (): Promise<CachedSnapshot> => {
+    let result: CachedSnapshot
+    try {
+      const snapshot = await readSessionSnapshot()
+      const fetchedAt = Date.now()
+      result = { ok: true, snapshot, fetchedAt, expiresAt: fetchedAt + SESSION_LIST_CACHE_TTL_MS }
+    } catch (error) {
+      console.error('[user-auth] Session store indisponível:', error instanceof Error ? error.message : error)
+      result = { ok: false, expiresAt: Date.now() + SESSION_STORE_ERROR_TTL_MS }
+    }
+    if (generation === sessionCacheGeneration) {
+      sessionSnapshotCache = result
+      if (result.ok && isTtlRefresh) recheckedSignedTokens.clear()
+    }
+    return result
+  }
+
+  const promise = fetchSnapshot()
+  sessionSnapshotInflight = promise
+  void promise.then(() => {
+    if (sessionSnapshotInflight === promise) sessionSnapshotInflight = null
+  })
+  return promise
+}
+
+function isSessionAlive(createdAtIso: string, nowMs: number): boolean {
+  const created = new Date(createdAtIso).getTime()
+  if (Number.isNaN(created)) return false
+  return nowMs - created <= SESSION_MAX_AGE * 1000
+}
+
+function snapshotHasToken(snapshot: SessionSnapshot, token: string, nowMs: number): boolean {
+  // Prefer multi-session list when available
+  if (snapshot.sessions) {
+    let found = false
+    for (const s of snapshot.sessions) {
+      // Sem curto-circuito: percorre a lista inteira (tempo independe da posição).
+      const match = timingSafeEqualString(s.token, token)
+      if (match && isSessionAlive(s.createdAt, nowMs)) found = true
+    }
+    return found
+  }
+
+  // Legacy fallback: single token
+  if (snapshot.legacy) {
+    const updatedAt = new Date(snapshot.legacy.updatedAt).getTime()
+    const sessionAgeMs = nowMs - updatedAt
+    if (!Number.isNaN(sessionAgeMs) && sessionAgeMs > SESSION_MAX_AGE * 1000) return false
+    return timingSafeEqualString(snapshot.legacy.token, token)
+  }
+
+  return false
+}
+
+/**
+ * Valida um token de sessão contra `settings.session_tokens` (e o legado `session_token`).
+ *
+ * - 'valid'       → sessão existe e não expirou.
+ * - 'invalid'     → token malformado, com assinatura errada, inexistente ou expirado.
+ * - 'unavailable' → Supabase não configurado ou erro de banco (NÃO é "deslogado":
+ *                   o proxy responde 503 em APIs e deixa a página abrir em modo degradado).
+ *
+ * Não escreve nada por request. A lista é cacheada por ~15s por instância; a poda de
+ * sessões expiradas acontece só em createSession/logoutUser.
+ */
+export async function isValidSessionToken(token: string): Promise<SessionTokenValidity> {
+  if (typeof token !== 'string') return 'invalid'
+  const trimmed = token.trim()
+  if (!trimmed || trimmed.length > MAX_SESSION_TOKEN_LENGTH) return 'invalid'
+
+  // Cookie forjado sem assinatura válida morre aqui, sem tocar no banco.
+  const format = classifySessionToken(trimmed)
+  if (format === 'malformed') return 'invalid'
+
+  const cached = await loadSessionSnapshot(false)
+  if (!cached.ok) return 'unavailable'
+  if (snapshotHasToken(cached.snapshot, trimmed, Date.now())) return 'valid'
+
+  // Token assinado por ESTE servidor que não está na lista em cache: pode ter sido
+  // criado por outra instância depois da leitura (login recente). Relê uma vez por
+  // token por janela de cache; tokens revogados não forçam releituras em loop.
+  if (format === 'signed' && !recheckedSignedTokens.has(trimmed)) {
+    if (recheckedSignedTokens.size >= MAX_RECHECKED_TOKENS) recheckedSignedTokens.clear()
+    recheckedSignedTokens.add(trimmed)
+    const fresh = await loadSessionSnapshot(true)
+    if (!fresh.ok) return 'unavailable'
+    return snapshotHasToken(fresh.snapshot, trimmed, Date.now()) ? 'valid' : 'invalid'
+  }
+
+  return 'invalid'
 }
 
 /**
  * Check if setup is completed (company exists)
+ *
+ * ATENÇÃO: em erro de banco devolve `false`. Isso é seguro só porque NENHUM caminho
+ * emite sessão quando o setup "não está completo" (o antigo /api/auth/setup, que
+ * fazia isso, foi removido; o login só cria sessão quando isto é `true`).
+ * Não use `!isSetupComplete()` como autorização para criar sessão.
  */
 export async function isSetupComplete(): Promise<boolean> {
   // Em produção, usamos a env var para evitar consultas e loops.
@@ -199,142 +410,6 @@ export async function getCompany(): Promise<Company | null> {
 }
 
 // ============================================================================
-// SETUP (First-time configuration)
-// ============================================================================
-
-/**
- * Complete initial setup - create company, email, phone
- * Password is handled via MASTER_PASSWORD env var
- */
-export async function completeSetup(
-  companyName: string,
-  companyAdmin: string,
-  email: string,
-  phone: string
-): Promise<UserAuthResult> {
-  // Validate inputs
-  if (!companyName || companyName.trim().length < 2) {
-    return { success: false, error: 'Nome da empresa deve ter pelo menos 2 caracteres' }
-  }
-
-  if (!companyAdmin || companyAdmin.trim().length < 2) {
-    return { success: false, error: 'Nome do responsável deve ter pelo menos 2 caracteres' }
-  }
-
-  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    return { success: false, error: 'E-mail inválido' }
-  }
-
-  // Normalize first so we accept inputs like "5511999999999" (without '+')
-  const normalizedPhoneE164ForValidation = normalizePhoneNumber(phone)
-  const phoneValidation = validateAnyPhoneNumber(normalizedPhoneE164ForValidation)
-  if (!phoneValidation.isValid) {
-    return { success: false, error: phoneValidation.error || 'Telefone inválido' }
-  }
-
-  try {
-    const now = new Date().toISOString()
-    // Use existing company_id if available, otherwise create new
-    const existingId = await getSetting('company_id')
-    const companyId = existingId?.value || crypto.randomUUID()
-
-    const normalizedPhoneE164 = normalizedPhoneE164ForValidation
-    const storedPhoneDigits = normalizedPhoneE164.replace(/\D/g, '')
-
-    // Save company info using parallel upserts
-    await Promise.all([
-      upsertSetting('company_id', companyId),
-      upsertSetting('company_name', companyName.trim()),
-      upsertSetting('company_admin', companyAdmin.trim()),
-      upsertSetting('company_email', email.trim().toLowerCase()),
-      upsertSetting('company_phone', storedPhoneDigits),
-      upsertSetting('company_created_at', now)
-    ])
-
-    // Seed automático do "Contato de Teste" (Settings → Testes)
-    // Só cria se ainda não existir, para não sobrescrever a escolha do usuário.
-    try {
-      const existingTestContact = await getSetting('test_contact')
-      const adminFullName = companyAdmin.trim()
-      const adminFirstName = getFirstName(adminFullName)
-      const desiredName = adminFirstName || adminFullName
-
-      if (!existingTestContact?.value) {
-        await upsertSetting(
-          'test_contact',
-          JSON.stringify({
-            name: desiredName,
-            phone: normalizedPhoneE164,
-            updatedAt: now,
-          })
-        )
-      } else {
-        // Se o contato já existe mas parece ter sido seedado automaticamente com o nome completo,
-        // podemos ajustar para o primeiro nome sem sobrescrever personalizações.
-        try {
-          const parsed = JSON.parse(existingTestContact.value) as unknown
-          if (parsed && typeof parsed === 'object') {
-            const tc = parsed as { name?: unknown; phone?: unknown; updatedAt?: unknown }
-            const currentName = typeof tc.name === 'string' ? tc.name.trim() : ''
-            const currentPhoneRaw = typeof tc.phone === 'string' ? tc.phone.trim() : ''
-            const currentPhoneDigits = currentPhoneRaw.replace(/\D/g, '')
-            const shouldUpgradePhoneToE164 = !!currentPhoneRaw && !currentPhoneRaw.startsWith('+')
-
-            // Upgrade seguro de seeds antigos:
-            // - Se o nome é o nome completo do admin (seed antigo) e o telefone bate (por dígitos),
-            //   atualiza para primeiro nome e telefone em E.164.
-            if (currentName === adminFullName && currentPhoneDigits === storedPhoneDigits) {
-              await upsertSetting(
-                'test_contact',
-                JSON.stringify({
-                  ...tc,
-                  name: desiredName,
-                  phone: normalizedPhoneE164,
-                  updatedAt: now,
-                })
-              )
-            } else if (shouldUpgradePhoneToE164 && currentPhoneDigits === storedPhoneDigits) {
-              // Se o usuário não personalizou o nome mas o telefone está sem '+',
-              // apenas normaliza para E.164.
-              await upsertSetting(
-                'test_contact',
-                JSON.stringify({
-                  ...tc,
-                  phone: normalizedPhoneE164,
-                  updatedAt: now,
-                })
-              )
-            }
-          }
-        } catch {
-          // Se não for JSON válido, não mexe.
-        }
-      }
-    } catch (err) {
-      // Não bloqueia o setup inteiro se apenas o seed do contato de teste falhar.
-      console.warn('[completeSetup] Falha ao criar test_contact automaticamente:', err)
-    }
-
-    // Create session after setup
-    await createSession()
-
-    return {
-      success: true,
-      company: {
-        id: companyId,
-        name: companyName.trim(),
-        email: email.trim().toLowerCase(),
-        phone: storedPhoneDigits,
-        createdAt: now
-      }
-    }
-  } catch (error) {
-    console.error('Setup error:', error)
-    return { success: false, error: 'Erro ao salvar configuração' }
-  }
-}
-
-// ============================================================================
 // LOGIN / LOGOUT
 // ============================================================================
 
@@ -386,14 +461,15 @@ export async function loginUser(password: string): Promise<UserAuthResult> {
     // Detecta automaticamente se MASTER_PASSWORD é hash ou texto puro
     const masterIsHash = isHashFormat(masterPassword)
 
+    // Comparações em tempo constante (lib/safe-compare.ts).
     let isValid: boolean
     if (masterIsHash) {
       // Comportamento original: MASTER_PASSWORD é hash, compara com hash da senha digitada
       const passwordHash = await hashPasswordForLogin(password)
-      isValid = passwordHash === masterPassword
+      isValid = timingSafeEqualString(passwordHash, masterPassword)
     } else {
       // Novo: MASTER_PASSWORD é texto puro, compara diretamente
-      isValid = password === masterPassword
+      isValid = timingSafeEqualString(password, masterPassword)
     }
 
     if (!isValid) {
@@ -425,21 +501,24 @@ export async function logoutUser(): Promise<void> {
   const sessionToken = cookieStore.get(SESSION_COOKIE_NAME)?.value
   cookieStore.delete(SESSION_COOKIE_NAME)
 
-  // Best-effort: remove o token atual da lista de sessões para revogar imediatamente.
+  // Best-effort: remove o token atual da lista de sessões para revogar imediatamente
+  // e aproveita para podar as expiradas (a poda NÃO acontece mais por request).
   if (sessionToken) {
     try {
       const now = new Date()
-      const stored = await getStoredSessions()
+      const { sessions: stored } = await readSessionSnapshot()
       if (stored) {
         const pruned = pruneExpiredSessions(stored, now)
-        const filtered = pruned.filter(s => s.token !== sessionToken)
-        // Só grava se houver mudança.
-        if (filtered.length !== pruned.length) {
-          await setStoredSessions(filtered.slice(-50))
+        const filtered = pruned.filter(s => !timingSafeEqualString(s.token, sessionToken))
+        // Só grava se houver mudança (token removido ou sessões expiradas podadas).
+        if (filtered.length !== stored.length) {
+          await setStoredSessions(filtered)
         }
       }
     } catch {
       // Não bloqueia logout
+    } finally {
+      invalidateSessionCache()
     }
   }
 }
@@ -453,21 +532,26 @@ export async function logoutUser(): Promise<void> {
  */
 async function createSession(): Promise<void> {
   const cookieStore = await cookies()
-  const sessionToken = crypto.randomUUID()
+  const sessionToken = generateSessionToken()
 
   const nowIso = new Date().toISOString()
 
   // Store session in database (multi-session)
   // Mantém múltiplos tokens ativos para evitar invalidação entre domínios/devices.
-  const existing = await getStoredSessions()
+  // A poda das expiradas acontece aqui (e no logout), nunca por request.
+  // Erro de leitura PROPAGA: tratar como lista vazia apagaria as outras sessões.
+  const { sessions: existing } = await readSessionSnapshot()
   const now = new Date()
   const pruned = pruneExpiredSessions(existing || [], now)
-  const nextSessions = [...pruned, { token: sessionToken, createdAt: nowIso }].slice(-50)
+  const nextSessions = [...pruned, { token: sessionToken, createdAt: nowIso }]
   await setStoredSessions(nextSessions)
 
   // Backward-compat: ainda grava o token legado para instâncias antigas (se houver).
   // Não usamos mais esse campo para validar quando `session_tokens` existe.
   await upsertSetting('session_token', sessionToken)
+
+  // O cache local da lista não tem o token novo: descarta.
+  invalidateSessionCache()
 
   // Set cookie
   cookieStore.set(SESSION_COOKIE_NAME, sessionToken, {
@@ -480,7 +564,8 @@ async function createSession(): Promise<void> {
 }
 
 /**
- * Validate current session
+ * Validate current session (cookie do request atual).
+ * Só 'valid' conta como autenticado; não escreve nada no banco.
  */
 export async function validateSession(): Promise<boolean> {
   try {
@@ -489,42 +574,7 @@ export async function validateSession(): Promise<boolean> {
 
     if (!sessionToken) return false
 
-    const now = new Date()
-
-    // Prefer multi-session list when available
-    const storedSessions = await getStoredSessions()
-    if (storedSessions) {
-      const pruned = pruneExpiredSessions(storedSessions, now)
-      const found = pruned.some(s => s.token === sessionToken)
-
-      // Best-effort: se havia sessões expiradas, compacta a lista.
-      if (pruned.length !== storedSessions.length) {
-        try {
-          await setStoredSessions(pruned.slice(-50))
-        } catch {
-          // ignore
-        }
-      }
-
-      if (!found) return false
-      return true
-    }
-
-    // Legacy fallback: single token
-    const setting = await getSetting('session_token')
-    if (!setting) return false
-
-    const storedToken = setting.value
-    const updatedAt = new Date(setting.updated_at)
-
-    // Check if session is expired
-    const sessionAge = (now.getTime() - updatedAt.getTime()) / 1000
-    if (!Number.isNaN(sessionAge) && sessionAge > SESSION_MAX_AGE) {
-      await logoutUser()
-      return false
-    }
-
-    return sessionToken === storedToken
+    return (await isValidSessionToken(sessionToken)) === 'valid'
   } catch {
     return false
   }

@@ -1,28 +1,20 @@
-import type { NextRequest } from 'next/server'
-import { type AuthResult, unauthorizedResponse, verifyApiKey } from '@/lib/auth'
-import { validateSession } from '@/lib/user-auth'
+import type { NextResponse } from 'next/server'
+import { OWNER_KINDS, requirePrincipal } from '@/lib/principal'
 
 /**
  * Require either:
- * - a valid browser session (dispara_session cookie), OR
- * - a valid API key (Authorization: Bearer ... / X-API-Key)
+ * - a valid browser session (dispara_session cookie VALIDADO pelo proxy), OR
+ * - a valid API key (Authorization: Bearer ... / X-API-Key), OR
+ * - DISPARA_ADMIN_KEY
+ *
+ * Lê o principal que o proxy.ts resolveu e repassou via headers `x-dispara-*`
+ * (lib/principal.ts). Sem principal (proxy não rodou) → 401 (fail-closed).
  *
  * Security goal: defense-in-depth for critical endpoints (PII, destructive actions),
  * even if Proxy rules change or a route is accidentally exposed.
+ *
+ * Mantém a assinatura async antiga para não mexer nos chamadores.
  */
-export async function requireSessionOrApiKey(request: NextRequest) {
-  const hasApiKeyHeader =
-    !!request.headers.get('authorization') || !!request.headers.get('x-api-key')
-
-  if (hasApiKeyHeader) {
-    const auth: AuthResult = await verifyApiKey(request)
-    if (!auth.valid) return unauthorizedResponse(auth.error)
-    return null
-  }
-
-  // Fall back to session-based access for browser UI.
-  const ok = await validateSession()
-  if (!ok) return unauthorizedResponse('Missing session or API key')
-  return null
+export async function requireSessionOrApiKey(request: Request): Promise<NextResponse | null> {
+  return requirePrincipal(request, OWNER_KINDS)
 }
-
