@@ -9,7 +9,7 @@
  * Usa Supabase (PostgreSQL) como banco de dados
  */
 
-import { createHmac } from 'crypto'
+import { createHash, createHmac } from 'crypto'
 import { cookies } from 'next/headers'
 import { supabase, getSupabaseAdmin } from '@/lib/supabase'
 import { timingSafeEqualString } from '@/lib/safe-compare'
@@ -29,23 +29,47 @@ const MAX_STORED_SESSIONS = 50
 const SESSION_LIST_CACHE_TTL_MS = 15_000
 // Falha de banco também é lembrada por pouco tempo (evita martelar um Supabase fora).
 const SESSION_STORE_ERROR_TTL_MS = 5_000
+// Stale-if-error: se a releitura falhar, o último snapshot BOM continua valendo por
+// até este tempo (contado da leitura que deu certo). Curto de propósito: numa queda
+// longa, sessão revogada não pode continuar valendo.
+const SESSION_STALE_IF_ERROR_MS = 60_000
 const MAX_SESSION_TOKEN_LENGTH = 256
 const MAX_RECHECKED_TOKENS = 1_000
+// Gravação da lista com compare-and-set: tentativas antes do fallback sem trava.
+const SESSION_WRITE_ATTEMPTS = 3
+// SESSION_SECRET mais curto que isso não é tratado como segredo de alta entropia.
+const MIN_SESSION_SECRET_LENGTH = 32
 
-// Formato novo do token: `s1.<uuid>.<hmac>` (HMAC-SHA256 com a MASTER_PASSWORD).
+// Formato do token: `s2.<uuid>.<hmac>`.
+// - Chave do HMAC: derivada de um segredo de SERVIDOR de alta entropia misturado com a
+//   senha: HMAC-SHA256(SESSION_SECRET ?? SUPABASE_SECRET_KEY ?? SUPABASE_SERVICE_ROLE_KEY,
+//   'dispara-session-v2|' + MASTER_PASSWORD). Assim o token NÃO serve de oráculo offline
+//   da MASTER_PASSWORD (o formato `s1.` usava a própria senha como chave), e trocar a
+//   senha (ou o segredo de servidor) continua invalidando todas as sessões.
 // - Cookie forjado sem assinatura válida é rejeitado sem tocar no banco.
 // - Token assinado que não está na lista em cache pode ter sido criado por OUTRA
-//   instância depois da leitura (login recente) → relê a lista UMA vez por token.
-// - Trocar a MASTER_PASSWORD invalida todas as sessões assinadas.
+//   instância depois da leitura (login recente) → relê a lista (uma vez por token).
+// - Tokens `s1.` NÃO são mais aceitos: no deploy desta versão cada dispositivo precisa
+//   fazer login de novo UMA vez. As entradas `s1.` saem da lista na próxima gravação.
+// - Sem segredo de servidor (nem SESSION_SECRET nem chave service role do Supabase) o
+//   token é um UUID puro, como antes do hardening. Na prática isso só acontece numa
+//   instância sem Supabase configurado, onde nem há onde guardar a sessão.
 // Tokens antigos (UUID puro) continuam aceitos se estiverem na lista (compat).
-const SIGNED_TOKEN_PREFIX = 's1.'
+const SIGNED_TOKEN_PREFIX = 's2.'
+const RETIRED_SIGNED_TOKEN_PREFIX = 's1.'
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const TOKEN_HASH_RE = /^[0-9a-f]{64}$/i
 
 // Novo formato: múltiplas sessões simultâneas (evita invalidação entre domínios/devices)
 // Persistido em `settings.key = 'session_tokens'` como JSON.
+// No banco fica só `tokenHash` = sha256(token): um dump de settings não entrega cookie
+// válido nem o par (mensagem, HMAC). Entradas antigas `{ token }` (texto puro) continuam
+// aceitas e são convertidas para hash na próxima gravação.
 type StoredSession = {
-  token: string
   createdAt: string
+  tokenHash?: string
+  /** Legado: token em texto puro (gravado por versões anteriores). */
+  token?: string
 }
 
 // ============================================================================
@@ -117,11 +141,14 @@ function parseStoredSessions(raw: string): StoredSession[] {
     const sessions: StoredSession[] = []
     for (const item of parsed) {
       if (!item || typeof item !== 'object') continue
-      const token = (item as any).token
-      const createdAt = (item as any).createdAt
-      if (typeof token !== 'string' || token.length < 10) continue
+      const entry = item as Record<string, unknown>
+      const createdAt = entry.createdAt
       if (typeof createdAt !== 'string' || !createdAt) continue
-      sessions.push({ token, createdAt })
+      if (typeof entry.tokenHash === 'string' && TOKEN_HASH_RE.test(entry.tokenHash)) {
+        sessions.push({ tokenHash: entry.tokenHash.toLowerCase(), createdAt })
+      } else if (typeof entry.token === 'string' && entry.token.length >= 10) {
+        sessions.push({ token: entry.token, createdAt })
+      }
     }
     return sessions
   } catch {
@@ -138,11 +165,40 @@ function pruneExpiredSessions(sessions: StoredSession[], now: Date): StoredSessi
   })
 }
 
+/** sha256(token) em hex — o que fica guardado no banco. */
+function hashSessionToken(token: string): string {
+  return createHash('sha256').update(token, 'utf8').digest('hex')
+}
+
+/** Compara uma entrada da lista com o token (hash ou legado em texto puro), em tempo constante. */
+function sessionEntryMatches(entry: StoredSession, token: string, tokenHash: string): boolean {
+  if (entry.tokenHash) return timingSafeEqualString(entry.tokenHash, tokenHash)
+  return timingSafeEqualString(entry.token, token)
+}
+
+/**
+ * Formato gravado: só hashes. Converte entradas legadas `{ token }` para hash e
+ * descarta as `s1.` (formato aposentado, não são mais aceitas e eram oráculo da senha).
+ */
+function toPersistedSessions(sessions: StoredSession[]): Array<{ tokenHash: string; createdAt: string }> {
+  const out: Array<{ tokenHash: string; createdAt: string }> = []
+  for (const s of sessions) {
+    if (s.tokenHash) {
+      out.push({ tokenHash: s.tokenHash, createdAt: s.createdAt })
+    } else if (s.token && !s.token.startsWith(RETIRED_SIGNED_TOKEN_PREFIX)) {
+      out.push({ tokenHash: hashSessionToken(s.token), createdAt: s.createdAt })
+    }
+  }
+  return out.slice(-MAX_STORED_SESSIONS)
+}
+
 type SessionSnapshot = {
   /** null = `session_tokens` não existe (instância antiga: vale o token legado). */
   sessions: StoredSession[] | null
   /** Token legado único (`settings.session_token`). */
   legacy: { token: string; updatedAt: string } | null
+  /** Versão da linha `session_tokens` lida (compare-and-set na gravação); null = linha não existe. */
+  sessionsRow: { updatedAt: string | null } | null
 }
 
 /**
@@ -164,38 +220,121 @@ async function readSessionSnapshot(): Promise<SessionSnapshot> {
 
   let sessions: StoredSession[] | null = null
   let legacy: SessionSnapshot['legacy'] = null
+  let sessionsRow: SessionSnapshot['sessionsRow'] = null
   for (const row of (data || []) as Array<{ key: string; value: string | null; updated_at: string | null }>) {
-    if (row.key === 'session_tokens' && row.value) {
-      sessions = parseStoredSessions(row.value)
+    if (row.key === 'session_tokens') {
+      sessionsRow = { updatedAt: row.updated_at ?? null }
+      if (row.value) sessions = parseStoredSessions(row.value)
     } else if (row.key === 'session_token' && row.value) {
       legacy = { token: row.value, updatedAt: row.updated_at || '' }
     }
   }
-  return { sessions, legacy }
+  return { sessions, legacy, sessionsRow }
 }
 
-async function setStoredSessions(sessions: StoredSession[]): Promise<void> {
-  await upsertSetting('session_tokens', JSON.stringify(sessions.slice(-MAX_STORED_SESSIONS)))
+/**
+ * Grava `session_tokens` só se a linha ainda estiver na versão lida (`updated_at`).
+ * Devolve false quando outra gravação chegou antes (quem chama relê e mescla de novo).
+ */
+async function compareAndSetSessions(value: string, expected: SessionSnapshot['sessionsRow']): Promise<boolean> {
+  const client = getSupabaseAdmin()
+  if (!client) throw new Error('Supabase não configurado')
+
+  if (!expected) {
+    // Primeira gravação: só insere se ninguém criou a linha nesse meio-tempo.
+    const { data, error } = await client
+      .from('settings')
+      .upsert(
+        { key: 'session_tokens', value, updated_at: new Date().toISOString() },
+        { onConflict: 'key', ignoreDuplicates: true }
+      )
+      .select('key')
+    if (error) throw new Error(`Falha ao salvar sessões: ${error.message}`)
+    return Array.isArray(data) && data.length > 0
+  }
+
+  // O updated_at novo é sempre maior que o lido (relógios de instâncias diferentes).
+  const expectedMs = expected.updatedAt ? new Date(expected.updatedAt).getTime() : Number.NaN
+  const nextMs = Number.isNaN(expectedMs) ? Date.now() : Math.max(Date.now(), expectedMs + 1)
+  const update = client
+    .from('settings')
+    .update({ value, updated_at: new Date(nextMs).toISOString() })
+    .eq('key', 'session_tokens')
+  const guarded = expected.updatedAt ? update.eq('updated_at', expected.updatedAt) : update.is('updated_at', null)
+  const { data, error } = await guarded.select('key')
+  if (error) throw new Error(`Falha ao salvar sessões: ${error.message}`)
+  return Array.isArray(data) && data.length > 0
+}
+
+/**
+ * Read-modify-write da lista de sessões com compare-and-set: dois logins (ou login e
+ * logout) concorrentes não se sobrescrevem mais — quem perde relê, mescla e tenta de
+ * novo. Depois de SESSION_WRITE_ATTEMPTS conflitos seguidos grava sem trava (último
+ * vence, o comportamento antigo) para nunca travar o login.
+ */
+async function updateStoredSessions(mutate: (current: StoredSession[]) => StoredSession[]): Promise<void> {
+  for (let attempt = 1; attempt <= SESSION_WRITE_ATTEMPTS; attempt++) {
+    const snapshot = await readSessionSnapshot()
+    const value = JSON.stringify(toPersistedSessions(mutate(snapshot.sessions ?? [])))
+    if (await compareAndSetSessions(value, snapshot.sessionsRow)) return
+    if (attempt < SESSION_WRITE_ATTEMPTS) {
+      await new Promise((resolve) => setTimeout(resolve, 20 + Math.floor(Math.random() * 40)))
+    }
+  }
+
+  console.warn('[user-auth] Conflito persistente ao gravar session_tokens; gravando sem compare-and-set')
+  const snapshot = await readSessionSnapshot()
+  await upsertSetting('session_tokens', JSON.stringify(toPersistedSessions(mutate(snapshot.sessions ?? []))))
 }
 
 // ============================================================================
 // SESSION TOKENS (formato + assinatura)
 // ============================================================================
 
-function getSessionSigningSecret(): string | null {
-  return process.env.MASTER_PASSWORD || null
+let warnedShortSessionSecret = false
+
+/** Segredo de servidor de alta entropia usado para derivar a chave das sessões. */
+function getServerSessionSecret(): string | null {
+  const dedicated = process.env.SESSION_SECRET
+  if (dedicated && dedicated.length >= MIN_SESSION_SECRET_LENGTH) return dedicated
+  if (dedicated && !warnedShortSessionSecret) {
+    warnedShortSessionSecret = true
+    console.warn(
+      `[user-auth] SESSION_SECRET ignorado: precisa de pelo menos ${MIN_SESSION_SECRET_LENGTH} caracteres aleatórios. Usando a chave service role do Supabase.`
+    )
+  }
+  return process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || null
 }
 
-function signSessionId(id: string, secret: string): string {
-  return createHmac('sha256', secret).update(`dispara-session:${SIGNED_TOKEN_PREFIX}${id}`).digest('base64url')
+let signingKeyMemo: { serverSecret: string; masterPassword: string; key: Buffer } | null = null
+
+/**
+ * Chave do HMAC das sessões. A MASTER_PASSWORD entra só como parte da mensagem da
+ * derivação: sem o segredo de servidor, o token não permite testar senhas offline.
+ */
+function getSessionSigningKey(): Buffer | null {
+  const masterPassword = process.env.MASTER_PASSWORD
+  const serverSecret = getServerSessionSecret()
+  if (!masterPassword || !serverSecret) return null
+
+  const memo = signingKeyMemo
+  if (memo && memo.serverSecret === serverSecret && memo.masterPassword === masterPassword) return memo.key
+
+  const key = createHmac('sha256', serverSecret).update(`dispara-session-v2|${masterPassword}`).digest()
+  signingKeyMemo = { serverSecret, masterPassword, key }
+  return key
 }
 
-/** Gera um token de sessão novo (assinado quando há MASTER_PASSWORD). */
+function signSessionId(id: string, key: Buffer): string {
+  return createHmac('sha256', key).update(`dispara-session:${SIGNED_TOKEN_PREFIX}${id}`).digest('base64url')
+}
+
+/** Gera um token de sessão novo (assinado quando há MASTER_PASSWORD e segredo de servidor). */
 function generateSessionToken(): string {
   const id = crypto.randomUUID()
-  const secret = getSessionSigningSecret()
-  if (!secret) return id
-  return `${SIGNED_TOKEN_PREFIX}${id}.${signSessionId(id, secret)}`
+  const key = getSessionSigningKey()
+  if (!key) return id
+  return `${SIGNED_TOKEN_PREFIX}${id}.${signSessionId(id, key)}`
 }
 
 type TokenFormat = 'signed' | 'legacy' | 'malformed'
@@ -208,10 +347,11 @@ function classifySessionToken(token: string): TokenFormat {
     const id = rest.slice(0, dot)
     const sig = rest.slice(dot + 1)
     if (!UUID_RE.test(id) || !sig) return 'malformed'
-    const secret = getSessionSigningSecret()
-    if (!secret) return 'malformed'
-    return timingSafeEqualString(sig, signSessionId(id, secret)) ? 'signed' : 'malformed'
+    const key = getSessionSigningKey()
+    if (!key) return 'malformed'
+    return timingSafeEqualString(sig, signSessionId(id, key)) ? 'signed' : 'malformed'
   }
+  // `s1.` (chave = MASTER_PASSWORD) foi aposentado: cai aqui como malformado.
   return UUID_RE.test(token) ? 'legacy' : 'malformed'
 }
 
@@ -219,20 +359,48 @@ function classifySessionToken(token: string): TokenFormat {
 // SESSION VALIDATION (hot path do proxy — NUNCA escreve no banco)
 // ============================================================================
 
-export type SessionTokenValidity = 'valid' | 'invalid' | 'unavailable'
+/**
+ * - 'valid'       → sessão existe e não expirou.
+ * - 'invalid'     → token malformado, com assinatura errada, inexistente ou expirado.
+ * - 'unavailable' → banco indisponível e o token é ASSINADO por este servidor (HMAC
+ *                   confere): o proxy responde 503 nas APIs e deixa a página abrir em
+ *                   modo degradado (sem dados: os loaders checam o principal).
+ * - 'unverified'  → banco indisponível e o token é um UUID puro (legado), que não prova
+ *                   nada sem o banco: trate como SEM sessão, mas sem apagar o cookie
+ *                   (ele pode voltar a valer quando o banco voltar).
+ */
+export type SessionTokenValidity = 'valid' | 'invalid' | 'unavailable' | 'unverified'
 
 type CachedSnapshot =
   | { ok: true; snapshot: SessionSnapshot; fetchedAt: number; expiresAt: number }
   | { ok: false; expiresAt: number }
 
+type SnapshotRead = { promise: Promise<CachedSnapshot>; seq: number }
+
+/** Releitura forçada de um token assinado (deduplicada entre requests concorrentes). */
+type RecheckEntry = { promise: Promise<SessionTokenValidity>; expiresAt: number }
+
 let sessionSnapshotCache: CachedSnapshot | null = null
-let sessionSnapshotInflight: Promise<CachedSnapshot> | null = null
+let sessionSnapshotInflight: SnapshotRead | null = null
+// Sequência das leituras iniciadas: a releitura forçada só aproveita leitura MAIS NOVA.
+let sessionReadSeq = 0
 // Incrementado a cada invalidação: leitura que começou antes não grava no cache.
 let sessionCacheGeneration = 0
-/** Tokens assinados que já forçaram releitura nesta janela de cache (anti-flood). */
-const recheckedSignedTokens = new Set<string>()
+/**
+ * Tokens assinados que já forçaram releitura nesta janela de cache (anti-flood).
+ * Guarda a PROMISE da releitura: requests concorrentes com o mesmo token esperam o
+ * mesmo resultado em vez de receber 'invalid' antes da releitura terminar.
+ */
+const recheckedSignedTokens = new Map<string, RecheckEntry>()
 
-/** Descarta o cache local da lista de sessões (login/logout nesta instância e testes). */
+/**
+ * Descarta o cache local da lista de sessões (login/logout nesta instância e testes).
+ *
+ * ATENÇÃO: isto só alcança a cópia do módulo deste bundle. O proxy roda em outro
+ * bundle (na Vercel, outra função) com cache próprio: lá um token novo converge pela
+ * releitura por token (recheckSignedToken) e um token revogado em até
+ * SESSION_LIST_CACHE_TTL_MS.
+ */
 export function invalidateSessionCache(): void {
   sessionCacheGeneration++
   sessionSnapshotCache = null
@@ -240,39 +408,70 @@ export function invalidateSessionCache(): void {
   recheckedSignedTokens.clear()
 }
 
-function loadSessionSnapshot(force: boolean): Promise<CachedSnapshot> {
-  const cached = sessionSnapshotCache
-  if (!force && cached && cached.expiresAt > Date.now()) {
-    return Promise.resolve(cached)
-  }
-  // Requests concorrentes compartilham a mesma leitura.
-  if (sessionSnapshotInflight) return sessionSnapshotInflight
-
+function startSnapshotRead(kind: 'ttl' | 'force'): Promise<CachedSnapshot> {
   const generation = sessionCacheGeneration
-  const isTtlRefresh = !force
-  const fetchSnapshot = async (): Promise<CachedSnapshot> => {
-    let result: CachedSnapshot
+  const seq = ++sessionReadSeq
+
+  const run = async (): Promise<CachedSnapshot> => {
     try {
       const snapshot = await readSessionSnapshot()
       const fetchedAt = Date.now()
-      result = { ok: true, snapshot, fetchedAt, expiresAt: fetchedAt + SESSION_LIST_CACHE_TTL_MS }
+      const result: CachedSnapshot = { ok: true, snapshot, fetchedAt, expiresAt: fetchedAt + SESSION_LIST_CACHE_TTL_MS }
+      if (generation === sessionCacheGeneration) {
+        sessionSnapshotCache = result
+        // Janela nova: tokens revogados podem forçar UMA releitura de novo.
+        if (kind === 'ttl') recheckedSignedTokens.clear()
+      }
+      return result
     } catch (error) {
       console.error('[user-auth] Session store indisponível:', error instanceof Error ? error.message : error)
-      result = { ok: false, expiresAt: Date.now() + SESSION_STORE_ERROR_TTL_MS }
+      const now = Date.now()
+      const failed: CachedSnapshot = { ok: false, expiresAt: now + SESSION_STORE_ERROR_TTL_MS }
+      // Releitura forçada: a falha vale só para o token que pediu; o cache fica intacto.
+      if (kind === 'force') return failed
+
+      // Stale-if-error: uma oscilação não derruba todas as sessões da instância.
+      const previous = sessionSnapshotCache
+      if (previous?.ok && now - previous.fetchedAt <= SESSION_STALE_IF_ERROR_MS) {
+        const stale: CachedSnapshot = { ...previous, expiresAt: now + SESSION_STORE_ERROR_TTL_MS }
+        if (generation === sessionCacheGeneration) sessionSnapshotCache = stale
+        return stale
+      }
+      if (generation === sessionCacheGeneration) sessionSnapshotCache = failed
+      return failed
     }
-    if (generation === sessionCacheGeneration) {
-      sessionSnapshotCache = result
-      if (result.ok && isTtlRefresh) recheckedSignedTokens.clear()
-    }
-    return result
   }
 
-  const promise = fetchSnapshot()
-  sessionSnapshotInflight = promise
-  void promise.then(() => {
-    if (sessionSnapshotInflight === promise) sessionSnapshotInflight = null
+  const read: SnapshotRead = { promise: run(), seq }
+  sessionSnapshotInflight = read
+  void read.promise.then(() => {
+    if (sessionSnapshotInflight === read) sessionSnapshotInflight = null
   })
-  return promise
+  return read.promise
+}
+
+/** Snapshot em cache (ou a leitura em voo). Requests concorrentes compartilham a mesma leitura. */
+function loadSessionSnapshot(): Promise<CachedSnapshot> {
+  const cached = sessionSnapshotCache
+  if (cached && cached.expiresAt > Date.now()) return Promise.resolve(cached)
+  if (sessionSnapshotInflight) return sessionSnapshotInflight.promise
+  return startSnapshotRead('ttl')
+}
+
+/**
+ * Leitura que COMEÇA depois desta chamada. Uma leitura em voo iniciada antes pode não
+ * enxergar um login gravado há pouco: espera ela terminar (as leituras ficam em série)
+ * e então aproveita uma leitura mais nova ou inicia uma.
+ */
+async function loadFreshSessionSnapshot(): Promise<CachedSnapshot> {
+  const requestedAfter = sessionReadSeq
+  for (;;) {
+    const inflight = sessionSnapshotInflight
+    if (!inflight) break
+    if (inflight.seq > requestedAfter) return inflight.promise
+    await inflight.promise
+  }
+  return startSnapshotRead('force')
 }
 
 function isSessionAlive(createdAtIso: string, nowMs: number): boolean {
@@ -281,13 +480,13 @@ function isSessionAlive(createdAtIso: string, nowMs: number): boolean {
   return nowMs - created <= SESSION_MAX_AGE * 1000
 }
 
-function snapshotHasToken(snapshot: SessionSnapshot, token: string, nowMs: number): boolean {
+function snapshotHasToken(snapshot: SessionSnapshot, token: string, tokenHash: string, nowMs: number): boolean {
   // Prefer multi-session list when available
   if (snapshot.sessions) {
     let found = false
     for (const s of snapshot.sessions) {
       // Sem curto-circuito: percorre a lista inteira (tempo independe da posição).
-      const match = timingSafeEqualString(s.token, token)
+      const match = sessionEntryMatches(s, token, tokenHash)
       if (match && isSessionAlive(s.createdAt, nowMs)) found = true
     }
     return found
@@ -305,12 +504,40 @@ function snapshotHasToken(snapshot: SessionSnapshot, token: string, nowMs: numbe
 }
 
 /**
+ * Token assinado por ESTE servidor que não está na lista em cache: pode ter sido
+ * criado por outra instância depois da leitura (login recente). Relê a lista UMA vez
+ * por token por janela de cache e todas as requests concorrentes com esse token
+ * esperam essa mesma releitura. 'invalid' fica lembrado até a próxima janela (tokens
+ * revogados não forçam releituras em loop); 'valid' não precisa (o cache já tem o
+ * token); 'unavailable' só por SESSION_STORE_ERROR_TTL_MS.
+ */
+function recheckSignedToken(token: string, tokenHash: string): Promise<SessionTokenValidity> {
+  const existing = recheckedSignedTokens.get(token)
+  if (existing && existing.expiresAt > Date.now()) return existing.promise
+  if (recheckedSignedTokens.size >= MAX_RECHECKED_TOKENS) recheckedSignedTokens.clear()
+
+  const run = async (): Promise<SessionTokenValidity> => {
+    const fresh = await loadFreshSessionSnapshot()
+    const result: SessionTokenValidity = !fresh.ok
+      ? 'unavailable'
+      : snapshotHasToken(fresh.snapshot, token, tokenHash, Date.now())
+        ? 'valid'
+        : 'invalid'
+    if (recheckedSignedTokens.get(token) === entry) {
+      if (result === 'valid') recheckedSignedTokens.delete(token)
+      else if (result === 'unavailable') entry.expiresAt = Date.now() + SESSION_STORE_ERROR_TTL_MS
+    }
+    return result
+  }
+  // `run` só lê `entry` depois do primeiro await, quando ele já foi atribuído.
+  const entry: RecheckEntry = { promise: run(), expiresAt: Number.POSITIVE_INFINITY }
+  recheckedSignedTokens.set(token, entry)
+  return entry.promise
+}
+
+/**
  * Valida um token de sessão contra `settings.session_tokens` (e o legado `session_token`).
- *
- * - 'valid'       → sessão existe e não expirou.
- * - 'invalid'     → token malformado, com assinatura errada, inexistente ou expirado.
- * - 'unavailable' → Supabase não configurado ou erro de banco (NÃO é "deslogado":
- *                   o proxy responde 503 em APIs e deixa a página abrir em modo degradado).
+ * Ver SessionTokenValidity para o significado de cada resultado.
  *
  * Não escreve nada por request. A lista é cacheada por ~15s por instância; a poda de
  * sessões expiradas acontece só em createSession/logoutUser.
@@ -324,22 +551,15 @@ export async function isValidSessionToken(token: string): Promise<SessionTokenVa
   const format = classifySessionToken(trimmed)
   if (format === 'malformed') return 'invalid'
 
-  const cached = await loadSessionSnapshot(false)
-  if (!cached.ok) return 'unavailable'
-  if (snapshotHasToken(cached.snapshot, trimmed, Date.now())) return 'valid'
+  const tokenHash = hashSessionToken(trimmed)
+  const cached = await loadSessionSnapshot()
+  // Banco fora: só token ASSINADO (prova de que este servidor o emitiu) abre o modo
+  // degradado. Um UUID qualquer passaria como 'legacy' sem segredo nenhum.
+  if (!cached.ok) return format === 'signed' ? 'unavailable' : 'unverified'
+  if (snapshotHasToken(cached.snapshot, trimmed, tokenHash, Date.now())) return 'valid'
+  if (format !== 'signed') return 'invalid'
 
-  // Token assinado por ESTE servidor que não está na lista em cache: pode ter sido
-  // criado por outra instância depois da leitura (login recente). Relê uma vez por
-  // token por janela de cache; tokens revogados não forçam releituras em loop.
-  if (format === 'signed' && !recheckedSignedTokens.has(trimmed)) {
-    if (recheckedSignedTokens.size >= MAX_RECHECKED_TOKENS) recheckedSignedTokens.clear()
-    recheckedSignedTokens.add(trimmed)
-    const fresh = await loadSessionSnapshot(true)
-    if (!fresh.ok) return 'unavailable'
-    return snapshotHasToken(fresh.snapshot, trimmed, Date.now()) ? 'valid' : 'invalid'
-  }
-
-  return 'invalid'
+  return recheckSignedToken(trimmed, tokenHash)
 }
 
 /**
@@ -500,26 +720,32 @@ export async function logoutUser(): Promise<void> {
 
   const sessionToken = cookieStore.get(SESSION_COOKIE_NAME)?.value
   cookieStore.delete(SESSION_COOKIE_NAME)
+  if (!sessionToken) return
 
-  // Best-effort: remove o token atual da lista de sessões para revogar imediatamente
-  // e aproveita para podar as expiradas (a poda NÃO acontece mais por request).
-  if (sessionToken) {
-    try {
-      const now = new Date()
-      const { sessions: stored } = await readSessionSnapshot()
-      if (stored) {
-        const pruned = pruneExpiredSessions(stored, now)
-        const filtered = pruned.filter(s => !timingSafeEqualString(s.token, sessionToken))
-        // Só grava se houver mudança (token removido ou sessões expiradas podadas).
-        if (filtered.length !== stored.length) {
-          await setStoredSessions(filtered)
-        }
-      }
-    } catch {
-      // Não bloqueia logout
-    } finally {
-      invalidateSessionCache()
-    }
+  // Só revoga no banco um token que a lista (cacheada) confirma como sessão viva.
+  // Cookie malformado/forjado ou com assinatura errada morre no formato/HMAC sem
+  // tocar no banco; um UUID qualquer custa no máximo a leitura em cache da lista.
+  // Nenhum dos dois grava nada nem invalida o cache.
+  let validity: SessionTokenValidity
+  try {
+    validity = await isValidSessionToken(sessionToken)
+  } catch {
+    return
+  }
+  if (validity !== 'valid') return
+
+  // Remove o token atual da lista para revogar imediatamente e aproveita para podar
+  // as expiradas (a poda NÃO acontece mais por request).
+  const token = sessionToken.trim()
+  const tokenHash = hashSessionToken(token)
+  try {
+    await updateStoredSessions((current) =>
+      pruneExpiredSessions(current, new Date()).filter((s) => !sessionEntryMatches(s, token, tokenHash))
+    )
+  } catch {
+    // Não bloqueia logout
+  } finally {
+    invalidateSessionCache()
   }
 }
 
@@ -540,15 +766,22 @@ async function createSession(): Promise<void> {
   // Mantém múltiplos tokens ativos para evitar invalidação entre domínios/devices.
   // A poda das expiradas acontece aqui (e no logout), nunca por request.
   // Erro de leitura PROPAGA: tratar como lista vazia apagaria as outras sessões.
-  const { sessions: existing } = await readSessionSnapshot()
-  const now = new Date()
-  const pruned = pruneExpiredSessions(existing || [], now)
-  const nextSessions = [...pruned, { token: sessionToken, createdAt: nowIso }]
-  await setStoredSessions(nextSessions)
+  // Compare-and-set: logins concorrentes não apagam a sessão um do outro.
+  // Idempotente: numa nova tentativa a entrada não é duplicada.
+  const tokenHash = hashSessionToken(sessionToken)
+  await updateStoredSessions((current) => [
+    ...pruneExpiredSessions(current, new Date()).filter((s) => s.tokenHash !== tokenHash),
+    { tokenHash, createdAt: nowIso },
+  ])
 
-  // Backward-compat: ainda grava o token legado para instâncias antigas (se houver).
-  // Não usamos mais esse campo para validar quando `session_tokens` existe.
-  await upsertSetting('session_token', sessionToken)
+  // O legado `settings.session_token` guardava o token em TEXTO PURO (e, no formato
+  // s1, um oráculo da senha). Não é mais gravado; o que sobrou é removido. A validação
+  // só o consultava quando `session_tokens` não existia, e acabamos de gravá-la.
+  try {
+    await deleteSetting('session_token')
+  } catch (error) {
+    console.warn('[auth] Falha ao remover session_token legado (best-effort):', error)
+  }
 
   // O cache local da lista não tem o token novo: descarta.
   invalidateSessionCache()
@@ -659,4 +892,10 @@ async function clearFailedAttempts(): Promise<void> {
  * 3. Clique em Save
  * 4. Vá em Deployments → clique nos 3 pontos do último deploy → Redeploy
  * 5. Pronto! Faça login com a nova senha
+ *
+ * SESSÕES:
+ * - Trocar a MASTER_PASSWORD (ou o SESSION_SECRET / a chave service role do Supabase,
+ *   de onde vem a chave do HMAC) invalida todas as sessões.
+ * - SESSION_SECRET (opcional, >= 32 caracteres aleatórios) dá à assinatura das sessões
+ *   um segredo próprio, independente da chave do Supabase.
  */
