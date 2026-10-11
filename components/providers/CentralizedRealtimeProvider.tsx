@@ -23,7 +23,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useCallback, typ
 import { useQueryClient } from '@tanstack/react-query'
 import { onDbChangesStatus, subscribeToDbChanges } from '@/lib/supabase-realtime'
 import { toRealtimeEvent, type RealtimeEvent } from '@/lib/realtime-db-change'
-import { debounce } from '@/lib/utils'
+import { createRealtimeInvalidator, REALTIME_INVALIDATION_MAX_WAIT_MS } from '@/lib/realtime-invalidation'
 
 // =============================================================================
 // TYPES
@@ -68,6 +68,11 @@ interface CentralizedRealtimeProviderProps {
    * @default 200
    */
   debounceMs?: number
+  /**
+   * Teto (ms) para uma rajada adiar as invalidações (flush garantido sob flood)
+   * @default 1000
+   */
+  maxWaitMs?: number
 }
 
 export function CentralizedRealtimeProvider({
@@ -75,6 +80,7 @@ export function CentralizedRealtimeProvider({
   // T072: Added inbox tables for real-time updates
   tables = ['campaigns', 'contacts', 'templates', 'flows', 'inbox_conversations', 'inbox_messages'],
   debounceMs = 200,
+  maxWaitMs = REALTIME_INVALIDATION_MAX_WAIT_MS,
 }: CentralizedRealtimeProviderProps) {
   const queryClient = useQueryClient()
   const subscribersRef = useRef<Map<string, Set<SubscriptionCallback>>>(new Map())
@@ -98,21 +104,15 @@ export function CentralizedRealtimeProvider({
   // Acumula todas as query keys chamadas dentro da janela de debounce
   // e invalida todas de uma vez. Resolve o bug onde chamadas sequenciais
   // (ex: ['campaigns'] seguido de ['campaignStats']) cancelavam as anteriores.
-  const pendingKeysRef = useRef<Set<string>>(new Set())
-  const debouncedFlush = useMemo(
-    () => debounce(() => {
-      const keys = Array.from(pendingKeysRef.current)
-      pendingKeysRef.current.clear()
-      for (const key of keys) {
-        queryClient.invalidateQueries({ queryKey: [key] })
-      }
-    }, debounceMs),
-    [queryClient, debounceMs]
+  // Com maxWait: sob rajada (o canal é público e aceita eventos forjados) ainda há
+  // um flush a cada maxWaitMs, e um fetch em curso não é cancelado a cada evento.
+  const invalidator = useMemo(
+    () => createRealtimeInvalidator(queryClient, { waitMs: debounceMs, maxWaitMs }),
+    [queryClient, debounceMs, maxWaitMs]
   )
   const debouncedInvalidate = useCallback((queryKey: string[]) => {
-    pendingKeysRef.current.add(queryKey[0])
-    debouncedFlush()
-  }, [debouncedFlush])
+    invalidator.invalidate(queryKey)
+  }, [invalidator])
 
   // Setup realtime subscription (canal compartilhado `dispara-db`)
   useEffect(() => {
@@ -166,12 +166,12 @@ export function CentralizedRealtimeProvider({
 
     // Cleanup (o canal compartilhado continua aberto para os demais assinantes)
     return () => {
-      debouncedFlush.cancel?.()
+      invalidator.cancel()
       unsubscribe()
       unsubscribeStatus()
       isConnectedRef.current = false
     }
-  }, [tables.join(','), notifySubscribers, debouncedInvalidate, debouncedFlush])
+  }, [tables.join(','), notifySubscribers, debouncedInvalidate, invalidator])
 
   // Subscribe function for consumers
   const subscribe = useCallback((table: string, callback: SubscriptionCallback): (() => void) => {

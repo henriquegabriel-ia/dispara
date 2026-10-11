@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 type BroadcastHandler = (message: unknown) => void
 type StatusHandler = (status: string) => void
@@ -58,6 +58,8 @@ vi.mock('./supabase', () => ({
 import {
   __resetDbChangesHubForTests,
   createRealtimeChannel,
+  DB_CHANGE_MAX_ROWS_PER_WINDOW,
+  DB_CHANGE_WINDOW_MS,
   onDbChangesStatus,
   removeChannel,
   subscribeToDbChanges,
@@ -79,11 +81,17 @@ function emit(payload: Record<string, unknown>) {
 }
 
 beforeEach(() => {
+  vi.useFakeTimers()
   __resetDbChangesHubForTests()
   channels.length = 0
   fakeClient.channel.mockClear()
   fakeClient.removeChannel.mockClear()
   supabaseConfigured = true
+})
+
+afterEach(() => {
+  __resetDbChangesHubForTests()
+  vi.useRealTimers()
 })
 
 describe('hub de mudanças do banco (broadcast dispara-db)', () => {
@@ -118,6 +126,10 @@ describe('hub de mudanças do banco (broadcast dispara-db)', () => {
     emit({ table: 'campaigns', eventType: 'INSERT', new: { id: 'c_1', status: 'Rascunho' }, old: null })
     emit({ table: 'campaigns', eventType: 'UPDATE', new: { id: 'c_2', status: 'Enviando' }, old: { id: 'c_2' } })
     emit({ table: 'contacts', eventType: 'INSERT', new: null, old: null })
+
+    // 1º evento de cada tabela sai na hora; o 2º de campaigns espera o fim da janela
+    expect(all).toHaveBeenCalledTimes(2)
+    vi.advanceTimersByTime(DB_CHANGE_WINDOW_MS)
 
     expect(all).toHaveBeenCalledTimes(3)
     expect(campaigns).toHaveBeenCalledTimes(2)
@@ -185,6 +197,131 @@ describe('hub de mudanças do banco (broadcast dispara-db)', () => {
   })
 })
 
+describe('hub: coalescência por tabela (canal público, eventos forjáveis)', () => {
+  let forgedSeq = 0
+  function forgedAlert() {
+    forgedSeq += 1
+    emit({ table: 'account_alerts', eventType: 'INSERT', new: { id: `forged_${forgedSeq}` }, old: null })
+  }
+
+  it('flood forjado de 1000 eventos/s não vira 1000 entregas: no máximo 1 lote por janela', () => {
+    const listener = vi.fn()
+    subscribeToDbChanges(listener, { table: 'account_alerts' })
+
+    // 1º evento sai na hora (leading)
+    forgedAlert()
+    expect(listener).toHaveBeenCalledTimes(1)
+
+    // 999 eventos com ids aleatórios dentro da mesma janela: nada sai agora
+    for (let i = 0; i < 999; i++) forgedAlert()
+    expect(listener).toHaveBeenCalledTimes(1)
+
+    // fim da janela: até N linhas distintas + 1 sinal genérico (o excesso)
+    vi.advanceTimersByTime(DB_CHANGE_WINDOW_MS)
+    expect(listener).toHaveBeenCalledTimes(1 + DB_CHANGE_MAX_ROWS_PER_WINDOW + 1)
+    const overflow = listener.mock.calls.at(-1)![0]
+    expect(overflow).toMatchObject({ table: 'account_alerts', eventType: 'INSERT', new: null, old: null })
+  })
+
+  it('sob rajada contínua entrega a cada janela (nunca adia para sempre)', () => {
+    const listener = vi.fn()
+    subscribeToDbChanges(listener, { table: 'inbox_messages' })
+
+    // 1 evento a cada 50ms durante 5s, sempre a mesma linha
+    const deliveriesPerSecond: number[] = []
+    for (let second = 0; second < 5; second++) {
+      const before = listener.mock.calls.length
+      for (let tick = 0; tick < DB_CHANGE_WINDOW_MS / 50; tick++) {
+        emit({ table: 'inbox_messages', eventType: 'UPDATE', new: { id: 'm1', conversation_id: 'c1' }, old: null })
+        vi.advanceTimersByTime(50)
+      }
+      deliveriesPerSecond.push(listener.mock.calls.length - before)
+    }
+
+    for (const deliveries of deliveriesPerSecond) {
+      expect(deliveries).toBeGreaterThanOrEqual(1)
+      expect(deliveries).toBeLessThanOrEqual(2)
+    }
+  })
+
+  it('mesma linha repetida na janela: new mais recente com o old do primeiro (transição líquida)', () => {
+    const listener = vi.fn()
+    subscribeToDbChanges(listener, { table: 'campaigns' })
+
+    emit({ table: 'campaigns', eventType: 'INSERT', new: { id: 'c_0' }, old: null }) // abre a janela
+    emit({
+      table: 'campaigns',
+      eventType: 'UPDATE',
+      new: { id: 'c_1', status: 'Concluído', delivered: 9 },
+      old: { id: 'c_1', status: 'Enviando' },
+    })
+    emit({
+      table: 'campaigns',
+      eventType: 'UPDATE',
+      new: { id: 'c_1', status: 'Concluído', delivered: 10 },
+      old: { id: 'c_1', status: 'Concluído' },
+    })
+    vi.advanceTimersByTime(DB_CHANGE_WINDOW_MS)
+
+    expect(listener).toHaveBeenCalledTimes(2)
+    expect(listener.mock.calls[1][0]).toMatchObject({
+      eventType: 'UPDATE',
+      new: { id: 'c_1', status: 'Concluído', delivered: 10 },
+      old: { id: 'c_1', status: 'Enviando' },
+    })
+  })
+
+  it('linhas distintas na mesma janela não se perdem (filtros por conversa continuam valendo)', () => {
+    const conv1 = vi.fn()
+    const conv2 = vi.fn()
+    subscribeToDbChanges(conv1, { table: 'inbox_messages', filter: 'conversation_id=eq.c1' })
+    subscribeToDbChanges(conv2, { table: 'inbox_messages', filter: 'conversation_id=eq.c2' })
+
+    emit({ table: 'inbox_messages', eventType: 'INSERT', new: { id: 'm0', conversation_id: 'c9' }, old: null })
+    emit({ table: 'inbox_messages', eventType: 'INSERT', new: { id: 'm1', conversation_id: 'c1' }, old: null })
+    emit({ table: 'inbox_messages', eventType: 'INSERT', new: { id: 'm2', conversation_id: 'c2' }, old: null })
+    vi.advanceTimersByTime(DB_CHANGE_WINDOW_MS)
+
+    expect(conv1).toHaveBeenCalledTimes(1)
+    expect(conv2).toHaveBeenCalledTimes(1)
+  })
+
+  it('o sinal genérico do excesso chega também aos assinantes filtrados', () => {
+    const filtered = vi.fn()
+    subscribeToDbChanges(filtered, { table: 'inbox_messages', event: 'INSERT', filter: 'conversation_id=eq.c1' })
+
+    emit({ table: 'inbox_messages', eventType: 'INSERT', new: { id: 'x0', conversation_id: 'zz' }, old: null })
+    for (let i = 1; i <= DB_CHANGE_MAX_ROWS_PER_WINDOW + 5; i++) {
+      emit({ table: 'inbox_messages', eventType: 'INSERT', new: { id: `x${i}`, conversation_id: 'zz' }, old: null })
+    }
+    vi.advanceTimersByTime(DB_CHANGE_WINDOW_MS)
+
+    expect(filtered).toHaveBeenCalledTimes(1)
+    expect(filtered.mock.calls[0][0]).toMatchObject({ table: 'inbox_messages', eventType: 'INSERT', new: null, old: null })
+  })
+
+  it('janela fecha quando a tabela fica quieta: o próximo evento volta a sair na hora', () => {
+    const listener = vi.fn()
+    subscribeToDbChanges(listener, { table: 'templates' })
+
+    emit({ table: 'templates', eventType: 'UPDATE', new: { id: 't1' }, old: { id: 't1' } })
+    vi.advanceTimersByTime(DB_CHANGE_WINDOW_MS) // janela sem eventos: fecha
+    vi.advanceTimersByTime(DB_CHANGE_WINDOW_MS)
+
+    emit({ table: 'templates', eventType: 'UPDATE', new: { id: 't2' }, old: { id: 't2' } })
+    expect(listener).toHaveBeenCalledTimes(2)
+  })
+
+  it('tabelas diferentes têm janelas independentes', () => {
+    const listener = vi.fn()
+    subscribeToDbChanges(listener)
+
+    emit({ table: 'flows', eventType: 'UPDATE', new: { id: 'f1' }, old: { id: 'f1' } })
+    emit({ table: 'templates', eventType: 'UPDATE', new: { id: 't1' }, old: { id: 't1' } })
+    expect(listener).toHaveBeenCalledTimes(2)
+  })
+})
+
 describe('subscribeToTable (compat com os hooks)', () => {
   it('mapeia o broadcast para RealtimePayload e respeita o filtro', () => {
     const channel = createRealtimeChannel('rq-test') as unknown as RealtimeChannel
@@ -205,6 +342,7 @@ describe('subscribeToTable (compat com os hooks)', () => {
       old: null,
       commit_timestamp: '2026-10-11T10:00:00Z',
     })
+    vi.advanceTimersByTime(DB_CHANGE_WINDOW_MS)
 
     expect(callback).toHaveBeenCalledTimes(1)
     expect(callback).toHaveBeenCalledWith({

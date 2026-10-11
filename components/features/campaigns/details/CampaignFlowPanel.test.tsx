@@ -1,6 +1,7 @@
 import React from 'react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, render, screen } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { DbChangeEvent } from '@/lib/realtime-db-change'
 import type { Campaign } from '@/types'
 
@@ -38,15 +39,42 @@ function makeCampaign(overrides: Partial<Campaign>): Campaign {
   } as Campaign
 }
 
+function renderPanel(campaign: Campaign) {
+  const queryClient = new QueryClient()
+  const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries').mockResolvedValue()
+  const wrap = (c: Campaign) => (
+    <QueryClientProvider client={queryClient}>
+      <CampaignFlowPanel campaign={c} />
+    </QueryClientProvider>
+  )
+  const utils = render(wrap(campaign))
+  return { ...utils, invalidateSpy, rerenderWith: (c: Campaign) => utils.rerender(wrap(c)) }
+}
+
+function submissionEvent(id: string): DbChangeEvent {
+  return {
+    table: 'flow_submissions',
+    eventType: 'INSERT',
+    new: { id, campaign_id: 'c_1' },
+    old: null,
+    commit_timestamp: null,
+  }
+}
+
 beforeEach(() => {
+  vi.useFakeTimers()
   subscriptions.length = 0
   statusCallbacks.length = 0
   unsubscribe.mockClear()
 })
 
+afterEach(() => {
+  vi.useRealTimers()
+})
+
 describe('CampaignFlowPanel realtime', () => {
-  it('assina INSERT de flow_submissions da campanha via broadcast e incrementa o contador', () => {
-    render(<CampaignFlowPanel campaign={makeCampaign({})} />)
+  it('assina INSERT de flow_submissions da campanha via broadcast', () => {
+    renderPanel(makeCampaign({}))
 
     expect(subscriptions).toHaveLength(1)
     expect(subscriptions[0].options).toEqual({
@@ -56,29 +84,57 @@ describe('CampaignFlowPanel realtime', () => {
     })
     expect(screen.getByText('2')).toBeTruthy()
 
-    act(() => {
-      subscriptions[0].listener({
-        table: 'flow_submissions',
-        eventType: 'INSERT',
-        new: { id: 'fs_1', campaign_id: 'c_1' },
-        old: null,
-        commit_timestamp: null,
-      })
-    })
-    expect(screen.getByText('3')).toBeTruthy()
-
     act(() => statusCallbacks[0]('SUBSCRIBED'))
     expect(screen.getByText('Ao vivo')).toBeTruthy()
   })
 
+  it('evento (forjável no canal público) NÃO soma no contador: só invalida a campanha', () => {
+    const { invalidateSpy } = renderPanel(makeCampaign({}))
+
+    act(() => {
+      subscriptions[0].listener(submissionEvent('fs_forged'))
+    })
+    // contador e taxa continuam os da API
+    expect(screen.getByText('2')).toBeTruthy()
+    expect(screen.queryByText('3')).toBeNull()
+    expect(screen.getByText('20.0%')).toBeTruthy()
+
+    act(() => {
+      vi.advanceTimersByTime(1000)
+    })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['campaign', 'c_1'] })
+  })
+
+  it('rajada de eventos vira um único refetch da campanha', () => {
+    const { invalidateSpy } = renderPanel(makeCampaign({}))
+
+    act(() => {
+      for (let i = 0; i < 200; i++) subscriptions[0].listener(submissionEvent(`fs_${i}`))
+    })
+    expect(invalidateSpy).not.toHaveBeenCalled()
+    expect(screen.getByText('2')).toBeTruthy()
+
+    act(() => {
+      vi.advanceTimersByTime(5000)
+    })
+    expect(invalidateSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('o contador acompanha o valor vindo da API (prop) depois do refetch', () => {
+    const { rerenderWith } = renderPanel(makeCampaign({}))
+    rerenderWith(makeCampaign({ submissionsCount: 3 }))
+    expect(screen.getByText('3')).toBeTruthy()
+    expect(screen.getByText('30.0%')).toBeTruthy()
+  })
+
   it('campanha sem Flow não renderiza nem assina (hooks antes do return)', () => {
-    const { container } = render(<CampaignFlowPanel campaign={makeCampaign({ flowId: undefined })} />)
+    const { container } = renderPanel(makeCampaign({ flowId: undefined }))
     expect(container.innerHTML).toBe('')
     expect(subscriptions).toHaveLength(0)
   })
 
   it('cancela a assinatura ao desmontar', () => {
-    const { unmount } = render(<CampaignFlowPanel campaign={makeCampaign({})} />)
+    const { unmount } = renderPanel(makeCampaign({}))
     unmount()
     expect(unsubscribe).toHaveBeenCalled()
   })

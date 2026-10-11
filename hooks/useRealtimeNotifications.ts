@@ -62,6 +62,100 @@ export function getCampaignFinalTransition(
     return null
 }
 
+// ----------------------------------------------------------------------------
+// Confirmação da transição pela API (canal público: eventos forjáveis)
+// ----------------------------------------------------------------------------
+
+/** id+status que a API não confirmou (404 ou outro status) não são buscados de novo por este tempo. */
+export const CAMPAIGN_CONFIRM_NEGATIVE_TTL_MS = 60_000
+/** Teto de buscas por janela: ids aleatórios furam o cache negativo, o teto não. */
+export const CAMPAIGN_CONFIRM_BUDGET = 5
+export const CAMPAIGN_CONFIRM_BUDGET_WINDOW_MS = 10_000
+const CAMPAIGN_CONFIRM_NEGATIVE_MAX_ENTRIES = 500
+
+type ConfirmedCampaign = NonNullable<Awaited<ReturnType<typeof campaignService.getById>>>
+
+const campaignConfirmations = {
+    /** Busca em curso por id (eventos repetidos reaproveitam a mesma requisição) */
+    inFlight: new Map<string, Promise<ConfirmedCampaign | undefined>>(),
+    /** `${id}:${status}` → expira em (ms) */
+    negative: new Map<string, number>(),
+    /** Instantes das últimas buscas (orçamento) */
+    recentLookups: [] as number[],
+}
+
+/** @internal Só para testes: zera caches e orçamento da confirmação. */
+export function __resetCampaignConfirmationsForTests(): void {
+    campaignConfirmations.inFlight.clear()
+    campaignConfirmations.negative.clear()
+    campaignConfirmations.recentLookups = []
+}
+
+function rememberUnconfirmed(key: string, now: number): void {
+    const { negative } = campaignConfirmations
+    if (negative.size >= CAMPAIGN_CONFIRM_NEGATIVE_MAX_ENTRIES) {
+        negative.forEach((expiresAt, k) => {
+            if (expiresAt <= now) negative.delete(k)
+        })
+        // Ainda cheio (flood de ids distintos): descarta os mais antigos
+        while (negative.size >= CAMPAIGN_CONFIRM_NEGATIVE_MAX_ENTRIES) {
+            const oldest = negative.keys().next().value
+            if (oldest === undefined) break
+            negative.delete(oldest)
+        }
+    }
+    negative.set(key, now + CAMPAIGN_CONFIRM_NEGATIVE_TTL_MS)
+}
+
+/**
+ * Confirma pela API autenticada que a campanha está mesmo no status final do evento.
+ * O broadcast não traz o nome (canal público, sem dados de negócio) e aceita eventos
+ * forjados, então cada evento custaria um GET /api/campaigns/<id>. Para não virar
+ * amplificador: cache negativo com TTL (404 / status diferente), deduplicação das
+ * buscas em curso por id e um teto de buscas por janela.
+ *
+ * @returns a campanha confirmada, ou null (não confirmada, em cache negativo ou sem orçamento)
+ */
+export async function confirmCampaignStatus(
+    id: string,
+    status: CampaignFinalStatus
+): Promise<ConfirmedCampaign | null> {
+    const now = Date.now()
+    const negativeKey = `${id}:${status}`
+    const expiresAt = campaignConfirmations.negative.get(negativeKey)
+    if (expiresAt !== undefined) {
+        if (expiresAt > now) return null
+        campaignConfirmations.negative.delete(negativeKey)
+    }
+
+    let lookup = campaignConfirmations.inFlight.get(id)
+    if (!lookup) {
+        const recent = campaignConfirmations.recentLookups.filter(
+            (at) => now - at < CAMPAIGN_CONFIRM_BUDGET_WINDOW_MS
+        )
+        if (recent.length >= CAMPAIGN_CONFIRM_BUDGET) {
+            campaignConfirmations.recentLookups = recent
+            return null
+        }
+        recent.push(now)
+        campaignConfirmations.recentLookups = recent
+
+        const request: Promise<ConfirmedCampaign | undefined> = campaignService.getById(id).catch(() => undefined)
+        campaignConfirmations.inFlight.set(id, request)
+        void request.finally(() => {
+            if (campaignConfirmations.inFlight.get(id) === request) campaignConfirmations.inFlight.delete(id)
+        })
+        lookup = request
+    }
+
+    const campaign = await lookup
+    if (!campaign || campaign.status !== status) {
+        rememberUnconfirmed(negativeKey, Date.now())
+        return null
+    }
+    return campaign
+}
+
 const DEFAULT_NOTIFICATIONS: NotificationConfig[] = [
     {
         table: 'campaigns',
@@ -69,10 +163,9 @@ const DEFAULT_NOTIFICATIONS: NotificationConfig[] = [
             const transition = getCampaignFinalTransition(payload)
             if (!transition) return null
 
-            // O broadcast não traz o nome (canal público, sem dados de negócio) e aceita
-            // eventos forjados: busca pela API autenticada, que também confirma o status.
-            const campaign = await campaignService.getById(transition.id).catch(() => undefined)
-            if (!campaign || campaign.status !== transition.status) return null
+            // Busca pela API autenticada, que também confirma o status (ver confirmCampaignStatus).
+            const campaign = await confirmCampaignStatus(transition.id, transition.status)
+            if (!campaign) return null
 
             const name = campaign.name || 'Sem nome'
             return transition.status === 'Concluído'

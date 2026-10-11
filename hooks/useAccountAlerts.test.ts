@@ -50,10 +50,34 @@ describe('useAccountAlerts realtime', () => {
       commit_timestamp: null,
     })
 
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['account-alerts'] })
+    await waitFor(() => expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['account-alerts'] }))
     expect(queryClient.getQueryData(['account-alerts'])).toEqual({ alerts: [] })
 
     unmount()
     expect(unsubscribe).toHaveBeenCalled()
+  })
+
+  it('flood de eventos forjados no canal público não vira um GET /api/account/alerts por evento', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({ alerts: [] }) }))
+    vi.stubGlobal('fetch', fetchMock)
+    const { queryClient } = renderHookWithProviders(() => useAccountAlerts())
+    await waitFor(() => expect(queryClient.getQueryData(['account-alerts'])).toEqual({ alerts: [] }))
+    const initialFetches = fetchMock.mock.calls.length
+
+    for (let i = 0; i < 500; i++) {
+      listeners[0].listener({
+        table: 'account_alerts',
+        eventType: 'INSERT',
+        new: { id: `forged_${i}` },
+        old: null,
+        commit_timestamp: null,
+      })
+    }
+    // Nada sai de forma síncrona por evento
+    expect(fetchMock.mock.calls.length).toBe(initialFetches)
+
+    await waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThan(initialFetches))
+    await new Promise((resolve) => setTimeout(resolve, 400))
+    expect(fetchMock.mock.calls.length - initialFetches).toBe(1)
   })
 })

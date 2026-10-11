@@ -29,9 +29,20 @@
 --    conteúdo de mensagem, custom_fields): quem tem a chave publishable pode ouvir
 --    (e também emitir) mensagens nesse canal. O frontend trata o evento como um
 --    "sinal de invalidação" e busca os dados reais pelas APIs autenticadas.
---    campaign_contacts NÃO tem trigger (volume do disparo em massa; o progresso vem
---    de campaigns + lib/realtime-broadcast-server.ts). contacts usa trigger por
---    STATEMENT (um evento por import/bulk update, não um por linha).
+--    Cada evento vira 1 linha em realtime.messages (o Realtime só apaga a partição
+--    diária dias depois), então o volume é controlado aqui:
+--    - campaign_contacts NÃO tem trigger (volume do disparo em massa; o progresso vem
+--      de campaigns + lib/realtime-broadcast-server.ts);
+--    - campaigns: INSERT/DELETE sempre; UPDATE só quando muda status/conclusão/
+--      cancelamento/pasta, ou contadores no máximo 1x a cada 2s por campanha
+--      (increment_campaign_stat faz 1 UPDATE por delivered/read/failed). UPDATE que só
+--      mexe em dispatch_lock_* não publica;
+--    - contacts usa trigger por STATEMENT (um evento por import/bulk update);
+--    - inbox_messages publica DELETE por STATEMENT (apagar uma conversa apaga N
+--      mensagens em cascata) e flow_submissions só INSERT (o frontend só usa isso;
+--      o SET NULL em massa de bulk_delete_contacts não gera eventos).
+--    O payload é montado com colunas explícitas (NEW.col), nunca com to_jsonb(NEW): não
+--    destoasta template_snapshot, components, content, response_json etc. a cada escrita.
 --    As tabelas saem da publicação supabase_realtime (postgres_changes não é mais usado).
 --
 -- EXIGE a versão correspondente do frontend (realtime via broadcast em
@@ -40,12 +51,28 @@
 -- antigo o realtime do dashboard para de atualizar (as listas seguem funcionando
 -- por polling/refetch), e as leituras diretas do browser passam a falhar.
 --
--- Idempotente: pode rodar mais de uma vez (o installer aplica todas as migrations
--- em ordem em instalações novas; em produção é aplicada manualmente).
+-- Idempotente e SEGURO DE RE-EXECUTAR: pode rodar mais de uma vez (o installer aplica
+-- todas as migrations em ordem em instalações novas; em produção é aplicada
+-- manualmente). Re-executar recria função e triggers com a definição deste arquivo.
+--
+-- COMO APLICAR EM PRODUÇÃO (operacional):
+-- - Rode numa janela de BAIXO TRÁFEGO, fora de um disparo de campanha: ALTER TABLE e
+--   DROP/CREATE TRIGGER pegam lock exclusivo nas tabelas e só soltam no COMMIT.
+-- - Antes, confira no pg_stat_activity se há transação longa ou 'idle in transaction'
+--   (ex.: export, ANALYZE manual, aba esquecida no SQL editor) e encerre-a.
+-- - Aplique como UMA transação (SQL editor do Supabase, o installer, ou
+--   `psql --single-transaction -f`). O `SET LOCAL lock_timeout` abaixo limita a espera
+--   por lock a 5s: se estourar, a transação inteira faz rollback (nada fica pela
+--   metade) e basta aplicar de novo. Fora de uma transação o SET LOCAL só avisa.
 --
 -- Rollback (emergência): recriar as policies anon_select_* e o GRANT SELECT nessas
 -- 7 tabelas reabre o vazamento — prefira voltar o frontend e manter este arquivo.
 -- =============================================================================
+
+-- Nunca esperar indefinidamente por lock (nem segurar os já obtidos enquanto isso):
+-- com tráfego, um ALTER TABLE na fila bloqueia até os SELECTs de quem chega depois.
+SET LOCAL lock_timeout = '5s';
+SET LOCAL statement_timeout = '60s';
 
 
 -- -----------------------------------------------------------------------------
@@ -78,7 +105,7 @@ DECLARE
   r record;
 BEGIN
   FOR r IN
-    SELECT c.oid, c.relname, c.relkind
+    SELECT c.oid, c.relname, c.relkind, c.relrowsecurity
     FROM pg_class c
     JOIN pg_namespace n ON n.oid = c.relnamespace
     WHERE n.nspname = 'public'
@@ -91,7 +118,9 @@ BEGIN
   LOOP
     EXECUTE format('REVOKE ALL ON TABLE public.%I FROM anon, authenticated', r.relname);
 
-    IF r.relkind IN ('r', 'p') THEN
+    -- ENABLE ROW LEVEL SECURITY pede ACCESS EXCLUSIVE mesmo quando o RLS já está ligado:
+    -- só roda nas tabelas que ainda não têm (as do init já têm).
+    IF r.relkind IN ('r', 'p') AND NOT r.relrowsecurity THEN
       BEGIN
         EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', r.relname);
       EXCEPTION WHEN OTHERS THEN
@@ -144,9 +173,12 @@ END $$;
 -- -----------------------------------------------------------------------------
 -- Payload: { table, eventType, new, old, commit_timestamp }
 --   new = colunas whitelisted da linha nova (INSERT/UPDATE), senão null
---   old = colunas whitelisted da linha antiga (UPDATE/DELETE), senão null
---   Trigger por STATEMENT (contacts): new = old = null.
--- A whitelist abaixo é a ÚNICA fonte das colunas que saem do banco por este canal.
+--   old = só as chaves da linha antiga (UPDATE/DELETE): id + coluna de filtro/transição
+--         que o frontend usa (conversation_id, project_id, campaign_id, status...)
+--   Trigger por STATEMENT (contacts, DELETE de inbox_messages): new = old = null.
+-- As projeções abaixo (uma por tabela, com NEW.col/OLD.col explícitos) são a ÚNICA
+-- fonte das colunas que saem do banco por este canal. Nunca use to_jsonb(NEW): ele
+-- destoasta a linha inteira (template_snapshot, components, content...) a cada escrita.
 -- Ao adicionar coluna: só ids, status, contadores e timestamps. Nada de PII.
 CREATE OR REPLACE FUNCTION public.dispara_broadcast_change()
 RETURNS trigger
@@ -155,109 +187,232 @@ SECURITY DEFINER
 SET search_path = ''
 AS $$
 DECLARE
-  v_cols text[];
   v_new jsonb := NULL;
   v_old jsonb := NULL;
 BEGIN
-  v_cols := CASE TG_TABLE_NAME
-    WHEN 'campaigns' THEN ARRAY[
-      'id', 'status', 'total_recipients', 'sent', 'delivered', 'read', 'failed', 'skipped',
-      'auto_reply_sent_count', 'quick_reply_match_count', 'fallback_sent_count',
-      'folder_id', 'flow_id', 'ab_test_enabled',
-      'scheduled_date', 'started_at', 'first_dispatch_at', 'last_sent_at',
-      'completed_at', 'cancelled_at', 'created_at', 'updated_at'
-    ]
-    WHEN 'contacts' THEN ARRAY[
-      'id', 'status', 'created_at', 'updated_at'
-    ]
-    WHEN 'templates' THEN ARRAY[
-      'id', 'status', 'category', 'language', 'parameter_format',
-      'fetched_at', 'created_at', 'updated_at'
-    ]
-    WHEN 'flows' THEN ARRAY[
-      'id', 'status', 'meta_status', 'meta_flow_id',
-      'meta_last_checked_at', 'meta_published_at', 'created_at', 'updated_at'
-    ]
-    WHEN 'inbox_conversations' THEN ARRAY[
-      'id', 'contact_id', 'ai_agent_id', 'status', 'mode', 'priority',
-      'unread_count', 'total_messages', 'last_message_at',
-      'automation_paused_until', 'human_mode_expires_at', 'created_at', 'updated_at'
-    ]
-    WHEN 'inbox_messages' THEN ARRAY[
-      'id', 'conversation_id', 'direction', 'message_type', 'source_type',
-      'delivery_status', 'created_at', 'delivered_at', 'read_at', 'failed_at'
-    ]
-    WHEN 'account_alerts' THEN ARRAY[
-      'id', 'type', 'code', 'dismissed', 'created_at'
-    ]
-    WHEN 'template_projects' THEN ARRAY[
-      'id', 'status', 'template_count', 'approved_count', 'created_at', 'updated_at'
-    ]
-    WHEN 'template_project_items' THEN ARRAY[
-      'id', 'project_id', 'status', 'meta_status', 'category', 'language',
-      'submitted_at', 'created_at', 'updated_at'
-    ]
-    WHEN 'flow_submissions' THEN ARRAY[
-      'id', 'campaign_id', 'flow_id', 'flow_local_id', 'created_at'
-    ]
-    ELSE ARRAY['id']
-  END;
-
-  IF TG_LEVEL = 'ROW' THEN
-    IF TG_OP IN ('INSERT', 'UPDATE') THEN
-      SELECT coalesce(jsonb_object_agg(e.key, e.value), '{}'::jsonb)
-        INTO v_new
-        FROM jsonb_each(to_jsonb(NEW)) AS e
-       WHERE e.key = ANY (v_cols);
-    END IF;
-
-    IF TG_OP IN ('UPDATE', 'DELETE') THEN
-      SELECT coalesce(jsonb_object_agg(e.key, e.value), '{}'::jsonb)
-        INTO v_old
-        FROM jsonb_each(to_jsonb(OLD)) AS e
-       WHERE e.key = ANY (v_cols);
-    END IF;
+  -- Fora do bloco de exceção: sem realtime.send não abre subtransação nenhuma.
+  IF to_regprocedure('realtime.send(jsonb,text,text,boolean)') IS NULL THEN
+    RETURN NULL;
   END IF;
 
-  PERFORM realtime.send(
-    jsonb_build_object(
-      'table', TG_TABLE_NAME,
-      'eventType', TG_OP,
-      'new', v_new,
-      'old', v_old,
-      'commit_timestamp', now()
-    ),
-    'db_change',
-    'dispara-db',
-    false
-  );
+  -- UM único bloco de exceção por chamada (cada bloco EXCEPTION abre uma subtransação,
+  -- e realtime.send já abre outra por dentro). Ele cobre a projeção E o envio: realtime
+  -- é best-effort e nunca pode derrubar a escrita no banco (ex.: coluna renomeada).
+  BEGIN
+    IF TG_LEVEL = 'ROW' THEN
+      IF TG_TABLE_NAME = 'campaigns' THEN
+        IF TG_OP <> 'DELETE' THEN
+          v_new := jsonb_build_object(
+            'id', NEW.id,
+            'status', NEW.status,
+            'total_recipients', NEW.total_recipients,
+            'sent', NEW.sent,
+            'delivered', NEW.delivered,
+            'read', NEW.read,
+            'failed', NEW.failed,
+            'skipped', NEW.skipped,
+            'auto_reply_sent_count', NEW.auto_reply_sent_count,
+            'quick_reply_match_count', NEW.quick_reply_match_count,
+            'fallback_sent_count', NEW.fallback_sent_count,
+            'folder_id', NEW.folder_id,
+            'flow_id', NEW.flow_id,
+            'ab_test_enabled', NEW.ab_test_enabled,
+            'scheduled_date', NEW.scheduled_date,
+            'started_at', NEW.started_at,
+            'first_dispatch_at', NEW.first_dispatch_at,
+            'last_sent_at', NEW.last_sent_at,
+            'completed_at', NEW.completed_at,
+            'cancelled_at', NEW.cancelled_at,
+            'created_at', NEW.created_at,
+            'updated_at', NEW.updated_at
+          );
+        END IF;
+        IF TG_OP <> 'INSERT' THEN
+          -- status/completed_at antigos: useRealtimeNotifications detecta a TRANSIÇÃO
+          -- para Concluído/Falhou (sem eles, todo update de contador viraria toast).
+          v_old := jsonb_build_object(
+            'id', OLD.id,
+            'status', OLD.status,
+            'completed_at', OLD.completed_at
+          );
+        END IF;
 
-  RETURN NULL;
-EXCEPTION WHEN OTHERS THEN
-  -- Realtime é best-effort: nunca pode derrubar a escrita no banco.
-  RAISE WARNING 'dispara_broadcast_change(%): %', TG_TABLE_NAME, SQLERRM;
+      ELSIF TG_TABLE_NAME = 'templates' THEN
+        IF TG_OP <> 'DELETE' THEN
+          v_new := jsonb_build_object(
+            'id', NEW.id,
+            'status', NEW.status,
+            'category', NEW.category,
+            'language', NEW.language,
+            'parameter_format', NEW.parameter_format,
+            'fetched_at', NEW.fetched_at,
+            'created_at', NEW.created_at,
+            'updated_at', NEW.updated_at
+          );
+        END IF;
+        IF TG_OP <> 'INSERT' THEN
+          v_old := jsonb_build_object('id', OLD.id);
+        END IF;
+
+      ELSIF TG_TABLE_NAME = 'flows' THEN
+        IF TG_OP <> 'DELETE' THEN
+          v_new := jsonb_build_object(
+            'id', NEW.id,
+            'status', NEW.status,
+            'meta_status', NEW.meta_status,
+            'meta_flow_id', NEW.meta_flow_id,
+            'meta_last_checked_at', NEW.meta_last_checked_at,
+            'meta_published_at', NEW.meta_published_at,
+            'created_at', NEW.created_at,
+            'updated_at', NEW.updated_at
+          );
+        END IF;
+        IF TG_OP <> 'INSERT' THEN
+          v_old := jsonb_build_object('id', OLD.id);
+        END IF;
+
+      ELSIF TG_TABLE_NAME = 'inbox_conversations' THEN
+        IF TG_OP <> 'DELETE' THEN
+          v_new := jsonb_build_object(
+            'id', NEW.id,
+            'contact_id', NEW.contact_id,
+            'ai_agent_id', NEW.ai_agent_id,
+            'status', NEW.status,
+            'mode', NEW.mode,
+            'priority', NEW.priority,
+            'unread_count', NEW.unread_count,
+            'total_messages', NEW.total_messages,
+            'last_message_at', NEW.last_message_at,
+            'automation_paused_until', NEW.automation_paused_until,
+            'human_mode_expires_at', NEW.human_mode_expires_at,
+            'created_at', NEW.created_at,
+            'updated_at', NEW.updated_at
+          );
+        END IF;
+        IF TG_OP <> 'INSERT' THEN
+          v_old := jsonb_build_object('id', OLD.id);
+        END IF;
+
+      ELSIF TG_TABLE_NAME = 'inbox_messages' THEN
+        IF TG_OP <> 'DELETE' THEN
+          v_new := jsonb_build_object(
+            'id', NEW.id,
+            'conversation_id', NEW.conversation_id,
+            'direction', NEW.direction,
+            'message_type', NEW.message_type,
+            'source_type', NEW.source_type,
+            'delivery_status', NEW.delivery_status,
+            'created_at', NEW.created_at,
+            'delivered_at', NEW.delivered_at,
+            'read_at', NEW.read_at,
+            'failed_at', NEW.failed_at
+          );
+        END IF;
+        IF TG_OP <> 'INSERT' THEN
+          v_old := jsonb_build_object('id', OLD.id, 'conversation_id', OLD.conversation_id);
+        END IF;
+
+      ELSIF TG_TABLE_NAME = 'account_alerts' THEN
+        IF TG_OP <> 'DELETE' THEN
+          v_new := jsonb_build_object(
+            'id', NEW.id,
+            'type', NEW.type,
+            'code', NEW.code,
+            'dismissed', NEW.dismissed,
+            'created_at', NEW.created_at
+          );
+        END IF;
+        IF TG_OP <> 'INSERT' THEN
+          v_old := jsonb_build_object('id', OLD.id);
+        END IF;
+
+      ELSIF TG_TABLE_NAME = 'template_projects' THEN
+        IF TG_OP <> 'DELETE' THEN
+          v_new := jsonb_build_object(
+            'id', NEW.id,
+            'status', NEW.status,
+            'template_count', NEW.template_count,
+            'approved_count', NEW.approved_count,
+            'created_at', NEW.created_at,
+            'updated_at', NEW.updated_at
+          );
+        END IF;
+        IF TG_OP <> 'INSERT' THEN
+          v_old := jsonb_build_object('id', OLD.id);
+        END IF;
+
+      ELSIF TG_TABLE_NAME = 'template_project_items' THEN
+        IF TG_OP <> 'DELETE' THEN
+          v_new := jsonb_build_object(
+            'id', NEW.id,
+            'project_id', NEW.project_id,
+            'status', NEW.status,
+            'meta_status', NEW.meta_status,
+            'category', NEW.category,
+            'language', NEW.language,
+            'submitted_at', NEW.submitted_at,
+            'created_at', NEW.created_at,
+            'updated_at', NEW.updated_at
+          );
+        END IF;
+        IF TG_OP <> 'INSERT' THEN
+          v_old := jsonb_build_object('id', OLD.id, 'project_id', OLD.project_id);
+        END IF;
+
+      ELSIF TG_TABLE_NAME = 'flow_submissions' THEN
+        IF TG_OP <> 'DELETE' THEN
+          v_new := jsonb_build_object(
+            'id', NEW.id,
+            'campaign_id', NEW.campaign_id,
+            'flow_id', NEW.flow_id,
+            'flow_local_id', NEW.flow_local_id,
+            'created_at', NEW.created_at
+          );
+        END IF;
+        IF TG_OP <> 'INSERT' THEN
+          v_old := jsonb_build_object('id', OLD.id, 'campaign_id', OLD.campaign_id);
+        END IF;
+      END IF;
+      -- Tabela sem projeção: new/old ficam null (o evento vira só um sinal).
+    END IF;
+
+    PERFORM realtime.send(
+      jsonb_build_object(
+        'table', TG_TABLE_NAME,
+        'eventType', TG_OP,
+        'new', v_new,
+        'old', v_old,
+        'commit_timestamp', now()
+      ),
+      'db_change',
+      'dispara-db',
+      false
+    );
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'dispara_broadcast_change(%): %', TG_TABLE_NAME, SQLERRM;
+  END;
+
   RETURN NULL;
 END;
 $$;
 
 COMMENT ON FUNCTION public.dispara_broadcast_change() IS
-  'Realtime do dashboard: publica no canal público dispara-db (evento db_change) só colunas whitelisted (sem PII). Ver 20261011000000_security_hardening.sql.';
+  'Realtime do dashboard: publica no canal público dispara-db (evento db_change) só colunas whitelisted (sem PII), projetadas coluna a coluna. Ver 20261011000000_security_hardening.sql.';
 
 -- Triggers só onde existe realtime.send (Supabase com Broadcast from Database).
 -- Lista = tabelas que o frontend escuta (CentralizedRealtimeProvider + hooks/*).
+-- Cada evento é 1 INSERT em realtime.messages: o recorte por tabela abaixo controla o volume.
 DO $$
 DECLARE
   v_table text;
+  -- Volume baixo: por linha, em INSERT/UPDATE/DELETE.
   v_row_tables text[] := ARRAY[
-    'campaigns',
     'templates',
     'flows',
     'inbox_conversations',
-    'inbox_messages',
     'account_alerts',
     'template_projects',
-    'template_project_items',
-    'flow_submissions'
+    'template_project_items'
   ];
 BEGIN
   IF to_regprocedure('realtime.send(jsonb,text,text,boolean)') IS NULL THEN
@@ -276,6 +431,73 @@ BEGIN
       v_table
     );
   END LOOP;
+
+  -- campaigns: increment_campaign_stat faz 1 UPDATE por delivered/read/failed de cada
+  -- contato, e o dreno faz try_lock/release_campaign_dispatch_lock (só dispatch_lock_*).
+  -- INSERT/DELETE publicam sempre. UPDATE só publica quando:
+  --   (a) muda status, completed_at, cancelled_at ou folder_id (nunca pode se perder); ou
+  --   (b) muda algo que a UI mostra (contadores, agenda, nome...) E é o primeiro UPDATE
+  --       da campanha nesta janela fixa de 2s (OLD.updated_at, gravado pelo BEFORE
+  --       trigger set_updated_at, caiu em outra janela). Sob fluxo contínuo de webhooks
+  --       isso dá no máximo 1 evento a cada 2s por campanha. O que cair no fim de uma
+  --       janela é coberto pelo refetch/polling da tela e pelo broadcast campaign_progress.
+  -- UPDATE que só mexe em dispatch_lock_* (e updated_at) não entra em nenhum dos dois.
+  IF to_regclass('public.campaigns') IS NOT NULL THEN
+    DROP TRIGGER IF EXISTS dispara_realtime_broadcast ON public.campaigns;
+    CREATE TRIGGER dispara_realtime_broadcast
+      AFTER INSERT OR DELETE ON public.campaigns
+      FOR EACH ROW EXECUTE FUNCTION public.dispara_broadcast_change();
+
+    DROP TRIGGER IF EXISTS dispara_realtime_broadcast_update ON public.campaigns;
+    CREATE TRIGGER dispara_realtime_broadcast_update
+      AFTER UPDATE ON public.campaigns
+      FOR EACH ROW
+      WHEN (
+        OLD.status IS DISTINCT FROM NEW.status
+        OR OLD.completed_at IS DISTINCT FROM NEW.completed_at
+        OR OLD.cancelled_at IS DISTINCT FROM NEW.cancelled_at
+        OR OLD.folder_id IS DISTINCT FROM NEW.folder_id
+        OR (
+          (OLD.sent, OLD.delivered, OLD.read, OLD.failed, OLD.skipped, OLD.total_recipients,
+           OLD.auto_reply_sent_count, OLD.quick_reply_match_count, OLD.fallback_sent_count,
+           OLD.scheduled_date, OLD.started_at, OLD.name, OLD.flow_id, OLD.ab_test_enabled)
+          IS DISTINCT FROM
+          (NEW.sent, NEW.delivered, NEW.read, NEW.failed, NEW.skipped, NEW.total_recipients,
+           NEW.auto_reply_sent_count, NEW.quick_reply_match_count, NEW.fallback_sent_count,
+           NEW.scheduled_date, NEW.started_at, NEW.name, NEW.flow_id, NEW.ab_test_enabled)
+          AND (
+            OLD.updated_at IS NULL
+            OR floor(extract(epoch FROM OLD.updated_at) / 2) <> floor(extract(epoch FROM now()) / 2)
+          )
+        )
+      )
+      EXECUTE FUNCTION public.dispara_broadcast_change();
+  END IF;
+
+  -- inbox_messages: INSERT/UPDATE por linha (nova mensagem, status de entrega).
+  -- DELETE por STATEMENT: apagar uma conversa apaga as N mensagens em cascata, e um
+  -- evento por linha seriam N INSERTs em realtime.messages (e N subtransações) dentro
+  -- do DELETE. O frontend só invalida a lista nesse caso.
+  IF to_regclass('public.inbox_messages') IS NOT NULL THEN
+    DROP TRIGGER IF EXISTS dispara_realtime_broadcast ON public.inbox_messages;
+    CREATE TRIGGER dispara_realtime_broadcast
+      AFTER INSERT OR UPDATE ON public.inbox_messages
+      FOR EACH ROW EXECUTE FUNCTION public.dispara_broadcast_change();
+
+    DROP TRIGGER IF EXISTS dispara_realtime_broadcast_delete ON public.inbox_messages;
+    CREATE TRIGGER dispara_realtime_broadcast_delete
+      AFTER DELETE ON public.inbox_messages
+      FOR EACH STATEMENT EXECUTE FUNCTION public.dispara_broadcast_change();
+  END IF;
+
+  -- flow_submissions: o frontend só usa INSERT (CampaignFlowPanel). UPDATE/DELETE em
+  -- massa (ON DELETE SET NULL de contact_id no bulk_delete_contacts) não publicam.
+  IF to_regclass('public.flow_submissions') IS NOT NULL THEN
+    DROP TRIGGER IF EXISTS dispara_realtime_broadcast ON public.flow_submissions;
+    CREATE TRIGGER dispara_realtime_broadcast
+      AFTER INSERT ON public.flow_submissions
+      FOR EACH ROW EXECUTE FUNCTION public.dispara_broadcast_change();
+  END IF;
 
   -- contacts: import/bulk update mexe em milhares de linhas por statement.
   -- Um evento por statement basta (o frontend só invalida a lista/estatísticas).

@@ -1,14 +1,20 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { FormInput, ArrowUpRight, Users, Percent } from 'lucide-react';
 import { PrefetchLink } from '@/components/ui/PrefetchLink';
 import { onDbChangesStatus, subscribeToDbChanges } from '@/lib/supabase-realtime';
+import { createRealtimeInvalidator } from '@/lib/realtime-invalidation';
 import type { Campaign } from '@/types';
 
 interface CampaignFlowPanelProps {
   campaign: Campaign;
 }
+
+/** Debounce do refetch da campanha a cada nova submissão (absorve rajadas). */
+const SUBMISSIONS_REFETCH_WAIT_MS = 1000;
+const SUBMISSIONS_REFETCH_MAX_WAIT_MS = 3000;
 
 /**
  * Painel de métricas do Flow/MiniApp
@@ -16,18 +22,25 @@ interface CampaignFlowPanelProps {
  * Com Realtime para atualização automática do contador
  */
 export const CampaignFlowPanel: React.FC<CampaignFlowPanelProps> = ({ campaign }) => {
-  const [submissionsCount, setSubmissionsCount] = useState(campaign.submissionsCount ?? 0);
+  const queryClient = useQueryClient();
   const [isLive, setIsLive] = useState(false);
   const hasFlow = !!campaign.flowId;
+  // Contador SEMPRE da API autenticada (GET /api/campaigns/[id] conta as submissões)
+  const submissionsCount = campaign.submissionsCount ?? 0;
 
   // Realtime para novas submissões (broadcast `dispara-db`: só id/campaign_id/flow_id,
-  // nunca as respostas). O contador real volta no próximo refetch da campanha.
+  // nunca as respostas). O canal é público e aceita eventos forjados: o evento só
+  // invalida a campanha (refetch com debounce); nunca soma +1 a partir do payload.
   useEffect(() => {
     if (!hasFlow) return;
 
+    const invalidator = createRealtimeInvalidator(queryClient, {
+      waitMs: SUBMISSIONS_REFETCH_WAIT_MS,
+      maxWaitMs: SUBMISSIONS_REFETCH_MAX_WAIT_MS,
+    });
     const unsubscribe = subscribeToDbChanges(
       () => {
-        setSubmissionsCount((prev) => prev + 1);
+        invalidator.invalidate(['campaign', campaign.id]);
       },
       { table: 'flow_submissions', event: 'INSERT', filter: `campaign_id=eq.${campaign.id}` }
     );
@@ -38,15 +51,9 @@ export const CampaignFlowPanel: React.FC<CampaignFlowPanelProps> = ({ campaign }
     return () => {
       unsubscribe();
       unsubscribeStatus();
+      invalidator.cancel();
     };
-  }, [campaign.id, hasFlow]);
-
-  // Sync com prop quando mudar
-  useEffect(() => {
-    if (typeof campaign.submissionsCount === 'number') {
-      setSubmissionsCount(campaign.submissionsCount);
-    }
-  }, [campaign.submissionsCount]);
+  }, [campaign.id, hasFlow, queryClient]);
 
   // Só exibe se a campanha tem Flow (depois dos hooks: regra de hooks do React)
   if (!hasFlow) return null;

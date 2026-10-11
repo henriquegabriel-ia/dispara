@@ -73,17 +73,99 @@ const dbChangeStatusListeners = new Set<(status: ChannelStatus) => void>()
 let dbChangesChannel: RealtimeChannel | null = null
 let dbChangesStatus: ChannelStatus | null = null
 
-/** Entrega um evento já validado aos listeners que casam tabela/evento/filtro. */
-export function dispatchDbChange(event: DbChangeEvent): void {
+/**
+ * Coalescência por tabela. O canal `dispara-db` é público (qualquer um emite nele) e
+ * eventos legítimos também chegam em rajada (sync de templates, status de entrega):
+ * - o 1º evento de uma tabela fora de janela é entregue na hora (leading) e abre uma
+ *   janela de DB_CHANGE_WINDOW_MS;
+ * - dentro da janela os eventos são agrupados por linha (tipo + id); a mesma linha
+ *   repetida fica com o `new` mais recente e o `old` do primeiro (a transição líquida);
+ * - no fim da janela o grupo é entregue (trailing) e, se houve evento, abre outra:
+ *   sob flood, no máximo 1 entrega por tabela por janela, e nunca adiada para sempre;
+ * - acima de DB_CHANGE_MAX_ROWS_PER_WINDOW linhas distintas, o excesso vira UM sinal
+ *   genérico por tipo de evento (new/old nulos), entregue a todos os assinantes da
+ *   tabela (inclusive os filtrados), que só invalidam e buscam pela API.
+ */
+export const DB_CHANGE_WINDOW_MS = 1000
+export const DB_CHANGE_MAX_ROWS_PER_WINDOW = 20
+
+interface DbChangeWindow {
+    timer: ReturnType<typeof setTimeout>
+    /** Por linha (`eventType:id`), na ordem de chegada */
+    rows: Map<string, DbChangeEvent>
+    /** Sinal genérico por tipo de evento, quando estoura o limite de linhas */
+    overflow: Map<DbChangeEvent['eventType'], DbChangeEvent>
+}
+
+const dbChangeWindows = new Map<string, DbChangeWindow>()
+
+function dbChangeRowKey(event: DbChangeEvent): string {
+    const row = event.new ?? event.old
+    const id = row?.id
+    return `${event.eventType}:${typeof id === 'string' || typeof id === 'number' ? String(id) : '*'}`
+}
+
+/** Entrega um evento aos listeners que casam tabela/evento (e filtro, se não for sinal genérico). */
+function deliverDbChange(event: DbChangeEvent, ignoreFilter = false): void {
     dbChangeListeners.forEach((entry) => {
         if (entry.table && entry.table !== event.table) return
         if (entry.event !== '*' && entry.event !== event.eventType) return
-        if (!matchesRealtimeFilter(event, entry.filter)) return
+        if (!ignoreFilter && !matchesRealtimeFilter(event, entry.filter)) return
         try {
             entry.listener(event)
         } catch (err) {
             console.error(`[Realtime] Listener error for ${event.table}:`, err)
         }
+    })
+}
+
+function openDbChangeWindow(table: string): void {
+    dbChangeWindows.set(table, {
+        timer: setTimeout(() => flushDbChangeWindow(table), DB_CHANGE_WINDOW_MS),
+        rows: new Map(),
+        overflow: new Map(),
+    })
+}
+
+function flushDbChangeWindow(table: string): void {
+    const batch = dbChangeWindows.get(table)
+    dbChangeWindows.delete(table)
+    if (!batch || (batch.rows.size === 0 && batch.overflow.size === 0)) return
+
+    // Houve eventos na janela: a próxima já começa (cadência fixa sob rajada).
+    openDbChangeWindow(table)
+    batch.rows.forEach((event) => deliverDbChange(event))
+    batch.overflow.forEach((event) => deliverDbChange(event, true))
+}
+
+/**
+ * Entrega um evento já validado aos listeners que casam tabela/evento/filtro,
+ * com coalescência por tabela (ver DB_CHANGE_WINDOW_MS).
+ */
+export function dispatchDbChange(event: DbChangeEvent): void {
+    const batch = dbChangeWindows.get(event.table)
+    if (!batch) {
+        openDbChangeWindow(event.table)
+        deliverDbChange(event)
+        return
+    }
+
+    const key = dbChangeRowKey(event)
+    const previous = batch.rows.get(key)
+    if (previous) {
+        batch.rows.set(key, { ...event, old: previous.old ?? event.old })
+        return
+    }
+    if (batch.rows.size < DB_CHANGE_MAX_ROWS_PER_WINDOW) {
+        batch.rows.set(key, event)
+        return
+    }
+    batch.overflow.set(event.eventType, {
+        table: event.table,
+        eventType: event.eventType,
+        new: null,
+        old: null,
+        commit_timestamp: event.commit_timestamp,
     })
 }
 
@@ -173,10 +255,12 @@ export function toRealtimePayload<T extends Record<string, unknown> = Record<str
     }
 }
 
-/** @internal Só para testes: zera o hub (listeners, status e canal). */
+/** @internal Só para testes: zera o hub (listeners, status, janelas de coalescência e canal). */
 export function __resetDbChangesHubForTests(): void {
     dbChangeListeners.clear()
     dbChangeStatusListeners.clear()
+    dbChangeWindows.forEach((batch) => clearTimeout(batch.timer))
+    dbChangeWindows.clear()
     dbChangesChannel = null
     dbChangesStatus = null
 }
