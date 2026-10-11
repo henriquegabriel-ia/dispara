@@ -18,6 +18,10 @@ import type { WorkflowVisibility } from "@/lib/builder/api-client";
 import { validateTree } from "@/lib/builder/flow/tree-validate";
 import type { Flow } from "@/lib/builder/flow/types";
 import { parseWorkflowSettings } from "@/lib/builder/workflow-settings";
+import {
+  describeWorkflowConditionIssues,
+  findInvalidWorkflowConditions,
+} from "@/lib/builder/condition-validator";
 
 type RouteParams = {
   params: Promise<{ workflowId: string }>;
@@ -52,6 +56,18 @@ export async function PATCH(request: Request, { params }: RouteParams) {
   if (!validation.success) {
     return NextResponse.json(
       { error: "Invalid workflow", details: validation.errors },
+      { status: 400 }
+    );
+  }
+  // O grafo cru vai direto para o executor: revalida TODAS as expressões de
+  // Condition no servidor (não confia no compile do cliente).
+  const conditionIssues = findInvalidWorkflowConditions(normalized.nodes);
+  if (conditionIssues.length > 0) {
+    return NextResponse.json(
+      {
+        error: describeWorkflowConditionIssues(conditionIssues),
+        details: conditionIssues,
+      },
       { status: 400 }
     );
   }
