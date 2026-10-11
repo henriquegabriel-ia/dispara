@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
   AUTH_REQUIRED_HEADER,
   buildLoginPath,
+  ensureSameOriginPath,
   installUnauthorizedRedirect,
   sanitizeRedirectPath,
   shouldRedirectToLogin,
@@ -37,6 +38,38 @@ describe('sanitizeRedirectPath', () => {
     expect(sanitizeRedirectPath(undefined)).toBe('/')
   })
 
+  it('bloqueia dot-segments que viram //host depois de normalizados', () => {
+    for (const evil of [
+      '/..//evil.com',
+      '/.//evil.com',
+      '/%2e%2e//evil.com',
+      '/%2E%2E//evil.com',
+      '/a/..//evil.com',
+      '/..%2f/evil.com',
+      '/..%2F/evil.com',
+      '/.%2e//evil.com',
+      '/..%5c/evil.com',
+      '/%2e%2e%2f%2fevil.com',
+      '/..%252f/evil.com',
+      '/..//evil.com?x=1#y',
+    ]) {
+      // Antes: '/..//evil.com' saía como '//evil.com' (https://evil.com/ no router.push).
+      expect(sanitizeRedirectPath(evil), JSON.stringify(evil)).toBe('/')
+    }
+  })
+
+  it('a saída nunca resolve para outro origin', () => {
+    const base = 'https://app.example.com'
+    for (const input of ['/..//evil.com', '/a/../b', '/campaigns/./1', '/%2e%2e/x', '/x?next=//evil.com']) {
+      const out = sanitizeRedirectPath(input)
+      expect(new URL(out, base).origin, input).toBe(base)
+    }
+    // dot-segments inofensivos continuam funcionando (normalizados)
+    expect(sanitizeRedirectPath('/a/../campaigns')).toBe('/campaigns')
+    expect(sanitizeRedirectPath('/contacts?q=%2F%2Fx')).toBe('/contacts?q=%2F%2Fx')
+    expect(sanitizeRedirectPath('/contacts/Jo%C3%A3o')).toBe('/contacts/Jo%C3%A3o')
+  })
+
   it('não redireciona de volta para o /login (loop)', () => {
     expect(sanitizeRedirectPath('/login')).toBe('/')
     expect(sanitizeRedirectPath('/login?redirect=/x')).toBe('/')
@@ -45,6 +78,22 @@ describe('sanitizeRedirectPath', () => {
 
   it('usa o fallback informado', () => {
     expect(sanitizeRedirectPath('//evil', '/inbox')).toBe('/inbox')
+  })
+})
+
+describe('ensureSameOriginPath', () => {
+  const origin = 'https://app.example.com'
+
+  it('mantém caminhos do próprio app', () => {
+    expect(ensureSameOriginPath('/campaigns?x=1', origin)).toBe('/campaigns?x=1')
+    expect(ensureSameOriginPath('/', origin)).toBe('/')
+  })
+
+  it('troca pelo fallback tudo que sairia do origin', () => {
+    for (const evil of ['//evil.com', '/\\evil.com', 'https://evil.com', 'javascript:alert(1)', 'evil.com', '']) {
+      expect(ensureSameOriginPath(evil, origin), JSON.stringify(evil)).toBe('/')
+    }
+    expect(ensureSameOriginPath('//evil.com', origin, '/inbox')).toBe('/inbox')
   })
 })
 

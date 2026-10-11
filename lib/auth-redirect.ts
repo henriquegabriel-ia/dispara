@@ -21,24 +21,78 @@ const DEFAULT_REDIRECT = '/'
 const PARSE_BASE = 'http://dispara.invalid'
 
 /**
- * Aceita só caminhos relativos do próprio app: começam com '/', não com '//' nem
- * '/\' (ambos viram URL de outro host no browser), sem caracteres de controle nem
- * barra invertida, e que continuem no mesmo origin depois de parseados. Evita
- * loop de volta para o /login.
+ * Caminho relativo do próprio app: começa com '/', não com '//' nem '/\' (ambos
+ * viram URL de outro host no browser), sem caracteres de controle nem barra invertida.
+ */
+function isSafeRelativePath(value: string): boolean {
+  if (!value.startsWith('/')) return false
+  if (value.startsWith('//') || value.startsWith('/\\')) return false
+  // eslint-disable-next-line no-control-regex
+  return !/[\u0000-\u001f\u007f\\]/.test(value)
+}
+
+/** Decodifica %XX até estabilizar (no máximo 3 voltas); null se malformado ou se não estabilizar. */
+function decodePathFully(path: string): string | null {
+  let current = path
+  for (let i = 0; i < 3; i++) {
+    let next: string
+    try {
+      next = decodeURIComponent(current)
+    } catch {
+      return null
+    }
+    if (next === current) return current
+    current = next
+  }
+  return null
+}
+
+/**
+ * Aceita só caminhos relativos do próprio app (isSafeRelativePath) que continuem no
+ * mesmo origin depois de parseados. Evita loop de volta para o /login.
+ *
+ * A checagem vale para a ENTRADA e para a SAÍDA: o parser de URL remove dot-segments,
+ * então '/..//evil.com' (ou '/.//evil.com', '/%2e%2e//evil.com', '/a/..//evil.com')
+ * passaria na entrada e sairia como '//evil.com' — que o router trata como outro host.
+ * O path também é conferido depois de decodificado ('/..%2f/evil.com' vira
+ * '/..//evil.com'), para nenhuma camada que decodifique %2f/%5c/%2e reabrir o furo.
+ * Caminho que só fica seguro depois de "normalizado" é malicioso: cai no fallback.
  */
 export function sanitizeRedirectPath(raw: string | null | undefined, fallback: string = DEFAULT_REDIRECT): string {
   if (typeof raw !== 'string') return fallback
   const value = raw.trim()
-  if (!value.startsWith('/')) return fallback
-  if (value.startsWith('//') || value.startsWith('/\\')) return fallback
-  // eslint-disable-next-line no-control-regex
-  if (/[\u0000-\u001f\u007f\\]/.test(value)) return fallback
+  if (!isSafeRelativePath(value)) return fallback
 
   try {
     const parsed = new URL(value, PARSE_BASE)
     if (parsed.origin !== PARSE_BASE) return fallback
-    if (matchSegmentPrefix(LOGIN_PATH, parsed.pathname)) return fallback
-    return `${parsed.pathname}${parsed.search}${parsed.hash}`
+
+    const out = `${parsed.pathname}${parsed.search}${parsed.hash}`
+    if (!isSafeRelativePath(out) || new URL(out, PARSE_BASE).origin !== PARSE_BASE) return fallback
+
+    const decodedPath = decodePathFully(parsed.pathname)
+    if (decodedPath === null || !isSafeRelativePath(decodedPath)) return fallback
+    const normalized = new URL(decodedPath, PARSE_BASE)
+    if (normalized.origin !== PARSE_BASE || !isSafeRelativePath(normalized.pathname)) return fallback
+
+    if (matchSegmentPrefix(LOGIN_PATH, parsed.pathname) || matchSegmentPrefix(LOGIN_PATH, normalized.pathname)) {
+      return fallback
+    }
+    return out
+  } catch {
+    return fallback
+  }
+}
+
+/**
+ * Defesa extra no client, logo antes do router.push: o destino precisa resolver no
+ * MESMO origin da página. Qualquer outra coisa vira `fallback`.
+ */
+export function ensureSameOriginPath(path: string, origin: string, fallback: string = DEFAULT_REDIRECT): string {
+  try {
+    const expected = new URL(origin).origin
+    if (!isSafeRelativePath(path)) return fallback
+    return new URL(path, expected).origin === expected ? path : fallback
   } catch {
     return fallback
   }
