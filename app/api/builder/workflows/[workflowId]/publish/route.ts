@@ -8,9 +8,9 @@ import {
 import { syncWorkflowSchedule, clearWorkflowSchedule } from "@/lib/builder/workflow-schedule";
 import { settingsDb } from "@/lib/supabase-db";
 import {
-  describeWorkflowConditionIssues,
-  findInvalidWorkflowConditions,
-} from "@/lib/builder/condition-validator";
+  findWorkflowGraphIssues,
+  workflowGraphIssuesBody,
+} from "@/lib/builder/workflow-graph-guard";
 
 type RouteParams = {
   params: Promise<{ workflowId: string }>;
@@ -29,17 +29,13 @@ export async function POST(_request: Request, { params }: RouteParams) {
   const companyId = await getCompanyId(supabase);
   const record = await ensureWorkflowRecord(supabase, workflowId, companyId);
 
-  // Não publica grafo com condição inválida/maliciosa (rascunhos salvos antes
-  // da revalidação no PATCH podem conter uma).
-  const conditionIssues = findInvalidWorkflowConditions(record.version.nodes);
-  if (conditionIssues.length > 0) {
-    return NextResponse.json(
-      {
-        error: describeWorkflowConditionIssues(conditionIssues),
-        details: conditionIssues,
-      },
-      { status: 400 }
-    );
+  // Não publica grafo com condição inválida/maliciosa nem com actionType fora
+  // da allowlist (rascunhos salvos antes da revalidação no PATCH podem ter).
+  const graphIssues = findWorkflowGraphIssues(record.version.nodes);
+  if (graphIssues.length > 0) {
+    return NextResponse.json(workflowGraphIssuesBody(graphIssues), {
+      status: 400,
+    });
   }
 
   const previousVersionId = record.workflow.active_version_id;

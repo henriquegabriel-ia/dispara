@@ -8,6 +8,10 @@ import {
   toSavedWorkflow,
   updateWorkflowRecord,
 } from "@/lib/builder/workflow-db";
+import {
+  findWorkflowGraphIssues,
+  workflowGraphIssuesBody,
+} from "@/lib/builder/workflow-graph-guard";
 
 export async function GET() {
   const supabase = getSupabaseAdmin();
@@ -43,20 +47,30 @@ export async function POST(request: Request) {
     );
   }
   const body = await request.json().catch(() => ({}));
+  const nodes = Array.isArray(body?.nodes) ? body.nodes : [];
+  const edges = Array.isArray(body?.edges) ? body.edges : [];
+  // Grava direto na versão ativa (executável): mesma revalidação de condições
+  // e actionTypes do PATCH.
+  const graphIssues = findWorkflowGraphIssues(nodes);
+  if (graphIssues.length > 0) {
+    return NextResponse.json(workflowGraphIssuesBody(graphIssues), {
+      status: 400,
+    });
+  }
   const companyId = await getCompanyId(supabase);
   const records = await listWorkflowRecords(supabase, companyId);
   const workflowId = records[0]?.workflow.id ?? null;
   const record = workflowId
     ? await updateWorkflowRecord(supabase, workflowId, {
-        nodes: Array.isArray(body?.nodes) ? body.nodes : [],
-        edges: Array.isArray(body?.edges) ? body.edges : [],
+        nodes,
+        edges,
       })
     : await createWorkflowRecord(
         supabase,
         {
           name: "Current Workflow",
-          nodes: Array.isArray(body?.nodes) ? body.nodes : [],
-          edges: Array.isArray(body?.edges) ? body.edges : [],
+          nodes,
+          edges,
         },
         companyId
       );
