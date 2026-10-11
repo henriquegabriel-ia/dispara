@@ -1,6 +1,12 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
+import { clearAttendantAuthCache } from '@/lib/attendant-auth';
+import { OWNER_KINDS, requirePrincipal } from '@/lib/principal';
 import type { AttendantToken, UpdateAttendantTokenDTO } from '@/types';
+
+// CRUD de tokens de atendente: só o dono (política default 'session' no proxy;
+// a checagem aqui é defesa em profundidade). PATCH/DELETE limpam o cache de
+// auth de atendente para a revogação valer na hora nesta instância.
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -11,6 +17,9 @@ interface RouteParams {
 // =============================================================================
 
 export async function GET(request: Request, { params }: RouteParams) {
+  const denied = requirePrincipal(request, OWNER_KINDS);
+  if (denied) return denied;
+
   try {
     const { id } = await params;
 
@@ -42,6 +51,9 @@ export async function GET(request: Request, { params }: RouteParams) {
 // =============================================================================
 
 export async function PATCH(request: Request, { params }: RouteParams) {
+  const denied = requirePrincipal(request, OWNER_KINDS);
+  if (denied) return denied;
+
   try {
     const { id } = await params;
     const body: UpdateAttendantTokenDTO = await request.json();
@@ -85,6 +97,9 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       .select()
       .single();
 
+    // Permissões/ativo/expiração mudaram: não servir o principal antigo do cache
+    clearAttendantAuthCache();
+
     if (error) {
       console.error('[API] Erro ao atualizar token:', error);
       return NextResponse.json(
@@ -115,6 +130,9 @@ export async function PATCH(request: Request, { params }: RouteParams) {
 // =============================================================================
 
 export async function DELETE(request: Request, { params }: RouteParams) {
+  const denied = requirePrincipal(request, OWNER_KINDS);
+  if (denied) return denied;
+
   try {
     const { id } = await params;
 
@@ -122,6 +140,9 @@ export async function DELETE(request: Request, { params }: RouteParams) {
       .from('attendant_tokens')
       .delete()
       .eq('id', id);
+
+    // Token removido: derruba o acesso já (nesta instância)
+    clearAttendantAuthCache();
 
     if (error) {
       console.error('[API] Erro ao deletar token:', error);

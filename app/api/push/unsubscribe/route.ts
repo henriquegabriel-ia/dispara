@@ -1,12 +1,17 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase-server'
+import { requireAttendantPermission } from '@/lib/principal'
 
 /**
  * POST /api/push/unsubscribe
  *
- * Remove uma subscription de push do banco
+ * Remove uma subscription de push do banco.
+ * Dono (dashboard) ou atendente com canView (PWA).
  */
 export async function POST(request: Request) {
+  const denied = requireAttendantPermission(request, 'canView')
+  if (denied) return denied
+
   try {
     const { endpoint } = await request.json()
 

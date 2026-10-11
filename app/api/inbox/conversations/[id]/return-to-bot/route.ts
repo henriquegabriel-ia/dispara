@@ -4,16 +4,27 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase-server'
+import { getSupabaseAdmin } from '@/lib/supabase'
+import { requireAttendantPermission } from '@/lib/principal'
 
 interface RouteContext {
   params: Promise<{ id: string }>
 }
 
 export async function POST(request: NextRequest, context: RouteContext) {
+  // Dono ou atendente com canReply E canHandoff (a UI exige os dois)
+  const denied =
+    requireAttendantPermission(request, 'canReply') ??
+    requireAttendantPermission(request, 'canHandoff')
+  if (denied) return denied
+
   try {
     const { id } = await context.params
-    const supabase = await createClient()
+    // Service role (como o takeover): o client anon não tem UPDATE em inbox_conversations
+    const supabase = getSupabaseAdmin()
+    if (!supabase) {
+      return NextResponse.json({ error: 'Supabase não configurado' }, { status: 500 })
+    }
 
     // Atualizar conversa para modo bot
     const { data: conversation, error } = await supabase

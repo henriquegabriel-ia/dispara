@@ -11,7 +11,7 @@
  */
 
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { useParams, useRouter, useSearchParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft,
@@ -27,6 +27,7 @@ import {
   Sparkles,
 } from 'lucide-react'
 import { useAttendant } from '@/components/attendant/AttendantProvider'
+import { AttendantApiError, isAttendantAuthError } from '@/hooks/useAttendantConversations'
 import { toast } from 'sonner'
 
 // =============================================================================
@@ -71,13 +72,13 @@ type ConversationStatus = 'ai_active' | 'human_active' | 'handoff_requested'
 
 async function fetchConversation(id: string): Promise<Conversation> {
   const res = await fetch(`/api/inbox/conversations/${id}`)
-  if (!res.ok) throw new Error('Conversa não encontrada')
+  if (!res.ok) throw new AttendantApiError('Conversa não encontrada', res.status)
   return res.json()
 }
 
 async function fetchMessages(id: string, limit = 50): Promise<{ messages: Message[]; hasMore: boolean }> {
   const res = await fetch(`/api/inbox/conversations/${id}/messages?limit=${limit}`)
-  if (!res.ok) throw new Error('Erro ao buscar mensagens')
+  if (!res.ok) throw new AttendantApiError('Erro ao buscar mensagens', res.status)
   return res.json()
 }
 
@@ -440,12 +441,10 @@ function DisabledInputNotice({ message }: { message: string }) {
 export default function ConversaPage() {
   const params = useParams()
   const router = useRouter()
-  const searchParams = useSearchParams()
   const queryClient = useQueryClient()
-  const { isAuthenticated, canReply, canHandoff } = useAttendant()
+  const { isReady, isValidating, isAuthenticated, error: authError, canReply, canHandoff } = useAttendant()
 
   const conversationId = params.id as string
-  const token = searchParams.get('token')
   const [newMessage, setNewMessage] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
@@ -453,15 +452,18 @@ export default function ConversaPage() {
   const { data: conversation, isLoading: convLoading, error: convError } = useQuery({
     queryKey: ['conversation', conversationId],
     queryFn: () => fetchConversation(conversationId),
+    // Só busca com a sessão de atendente validada (cookie); para o polling em 401/403
     enabled: isAuthenticated,
-    refetchInterval: 5000,
+    refetchInterval: (q) => (isAttendantAuthError(q.state.error) ? false : 5000),
+    retry: (failureCount, error) => !isAttendantAuthError(error) && failureCount < 3,
   })
 
   const { data: messagesData, isLoading: msgsLoading } = useQuery({
     queryKey: ['messages', conversationId],
     queryFn: () => fetchMessages(conversationId, 100),
     enabled: isAuthenticated,
-    refetchInterval: 3000,
+    refetchInterval: (q) => (isAttendantAuthError(q.state.error) ? false : 3000),
+    retry: (failureCount, error) => !isAttendantAuthError(error) && failureCount < 3,
   })
 
   const messages = messagesData?.messages ?? []
@@ -506,15 +508,28 @@ export default function ConversaPage() {
   }, [newMessage, sendMutation])
 
   const handleBack = () => {
-    const backUrl = token ? `/atendimento?token=${token}` : '/atendimento'
-    router.push(backUrl)
+    // A sessão segue pelo cookie httpOnly — o token não trafega mais na URL
+    router.push('/atendimento')
   }
 
-  // Loading
-  if (convLoading || msgsLoading) {
+  // Loading (inclui a validação da sessão: as queries só rodam autenticadas)
+  if (!isReady || isValidating || convLoading || msgsLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[var(--geist-background)]">
         <Loader2 className="w-8 h-8 animate-spin text-[var(--geist-foreground-tertiary)]" />
+      </div>
+    )
+  }
+
+  // Sem sessão de atendente (link sem token e sem cookie, token revogado/expirado)
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center px-4 text-center bg-[var(--geist-background)]">
+        <AlertCircle className="w-12 h-12 text-[var(--geist-error)] mb-4" />
+        <h2 className="text-lg font-semibold mb-2">Acesso Negado</h2>
+        <p className="text-sm text-[var(--geist-foreground-secondary)] max-w-sm">
+          {authError || 'Sessão de atendente não encontrada'}
+        </p>
       </div>
     )
   }
@@ -524,7 +539,13 @@ export default function ConversaPage() {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center px-4 bg-[var(--geist-background)]">
         <AlertCircle className="w-12 h-12 text-[var(--geist-error)] mb-4" />
-        <h2 className="text-lg font-semibold mb-2">Conversa não encontrada</h2>
+        <h2 className="text-lg font-semibold mb-2">
+          {isAttendantAuthError(convError)
+            ? convError.status === 403
+              ? 'Sem permissão para visualizar esta conversa'
+              : 'Sua sessão expirou ou o acesso foi revogado'
+            : 'Conversa não encontrada'}
+        </h2>
         <button
           onClick={handleBack}
           className="text-[var(--geist-success)] text-sm hover:underline"
