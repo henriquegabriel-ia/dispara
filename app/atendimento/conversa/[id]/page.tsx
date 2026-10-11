@@ -34,6 +34,7 @@ import {
   isAttendantAuthError,
   isAttendantTransientError,
   shouldRetryAttendantQuery,
+  useStickyQueryError,
 } from '@/hooks/useAttendantConversations'
 import { toast } from 'sonner'
 
@@ -468,7 +469,8 @@ export default function ConversaPage() {
   const {
     data: conversation,
     isLoading: convLoading,
-    error: convError,
+    isSuccess: convSuccess,
+    error: convQueryError,
     refetch: refetchConversation,
   } = useQuery({
     queryKey: ['conversation', conversationId],
@@ -480,13 +482,24 @@ export default function ConversaPage() {
     retry: shouldRetryAttendantQuery,
   })
 
-  const { data: messagesData, isLoading: msgsLoading, error: msgsError } = useQuery({
+  const {
+    data: messagesData,
+    isLoading: msgsLoading,
+    isSuccess: msgsSuccess,
+    error: msgsQueryError,
+  } = useQuery({
     queryKey: ['messages', conversationId],
     queryFn: () => fetchMessages(conversationId, 100),
     enabled: isAuthenticated,
     refetchInterval: (q) => attendantPollingInterval(q.state.error, 3000),
     retry: shouldRetryAttendantQuery,
   })
+
+  // Sem dados em cache, o react-query zera o erro a cada nova rodada do polling; o
+  // último erro fica até a próxima resposta boa (senão a tela alternava spinner ↔
+  // "reconectando" a cada tick)
+  const convError = useStickyQueryError(convQueryError, convSuccess)
+  const msgsError = useStickyQueryError(msgsQueryError, msgsSuccess)
 
   const convTransient = isAttendantTransientError(convError)
   const connectionUnstable = convTransient || isAttendantTransientError(msgsError)
@@ -537,13 +550,15 @@ export default function ConversaPage() {
     router.push('/atendimento')
   }
 
-  // Loading (inclui a validação da sessão: as queries só rodam autenticadas)
-  if (!isReady || isValidating || convLoading || msgsLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-[var(--geist-background)]">
-        <Loader2 className="w-8 h-8 animate-spin text-[var(--geist-foreground-tertiary)]" />
-      </div>
-    )
+  const loadingSpinner = (
+    <div className="min-h-screen flex items-center justify-center bg-[var(--geist-background)]">
+      <Loader2 className="w-8 h-8 animate-spin text-[var(--geist-foreground-tertiary)]" />
+    </div>
+  )
+
+  // Validando a sessão (as queries só rodam autenticadas)
+  if (!isReady || isValidating) {
+    return loadingSpinner
   }
 
   // Banco/rede oscilando ao restaurar a sessão: o cookie continua válido — reconectando
@@ -564,9 +579,15 @@ export default function ConversaPage() {
     )
   }
 
-  // 503/5xx/rede antes de a conversa carregar: não é "não encontrada"; o polling segue
+  // 503/5xx/rede antes de a conversa carregar: não é "não encontrada"; o polling segue.
+  // Vem antes do spinner: sem dados, cada nova rodada volta a "carregando".
   if (!conversation && convTransient) {
     return <AttendantReconnectingPage onRetry={() => void refetchConversation()} />
+  }
+
+  // Primeira carga (um erro já conhecido não volta para o spinner a cada nova rodada)
+  if ((convLoading && !convError) || (msgsLoading && !msgsError)) {
+    return loadingSpinner
   }
 
   // Error (falha transitória com a conversa já carregada só mostra a faixa abaixo)

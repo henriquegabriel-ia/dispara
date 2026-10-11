@@ -1,6 +1,6 @@
 import { createElement, type ReactNode } from 'react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { renderHook, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider, useIsFetching } from '@tanstack/react-query'
+import { act, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   AttendantApiError,
@@ -9,6 +9,7 @@ import {
   isAttendantTransientError,
   shouldRetryAttendantQuery,
   useAttendantConversations,
+  useStickyQueryError,
 } from '@/hooks/useAttendantConversations'
 import { computeReconnectDelay, isTransientHttpStatus } from '@/components/attendant/attendant-reconnect'
 
@@ -110,9 +111,12 @@ describe('useAttendantConversations (polling)', () => {
     return { ok: status >= 200 && status < 300, status, json: async () => body } as unknown as Response
   }
 
-  function wrapper() {
+  function createClient() {
     // retryDelay mínimo para o teste não esperar o backoff padrão do react-query
-    const client = new QueryClient({ defaultOptions: { queries: { retryDelay: 1 } } })
+    return new QueryClient({ defaultOptions: { queries: { retryDelay: 1 } } })
+  }
+
+  function wrapper(client: QueryClient = createClient()) {
     return ({ children }: { children: ReactNode }) => createElement(QueryClientProvider, { client }, children)
   }
 
@@ -135,18 +139,74 @@ describe('useAttendantConversations (polling)', () => {
       wrapper: wrapper(),
     })
 
-    await waitFor(() => expect(result.current.error).toBeInstanceOf(AttendantApiError))
-    expect(isAttendantAuthError(result.current.error)).toBe(false)
-    expect(result.current.isReconnecting).toBe(true)
+    // Asserções no mesmo waitFor: nada roda entre a checagem do erro e a do estado
+    await waitFor(() => {
+      expect(result.current.error).toBeInstanceOf(AttendantApiError)
+      expect(isAttendantAuthError(result.current.error)).toBe(false)
+      expect(result.current.isReconnecting).toBe(true)
+    })
     const callsWhileDown = fetchMock.mock.calls.length
     // 1 tentativa + 3 retries
     expect(callsWhileDown).toBeGreaterThanOrEqual(4)
 
     healthy = true
-    await waitFor(() => expect(result.current.conversations).toHaveLength(1))
-    expect(result.current.isReconnecting).toBe(false)
-    expect(result.current.error).toBeNull()
+    await waitFor(() => {
+      expect(result.current.conversations).toHaveLength(1)
+      expect(result.current.isReconnecting).toBe(false)
+      expect(result.current.error).toBeNull()
+    })
     expect(fetchMock.mock.calls.length).toBeGreaterThan(callsWhileDown)
+  })
+
+  // Cenário do achado: banco fora desde o primeiro carregamento (nada em cache). Toda
+  // nova rodada do polling volta a query para 'pending' com error=null no react-query
+  // v5; antes a faixa "reconectando" sumia e a lista voltava para o skeleton.
+  it('sem dados em cache, a nova rodada do polling mantém "reconectando" e não volta ao skeleton', async () => {
+    const client = createClient()
+    let releaseRound: (res: Response) => void = () => {}
+    fetchMock.mockImplementation(async () => response(503))
+
+    const { result } = renderHook(
+      () => ({
+        list: useAttendantConversations({ refetchInterval: 60_000 }),
+        fetching: useIsFetching({ queryKey: ['attendant-conversations'] }),
+      }),
+      { wrapper: wrapper(client) }
+    )
+
+    // Primeira rodada (1 + 3 retries) terminou em 503
+    await waitFor(() => {
+      expect(result.current.fetching).toBe(0)
+      expect(result.current.list.isReconnecting).toBe(true)
+    })
+
+    // Próxima rodada fica em andamento até liberarmos a resposta
+    fetchMock.mockImplementation(
+      () =>
+        new Promise<Response>((resolve) => {
+          releaseRound = resolve
+        })
+    )
+    act(() => {
+      void result.current.list.refetch()
+    })
+    await waitFor(() => expect(result.current.fetching).toBe(1))
+
+    // O react-query zerou o erro no cache (era isso que apagava a faixa)...
+    const [query] = client.getQueryCache().findAll({ queryKey: ['attendant-conversations'] })
+    expect(query.state).toMatchObject({ status: 'pending', error: null, fetchStatus: 'fetching' })
+    // ...mas o hook continua em "reconectando", sem skeleton
+    expect(result.current.list.isReconnecting).toBe(true)
+    expect(result.current.list.isLoading).toBe(false)
+    expect(isAttendantTransientError(result.current.list.error)).toBe(true)
+
+    // O banco voltou: a rodada termina com sucesso e o estado limpa
+    act(() => releaseRound(response(200, OK_BODY)))
+    await waitFor(() => {
+      expect(result.current.list.conversations).toHaveLength(1)
+      expect(result.current.list.isReconnecting).toBe(false)
+      expect(result.current.list.error).toBeNull()
+    })
   })
 
   it('401 para o polling (sessão encerrada) e não faz retry', async () => {
@@ -156,9 +216,43 @@ describe('useAttendantConversations (polling)', () => {
       wrapper: wrapper(),
     })
 
-    await waitFor(() => expect(isAttendantAuthError(result.current.error)).toBe(true))
-    expect(result.current.isReconnecting).toBe(false)
+    await waitFor(() => {
+      expect(isAttendantAuthError(result.current.error)).toBe(true)
+      expect(result.current.isReconnecting).toBe(false)
+    })
     await new Promise((resolve) => setTimeout(resolve, 120))
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('useStickyQueryError', () => {
+  type Props = { error: AttendantApiError | null; isSuccess: boolean }
+
+  it('mantém o último erro enquanto a query volta a pending sem dados; limpa no sucesso', () => {
+    const unavailable = new AttendantApiError('x', 503)
+    const revoked = new AttendantApiError('y', 401)
+    const { result, rerender } = renderHook(({ error, isSuccess }: Props) => useStickyQueryError(error, isSuccess), {
+      initialProps: { error: null, isSuccess: false } as Props,
+    })
+    expect(result.current).toBeNull()
+
+    rerender({ error: unavailable, isSuccess: false })
+    expect(result.current).toBe(unavailable)
+
+    // Nova rodada: o react-query zera o erro (status 'pending')
+    rerender({ error: null, isSuccess: false })
+    expect(result.current).toBe(unavailable)
+
+    // Um erro novo substitui o anterior
+    rerender({ error: revoked, isSuccess: false })
+    expect(result.current).toBe(revoked)
+    rerender({ error: null, isSuccess: false })
+    expect(result.current).toBe(revoked)
+
+    // Sucesso limpa, e uma rodada seguinte sem erro não ressuscita o antigo
+    rerender({ error: null, isSuccess: true })
+    expect(result.current).toBeNull()
+    rerender({ error: null, isSuccess: false })
+    expect(result.current).toBeNull()
   })
 })

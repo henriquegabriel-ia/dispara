@@ -5,6 +5,7 @@
  * Formata dados especificamente para a UI de atendimento.
  */
 
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { isTransientHttpStatus } from '@/components/attendant/attendant-reconnect'
 
@@ -87,6 +88,31 @@ export function shouldRetryAttendantQuery(failureCount: number, error: unknown):
   return !isAttendantAuthError(error) && failureCount < 3
 }
 
+/**
+ * Último erro de uma query da PWA, estável durante as novas rodadas de busca.
+ *
+ * Sem dados em cache, o react-query v5 volta a query para 'pending' com `error: null`
+ * (e `failureReason: null`) toda vez que uma busca começa: tick do refetchInterval,
+ * "Tentar agora", foco na janela. Com o banco fora desde o primeiro carregamento, o
+ * "reconectando" sumia a cada tick do polling e voltava ~7s depois (fim dos retries),
+ * alternando com o spinner/skeleton. Aqui o último erro só sai quando a query volta a
+ * ter sucesso. Com dados em cache o react-query já mantém o erro; nada muda.
+ */
+export function useStickyQueryError<TError>(error: TError | null, isSuccess: boolean): TError | null {
+  const [lastError, setLastError] = useState<TError | null>(null)
+
+  // Ajuste de estado durante a renderização (padrão do React para guardar algo da
+  // renderização anterior): sem efeito e sem um frame com o valor antigo.
+  if (error != null && error !== lastError) {
+    setLastError(() => error)
+  } else if (error == null && isSuccess && lastError != null) {
+    setLastError(null)
+  }
+
+  if (error != null) return error
+  return isSuccess ? null : lastError
+}
+
 // =============================================================================
 // FETCHER
 // =============================================================================
@@ -139,13 +165,18 @@ export function useAttendantConversations(options: UseAttendantConversationsOpti
     staleTime: 5000, // Considera dados frescos por 5 segundos
   })
 
+  // Sobrevive ao início de cada nova rodada do polling (ver useStickyQueryError)
+  const error = useStickyQueryError(query.error, query.isSuccess)
+
   return {
     conversations: query.data?.conversations || [],
     counts: query.data?.counts || { total: 0, urgent: 0, ai: 0, human: 0, resolved: 0 },
-    isLoading: query.isLoading,
+    // Só a primeira carga: com um erro já conhecido, a nova rodada não volta para o
+    // skeleton — a faixa de reconexão continua na tela
+    isLoading: query.isLoading && error == null,
     isRefetching: query.isRefetching,
-    error: query.error,
-    isReconnecting: isAttendantTransientError(query.error),
+    error,
+    isReconnecting: isAttendantTransientError(error),
     refetch: query.refetch,
   }
 }
