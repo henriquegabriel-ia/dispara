@@ -127,6 +127,18 @@ describe('CentralizedRealtimeProvider (broadcast dispara-db)', () => {
     })
   })
 
+  it('mensagem nova também atualiza o detalhe da conversa aberta (total, último horário, contato)', async () => {
+    // O UPDATE de inbox_conversations só publica status/modo/não lidas; o resto do
+    // cabeçalho do detalhe depende do evento da mensagem.
+    const { invalidatedKeys } = setup(() => {})
+
+    emit({ table: 'inbox_messages', eventType: 'INSERT', new: { id: 'm1', conversation_id: 'c1' }, old: null })
+
+    await waitFor(() => {
+      expect(invalidatedKeys()).toContain('inbox-conversation')
+    })
+  })
+
   it('contacts (trigger por statement, sem linhas) invalida lista e estatísticas', async () => {
     const received: RealtimeEvent[] = []
     const { invalidatedKeys } = setup((e) => received.push(e), 'contacts')

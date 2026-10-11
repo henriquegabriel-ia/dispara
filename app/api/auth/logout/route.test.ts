@@ -144,4 +144,14 @@ describe('classifyRequestOrigin', () => {
     expect(classifyRequestOrigin(logoutRequest({ origin: 'http://dispara.example' }))).toBe('cross-origin')
     expect(classifyRequestOrigin(logoutRequest())).toBe('unknown')
   })
+
+  it('proxy que termina TLS sem X-Forwarded-Proto: Origin https do mesmo host confere; outro host não', () => {
+    const internalUrl = 'http://10.0.0.5:3000/api/auth/logout'
+    expect(classifyRequestOrigin(logoutRequest({ origin: 'https://app.cliente.com.br', host: 'app.cliente.com.br' }, internalUrl))).toBe(
+      'same-origin'
+    )
+    expect(classifyRequestOrigin(logoutRequest({ origin: 'https://evil.example', host: 'app.cliente.com.br' }, internalUrl))).toBe(
+      'cross-origin'
+    )
+  })
 })

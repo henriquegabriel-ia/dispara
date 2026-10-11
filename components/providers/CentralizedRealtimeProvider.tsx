@@ -152,6 +152,9 @@ export function CentralizedRealtimeProvider({
         // o banco não publica INSERT de conversa nem o contador de saída
         // (increment_conversation_counters) — ver a migration de hardening.
         debouncedInvalidate(['inbox-conversations'])
+        // Idem para o detalhe da conversa aberta (useConversation): total_messages,
+        // last_message_at e contato não são publicados pelo UPDATE de inbox_conversations.
+        debouncedInvalidate(['inbox-conversation'])
       }
     })
 

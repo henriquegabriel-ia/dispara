@@ -167,6 +167,23 @@ export const campaignService = {
     return await response.json();
   },
 
+  /**
+   * Igual ao getById, mas distingue "não existe" (404) de falha transitória
+   * (5xx, rede, sessão expirando) — quem guarda cache negativo só deve fazê-lo no 404.
+   */
+  lookupById: async (
+    id: string
+  ): Promise<{ status: 'found'; campaign: Campaign } | { status: 'not_found' } | { status: 'error' }> => {
+    try {
+      const response = await fetch(`/api/campaigns/${id}`);
+      if (response.status === 404) return { status: 'not_found' };
+      if (!response.ok) return { status: 'error' };
+      return { status: 'found', campaign: (await response.json()) as Campaign };
+    } catch {
+      return { status: 'error' };
+    }
+  },
+
   getMetrics: async (id: string): Promise<any | null> => {
     try {
       const response = await fetch(`/api/campaigns/${id}/metrics`, {

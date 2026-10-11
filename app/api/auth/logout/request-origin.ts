@@ -23,8 +23,12 @@ function ownOrigins(request: Request): string[] {
   const origins = [url.origin.toLowerCase()]
   const host = firstHeaderValue(request, 'x-forwarded-host') || firstHeaderValue(request, 'host')
   if (host) {
-    const proto = firstHeaderValue(request, 'x-forwarded-proto') || url.protocol.replace(/:$/, '')
-    origins.push(`${proto}://${host}`.toLowerCase())
+    const forwardedProto = firstHeaderValue(request, 'x-forwarded-proto')
+    // Proxy que termina TLS sem repassar X-Forwarded-Proto: a URL interna chega como
+    // http mas o browser manda Origin https. Para CSRF o que importa é o HOST (um
+    // atacante não controla o nosso host em nenhum esquema), então aceita os dois.
+    const protos = forwardedProto ? [forwardedProto] : ['http', 'https']
+    for (const proto of protos) origins.push(`${proto}://${host}`.toLowerCase())
   }
   return origins
 }

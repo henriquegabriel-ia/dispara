@@ -16,8 +16,19 @@ vi.mock('@/lib/supabase-realtime', () => ({
 }))
 
 const getById = vi.fn()
+// lookupById derivado do mock: undefined → 404; rejeição → erro transitório.
 vi.mock('@/services/campaignService', () => ({
-  campaignService: { getById: (id: string) => getById(id) },
+  campaignService: {
+    getById: (id: string) => getById(id),
+    lookupById: async (id: string) => {
+      try {
+        const campaign = await getById(id)
+        return campaign ? { status: 'found', campaign } : { status: 'not_found' }
+      } catch {
+        return { status: 'error' }
+      }
+    },
+  },
 }))
 
 const toastMock = vi.hoisted(() => ({
@@ -337,6 +348,19 @@ describe('confirmCampaignStatus', () => {
     now.mockReturnValue(1_000_000 + CAMPAIGN_CONFIRM_NOT_FOUND_TTL_MS + 1)
     getById.mockResolvedValue({ id: 'ghost', name: 'X', status: 'Concluído' })
     await expect(confirmCampaignStatus('ghost', 'Concluído')).resolves.toMatchObject({ status: 'Concluído' })
+    expect(getById).toHaveBeenCalledTimes(2)
+  })
+
+  it('erro transitório da API (5xx/rede) não entra em cache negativo nem suprime o toast legítimo', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(3_000_000)
+    getById.mockRejectedValue(new Error('503'))
+    await expect(confirmCampaignStatus('real', 'Concluído')).resolves.toBeNull()
+
+    // Passado só o intervalo mínimo entre buscas (bem antes do TTL do cache negativo)
+    now.mockReturnValue(3_000_000 + CAMPAIGN_CONFIRM_RECHECK_MS + 1)
+    expect(CAMPAIGN_CONFIRM_RECHECK_MS + 1).toBeLessThan(CAMPAIGN_CONFIRM_NOT_FOUND_TTL_MS)
+    getById.mockResolvedValue({ id: 'real', name: 'X', status: 'Concluído' })
+    await expect(confirmCampaignStatus('real', 'Concluído')).resolves.toMatchObject({ status: 'Concluído' })
     expect(getById).toHaveBeenCalledTimes(2)
   })
 

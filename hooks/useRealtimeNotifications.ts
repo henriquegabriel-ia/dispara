@@ -249,12 +249,13 @@ function pruneLookupStates(now: number): void {
 function startCampaignLookup(id: string, state: CampaignLookupState, known: boolean): CampaignLookup {
     state.lastStartedAt = Date.now()
     const request: CampaignLookup = campaignService
-        .getById(id)
-        .catch(() => undefined)
-        .then((campaign) => {
-            // Cache negativo só para id desconhecido que a API não achou (ex.: forjado aleatório)
-            if (!campaign && !known) rememberNotFound(id, Date.now())
-            return campaign ?? undefined
+        .lookupById(id)
+        .catch(() => ({ status: 'error' as const }))
+        .then((result) => {
+            // Cache negativo só para id desconhecido que a API respondeu 404 (ex.: forjado
+            // aleatório). Erro transitório (5xx, rede) não pode suprimir o toast legítimo.
+            if (result.status === 'not_found' && !known) rememberNotFound(id, Date.now())
+            return result.status === 'found' ? result.campaign : undefined
         })
     state.inFlight = request
     void request.then(() => {

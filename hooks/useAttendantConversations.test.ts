@@ -255,4 +255,26 @@ describe('useStickyQueryError', () => {
     rerender({ error: null, isSuccess: false })
     expect(result.current).toBeNull()
   })
+
+  it('trocar de chave (busca/filtro) descarta o erro guardado da chave anterior', () => {
+    type KeyedProps = Props & { resetKey: string }
+    const unavailable = new AttendantApiError('x', 503)
+    const { result, rerender } = renderHook(
+      ({ error, isSuccess, resetKey }: KeyedProps) => useStickyQueryError(error, isSuccess, resetKey),
+      { initialProps: { error: unavailable, isSuccess: false, resetKey: 'A' } as KeyedProps }
+    )
+    expect(result.current).toBe(unavailable)
+
+    // Mesma chave, nova rodada pending: mantém o erro
+    rerender({ error: null, isSuccess: false, resetKey: 'A' })
+    expect(result.current).toBe(unavailable)
+
+    // Nova chave ainda carregando: sem erro herdado (skeleton, não faixa de reconexão)
+    rerender({ error: null, isSuccess: false, resetKey: 'B' })
+    expect(result.current).toBeNull()
+
+    // Voltar para A também não ressuscita o erro antigo
+    rerender({ error: null, isSuccess: false, resetKey: 'A' })
+    expect(result.current).toBeNull()
+  })
 })

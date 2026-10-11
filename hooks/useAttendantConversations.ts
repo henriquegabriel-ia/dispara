@@ -97,16 +97,27 @@ export function shouldRetryAttendantQuery(failureCount: number, error: unknown):
  * "reconectando" sumia a cada tick do polling e voltava ~7s depois (fim dos retries),
  * alternando com o spinner/skeleton. Aqui o último erro só sai quando a query volta a
  * ter sucesso. Com dados em cache o react-query já mantém o erro; nada muda.
+ *
+ * `resetKey` identifica a query (ex.: filtros/busca serializados): ao trocar de chave
+ * o erro guardado da chave anterior é descartado, para a primeira carga da nova chave
+ * mostrar o skeleton e não a faixa de reconexão com a lista vazia.
  */
-export function useStickyQueryError<TError>(error: TError | null, isSuccess: boolean): TError | null {
-  const [lastError, setLastError] = useState<TError | null>(null)
+export function useStickyQueryError<TError>(
+  error: TError | null,
+  isSuccess: boolean,
+  resetKey = ''
+): TError | null {
+  const [state, setState] = useState<{ key: string; error: TError | null }>({ key: resetKey, error: null })
+  const lastError = state.key === resetKey ? state.error : null
 
   // Ajuste de estado durante a renderização (padrão do React para guardar algo da
   // renderização anterior): sem efeito e sem um frame com o valor antigo.
-  if (error != null && error !== lastError) {
-    setLastError(() => error)
-  } else if (error == null && isSuccess && lastError != null) {
-    setLastError(null)
+  if (state.key !== resetKey) {
+    setState({ key: resetKey, error: error ?? null })
+  } else if (error != null && error !== state.error) {
+    setState({ key: resetKey, error })
+  } else if (error == null && isSuccess && state.error != null) {
+    setState({ key: resetKey, error: null })
   }
 
   if (error != null) return error
@@ -166,7 +177,11 @@ export function useAttendantConversations(options: UseAttendantConversationsOpti
   })
 
   // Sobrevive ao início de cada nova rodada do polling (ver useStickyQueryError)
-  const error = useStickyQueryError(query.error, query.isSuccess)
+  const error = useStickyQueryError(
+    query.error,
+    query.isSuccess,
+    JSON.stringify([status, search, buttonPayload, templateName])
+  )
 
   return {
     conversations: query.data?.conversations || [],
