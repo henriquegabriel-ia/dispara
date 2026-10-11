@@ -20,6 +20,20 @@ function internalSecret(): string {
 }
 
 /**
+ * Headers de autenticação para chamadas internas do runtime ao próprio deploy
+ * (cron de agendadas → /api/campaign/dispatch, dispatch/resend → /api/campaign/workflow).
+ *
+ * O proxy resolve `Bearer CRON_SECRET` (ou `Bearer DISPARA_ADMIN_KEY`, fallback quando
+ * CRON_SECRET não existe) como principal `cron` — aceito só em rotas com política
+ * `cron` ou `session_or_cron` (lib/route-policy.ts). Sem nenhum dos dois segredos,
+ * devolve `{}` e a chamada leva 401 (falha visível, não silenciosa).
+ */
+export function internalAuthHeaders(): Record<string, string> {
+  const secret = internalSecret()
+  return secret ? { Authorization: `Bearer ${secret}` } : {}
+}
+
+/**
  * Auto-reinvocação fire-and-forget do próprio deploy.
  *
  * Substitui a re-invocação encadeada de steps do QStash Workflow: quando um worker
@@ -31,8 +45,8 @@ function internalSecret(): string {
  */
 export function reinvokeSelf(path: string, body: Record<string, unknown> = {}): void {
   const url = `${resolveBaseUrl()}${path}`
-  const secret = internalSecret()
-  if (!secret) {
+  const authHeaders = internalAuthHeaders()
+  if (!authHeaders.Authorization) {
     // Sem CRON_SECRET nem DISPARA_ADMIN_KEY, o endpoint-alvo (verifyCronRequest)
     // rejeita com 401. Falha ALTO em vez de disparar no escuro.
     console.error(
@@ -46,7 +60,7 @@ export function reinvokeSelf(path: string, body: Record<string, unknown> = {}): 
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${secret}`,
+          ...authHeaders,
         },
         body: JSON.stringify({ ...body, source: 'self-reinvoke' }),
         keepalive: true,
