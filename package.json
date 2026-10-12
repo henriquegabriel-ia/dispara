@@ -16,6 +16,8 @@
     "schema:parity": "tsx scripts/schema-parity-check.ts",
     "schema:baseline:generate": "tsx scripts/generate-baseline-from-fullchain.ts",
     "db:check": "node scripts/check-migrations.mjs",
+    "ds:check": "node scripts/sync-eia-ds.mjs --check",
+    "ds:sync": "node scripts/sync-eia-ds.mjs --sync",
     "ds:report": "node scripts/ds-migration-report.mjs",
     "ds:report:check": "node scripts/ds-migration-report.mjs --check",
     "db:migrate:0020": "node scripts/apply-migration-pg.mjs supabase/migrations/0020_add_whatsapp_status_events.sql",

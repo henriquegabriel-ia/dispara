@@ -33,6 +33,9 @@ jobs:
       - name: Check Supabase migrations (Postgres 17 via PGlite)
         run: npm run db:check
 
+      - name: DS V2 vendor intacto (arquivos copiados do DS sem edição local)
+        run: npm run ds:check
+
       - name: DS V2 migration ratchet (nenhuma métrica do visual antigo pode subir)
         run: npm run ds:report:check
 

@@ -15,7 +15,7 @@ import {
   ResizableHandle,
   ResizablePanel,
   ResizablePanelGroup,
-} from '@/components/legacy-ui/resizable'
+} from '@/components/ui/resizable'
 import { TooltipProvider } from '@/components/legacy-ui/tooltip'
 import { ErrorBoundary } from '@/components/app/ErrorBoundary'
 import { ConversationList } from './ConversationList'

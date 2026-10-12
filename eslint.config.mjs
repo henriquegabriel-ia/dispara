@@ -15,6 +15,9 @@ export default [
       '.eslintrc.cjs',
       '.eslintignore',
       '**/*.backup.*',
+      // Código do DS Empreende IA V2 copiado verbatim (scripts/sync-eia-ds.mjs)
+      'components/ui/**',
+      'components/eia/**',
     ],
     linterOptions: {
       reportUnusedDisableDirectives: 'off',
