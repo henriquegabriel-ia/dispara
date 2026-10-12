@@ -7,15 +7,15 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
-} from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
+} from '@/components/legacy-ui/dialog';
+import { Button } from '@/components/legacy-ui/button';
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select';
+} from '@/components/legacy-ui/select';
 import { AlertTriangle, Clock, Loader2, Workflow } from 'lucide-react';
 import type { WorkflowSummary } from '@/services/workflowEnrollmentService';
 
@@ -100,7 +100,7 @@ export function ContactAddToWorkflowModal({
               </div>
             </>
           ) : (
-            <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
+            <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 legacy-dark:text-amber-400">
               <AlertTriangle size={16} className="mt-0.5 shrink-0" aria-hidden="true" />
               <span>
                 Nenhum workflow publicado. Publique um workflow no builder antes

@@ -2,7 +2,7 @@
 
 import { motion } from 'framer-motion';
 import { AlertCircle } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/components/legacy-ui/button';
 import { StepCard } from './StepCard';
 import { cn } from '@/lib/utils';
 import type { InstallStep, InstallErrorType } from '@/lib/installer/types';

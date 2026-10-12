@@ -1,7 +1,7 @@
 'use client'
 
 import type { LeadForm } from '@/types'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/legacy-ui/card'
 import { FormCard } from './FormCard'
 
 export interface FormListProps {

@@ -1,7 +1,7 @@
 'use client'
 
 import React from 'react'
-import { Input } from '@/components/ui/input'
+import { Input } from '@/components/legacy-ui/input'
 import { GripVertical, X } from 'lucide-react'
 import {
   Select,
@@ -9,7 +9,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
+} from '@/components/legacy-ui/select'
 import { ButtonData, ButtonType, Flow } from './types'
 import { REQUIRES_BUTTON_TEXT, BUTTON_TYPE_LABELS, TYPES_THAT_RESET_TEXT } from './constants'
 import { UrlButtonFields } from './button-fields/UrlButtonFields'
@@ -232,7 +232,7 @@ export function CTAButtonList({
                             {countChars(buttonText)}/{maxButtonText}
                           </div>
                           {hasTextError && (
-                            <div className="mt-1 text-xs text-amber-700 dark:text-amber-300">Informe o texto do botão.</div>
+                            <div className="mt-1 text-xs text-amber-700 legacy-dark:text-amber-300">Informe o texto do botão.</div>
                           )}
                         </div>
                       </div>

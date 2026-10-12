@@ -1,165 +1,76 @@
-import * as React from "react"
-import { cva, type VariantProps } from "class-variance-authority"
-import { AlertCircle, CheckCircle2, Info, AlertTriangle, X } from "lucide-react"
+import * as React from 'react';
+import { cva, type VariantProps } from 'class-variance-authority';
 
-import { cn } from "@/lib/utils"
-
-/**
- * Alert - Componente para feedback e mensagens contextuais
- *
- * Usa os tokens de cores de status do Design System:
- * - success: Confirmações, ações bem-sucedidas
- * - warning: Avisos, atenção necessária
- * - error: Erros, falhas
- * - info: Informações neutras
- *
- * @example
- * ```tsx
- * <Alert variant="success">
- *   <AlertTitle>Pronto para usar!</AlertTitle>
- *   <AlertDescription>O endpoint foi configurado automaticamente.</AlertDescription>
- * </Alert>
- *
- * <Alert variant="warning" dismissible onDismiss={() => {}}>
- *   <AlertTitle>Webhook apontando para outro sistema</AlertTitle>
- *   <AlertDescription>Os status não serão atualizados.</AlertDescription>
- * </Alert>
- * ```
- */
+import { cn } from '@/lib/utils';
 
 const alertVariants = cva(
-  [
-    "relative w-full rounded-lg p-4",
-    "[transition:var(--ds-transition-fast)]",
-    "flex gap-3",
-  ].join(" "),
+  "group/alert relative grid w-full gap-0.5 rounded-lg border px-2.5 py-2 text-left text-sm has-data-[slot=alert-action]:relative has-data-[slot=alert-action]:pr-18 has-[>svg]:grid-cols-[auto_1fr] has-[>svg]:gap-x-2 *:[svg]:row-span-2 *:[svg]:translate-y-0.5 *:[svg]:text-current *:[svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
-        success: [
-          "[background-color:var(--ds-status-success-bg)]",
-          "[border:1px_solid_rgba(16,185,129,0.3)]",
-          "[color:var(--ds-status-success-text)]",
-        ].join(" "),
-        warning: [
-          "[background-color:var(--ds-status-warning-bg)]",
-          "[border:1px_solid_rgba(245,158,11,0.3)]",
-          "[color:var(--ds-status-warning-text)]",
-        ].join(" "),
-        error: [
-          "[background-color:var(--ds-status-error-bg)]",
-          "[border:1px_solid_rgba(239,68,68,0.3)]",
-          "[color:var(--ds-status-error-text)]",
-        ].join(" "),
-        info: [
-          "[background-color:var(--ds-status-info-bg)]",
-          "[border:1px_solid_rgba(59,130,246,0.3)]",
-          "[color:var(--ds-status-info-text)]",
-        ].join(" "),
-        default: [
-          "bg-[var(--ds-bg-elevated)]",
-          "[border:1px_solid_var(--ds-border-default)]",
-          "text-[var(--ds-text-secondary)]",
-        ].join(" "),
+        default: 'bg-card text-card-foreground',
+        destructive:
+          'bg-card text-destructive *:data-[slot=alert-description]:text-destructive/90 *:[svg]:text-current',
       },
     },
     defaultVariants: {
-      variant: "default",
+      variant: 'default',
     },
-  }
-)
-
-const alertIconMap = {
-  success: CheckCircle2,
-  warning: AlertTriangle,
-  error: AlertCircle,
-  info: Info,
-  default: Info,
-}
-
-export interface AlertProps
-  extends React.HTMLAttributes<HTMLDivElement>,
-    VariantProps<typeof alertVariants> {
-  /** Se o alert pode ser fechado */
-  dismissible?: boolean
-  /** Callback quando o alert é fechado */
-  onDismiss?: () => void
-  /** Ocultar ícone */
-  hideIcon?: boolean
-}
+  },
+);
 
 function Alert({
   className,
-  variant = "default",
-  dismissible = false,
-  onDismiss,
-  hideIcon = false,
-  children,
+  variant,
   ...props
-}: AlertProps) {
-  const Icon = alertIconMap[variant || "default"]
-
+}: React.ComponentProps<'div'> & VariantProps<typeof alertVariants>) {
   return (
     <div
-      role="alert"
       data-slot="alert"
+      role="alert"
       className={cn(alertVariants({ variant }), className)}
       {...props}
-    >
-      {!hideIcon && (
-        <Icon
-          className="h-5 w-5 flex-shrink-0 mt-0.5"
-          aria-hidden="true"
-        />
-      )}
-      <div className="flex-1 min-w-0">{children}</div>
-      {dismissible && onDismiss && (
-        <button
-          type="button"
-          onClick={onDismiss}
-          className={cn(
-            "flex-shrink-0 p-1 rounded-md -m-1",
-            "opacity-70 hover:opacity-100",
-            "[transition:var(--ds-transition-fast)]",
-            "focus:outline-none focus:ring-2 focus:ring-offset-2",
-            variant === "success" && "focus:ring-green-500",
-            variant === "warning" && "focus:ring-amber-500",
-            variant === "error" && "focus:ring-red-500",
-            variant === "info" && "focus:ring-blue-500",
-          )}
-          aria-label="Fechar alerta"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      )}
-    </div>
-  )
+    />
+  );
 }
 
-function AlertTitle({
-  className,
-  ...props
-}: React.HTMLAttributes<HTMLHeadingElement>) {
+function AlertTitle({ className, ...props }: React.ComponentProps<'div'>) {
   return (
-    <h5
+    <div
       data-slot="alert-title"
-      className={cn("font-semibold leading-tight tracking-tight", className)}
+      className={cn(
+        'font-medium group-has-[>svg]/alert:col-start-2 [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground',
+        className,
+      )}
       {...props}
     />
-  )
+  );
 }
 
 function AlertDescription({
   className,
   ...props
-}: React.HTMLAttributes<HTMLParagraphElement>) {
+}: React.ComponentProps<'div'>) {
   return (
-    <p
+    <div
       data-slot="alert-description"
-      className={cn("text-sm mt-1 opacity-90", className)}
+      className={cn(
+        'text-sm text-balance text-muted-foreground md:text-pretty [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground [&_p:not(:last-child)]:mb-4',
+        className,
+      )}
       {...props}
     />
-  )
+  );
 }
 
-export { Alert, AlertTitle, AlertDescription, alertVariants }
+function AlertAction({ className, ...props }: React.ComponentProps<'div'>) {
+  return (
+    <div
+      data-slot="alert-action"
+      className={cn('absolute top-2 right-2', className)}
+      {...props}
+    />
+  );
+}
+
+export { Alert, AlertTitle, AlertDescription, AlertAction };

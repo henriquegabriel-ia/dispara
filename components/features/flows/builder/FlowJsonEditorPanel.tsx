@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Save, Braces, AlertTriangle } from 'lucide-react'
 
-import { Button } from '@/components/ui/button'
-import { Textarea } from '@/components/ui/textarea'
+import { Button } from '@/components/legacy-ui/button'
+import { Textarea } from '@/components/legacy-ui/textarea'
 
 function safeStringify(obj: unknown): string {
   try {

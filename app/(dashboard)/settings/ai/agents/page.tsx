@@ -9,7 +9,7 @@
 import { useState, useEffect } from 'react'
 import { Bot } from 'lucide-react'
 import { Page, PageDescription, PageHeader, PageTitle } from '@/components/app/page'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/legacy-ui/tabs'
 import {
   AIAgentsSettingsView,
   KnowledgeBasePanel,

@@ -2,7 +2,7 @@
 
 import React from 'react'
 import { Container } from '@/components/app/container'
-import { Textarea } from '@/components/ui/textarea'
+import { Textarea } from '@/components/legacy-ui/textarea'
 import { Spec } from '../types'
 
 interface CarouselPanelProps {
@@ -39,7 +39,7 @@ export function CarouselPanel({ spec, update, carouselErrors }: CarouselPanelPro
       </div>
 
       {carouselErrors.length > 0 && (
-        <div className="text-xs text-amber-700 dark:text-amber-300 space-y-1">
+        <div className="text-xs text-amber-700 legacy-dark:text-amber-300 space-y-1">
           {carouselErrors.map((err) => (
             <div key={err}>{err}</div>
           ))}

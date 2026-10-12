@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { FileText, Check, Loader2, Trash2, Eye, Pencil, Send, Megaphone } from 'lucide-react'
 import { Template } from '../../../../types'
 import { StatusBadge } from './StatusBadge'
-import { Button } from '@/components/ui/button'
+import { Button } from '@/components/legacy-ui/button'
 
 export interface TemplateCardProps {
   template: Template

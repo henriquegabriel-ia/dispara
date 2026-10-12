@@ -1,7 +1,7 @@
 'use client'
 
 import React from 'react'
-import { Input } from '@/components/ui/input'
+import { Input } from '@/components/legacy-ui/input'
 import { Container } from '@/components/app/container'
 import {
   Select,
@@ -9,7 +9,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
+} from '@/components/legacy-ui/select'
 
 // Tipos de botão suportados pela Meta API para templates
 type ButtonType =
@@ -87,7 +87,7 @@ export function StepConfig({
             value={spec.name || ''}
             onChange={(e) => update({ name: e.target.value })}
             className={`bg-[var(--ds-bg-elevated)] text-[var(--ds-text-primary)] ${
-              isNameValid ? 'border-[var(--ds-border-default)]' : 'border-amber-600 dark:border-amber-400/40'
+              isNameValid ? 'border-[var(--ds-border-default)]' : 'border-amber-600 legacy-dark:border-amber-400/40'
             }`}
           />
           <p className="text-xs text-[var(--ds-text-muted)]">Apenas <span className="font-mono">a-z 0-9 _</span></p>

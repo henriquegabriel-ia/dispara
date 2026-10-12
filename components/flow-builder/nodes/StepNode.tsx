@@ -108,7 +108,7 @@ const StepNode = memo(function StepNode({ data, selected }: NodeProps) {
           </button>
           <button
             type="button"
-            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-red-600 hover:bg-red-500/10 dark:text-red-400"
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-red-600 hover:bg-red-500/10 legacy-dark:text-red-400"
             onClick={handleDelete}
           >
             <Trash2 size={12} /> Deletar

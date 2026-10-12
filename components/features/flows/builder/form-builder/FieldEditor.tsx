@@ -3,17 +3,17 @@
 import React from 'react'
 import { ArrowDown, ArrowUp, Copy, Plus, Trash2 } from 'lucide-react'
 
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
+import { Button } from '@/components/legacy-ui/button'
+import { Input } from '@/components/legacy-ui/input'
+import { Textarea } from '@/components/legacy-ui/textarea'
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
-import { Switch } from '@/components/ui/switch'
+} from '@/components/legacy-ui/select'
+import { Switch } from '@/components/legacy-ui/switch'
 
 import { FlowFormFieldType, FlowFormOption, normalizeFlowFieldName } from '@/lib/flow-form'
 import { FIELD_TYPE_LABEL, FieldEditorProps } from './types'

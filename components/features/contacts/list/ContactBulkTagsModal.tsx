@@ -7,10 +7,10 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
-} from '@/components/ui/dialog'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { Input } from '@/components/ui/input'
+} from '@/components/legacy-ui/dialog'
+import { Button } from '@/components/legacy-ui/button'
+import { Badge } from '@/components/legacy-ui/badge'
+import { Input } from '@/components/legacy-ui/input'
 import { X, Plus, Tag } from 'lucide-react'
 
 interface ContactBulkTagsModalProps {

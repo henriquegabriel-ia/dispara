@@ -3,8 +3,8 @@
 import React, { useEffect, useState } from 'react'
 import { KanbanSquare, Loader2, Pencil } from 'lucide-react'
 import { Modal, ModalCancelButton, ModalFooter, ModalHeader } from '@/components/app/Modal'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import { Input } from '@/components/legacy-ui/input'
+import { Label } from '@/components/legacy-ui/label'
 
 export interface PipelineFormModalProps {
   isOpen: boolean
@@ -51,9 +51,9 @@ export function PipelineFormModal({
       <ModalHeader
         icon={
           mode === 'create' ? (
-            <KanbanSquare size={24} className="text-primary-600 dark:text-primary-400" />
+            <KanbanSquare size={24} className="text-primary-600 legacy-dark:text-primary-400" />
           ) : (
-            <Pencil size={24} className="text-primary-600 dark:text-primary-400" />
+            <Pencil size={24} className="text-primary-600 legacy-dark:text-primary-400" />
           )
         }
         iconClassName="bg-primary-500/10"

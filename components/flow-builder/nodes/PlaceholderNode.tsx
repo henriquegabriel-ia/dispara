@@ -15,7 +15,7 @@ const PlaceholderNode = memo(function PlaceholderNode({ data }: NodeProps) {
       <Handle type="target" position={Position.Top} />
       <button
         type="button"
-        className="nodrag nopan flex h-full w-full items-center justify-center gap-2 rounded-[10px] border-2 border-dashed border-[var(--ds-border-default)] bg-card/40 text-[13px] font-medium text-[var(--ds-text-muted)] transition-colors hover:border-primary-500 hover:text-primary-600 dark:hover:text-primary-400"
+        className="nodrag nopan flex h-full w-full items-center justify-center gap-2 rounded-[10px] border-2 border-dashed border-[var(--ds-border-default)] bg-card/40 text-[13px] font-medium text-[var(--ds-text-muted)] transition-colors hover:border-primary-500 hover:text-primary-600 legacy-dark:hover:text-primary-400"
         onClick={(e) => {
           e.stopPropagation();
           useFlowBuilderStore

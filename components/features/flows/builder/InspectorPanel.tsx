@@ -4,9 +4,9 @@ import React, { useMemo } from 'react'
 
 import { Plus, Trash2 } from 'lucide-react'
 
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
+import { Button } from '@/components/legacy-ui/button'
+import { Input } from '@/components/legacy-ui/input'
+import { Textarea } from '@/components/legacy-ui/textarea'
 
 import type { DynamicFlowSpecV1 } from '@/lib/dynamic-flow'
 

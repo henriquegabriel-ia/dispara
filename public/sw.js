@@ -11,7 +11,8 @@
  */
 
 // v3: descarta os caches das versões anteriores (a v2 guardava HTML/RSC do dashboard).
-const CACHE_VERSION = 'dispara-v3'
+// v4: migração para o DS Empreende IA V2 (CSS, fonte e ícones novos).
+const CACHE_VERSION = 'dispara-v4'
 const STATIC_CACHE = `${CACHE_VERSION}-static`
 const DYNAMIC_CACHE = `${CACHE_VERSION}-dynamic`
 

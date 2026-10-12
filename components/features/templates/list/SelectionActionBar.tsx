@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { Trash2 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/components/legacy-ui/button';
 
 export interface SelectionActionBarProps {
   selectedCount: number;

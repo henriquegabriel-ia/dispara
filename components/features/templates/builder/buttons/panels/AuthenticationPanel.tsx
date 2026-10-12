@@ -2,14 +2,14 @@
 
 import React from 'react'
 import { Container } from '@/components/app/container'
-import { Input } from '@/components/ui/input'
+import { Input } from '@/components/legacy-ui/input'
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
+} from '@/components/legacy-ui/select'
 import { Spec } from '../types'
 
 interface AuthenticationPanelProps {

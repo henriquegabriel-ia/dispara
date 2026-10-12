@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useTheme } from 'next-themes'
+import { useEiaTheme } from '@/components/eia/theme'
 import { Moon, Sun } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -12,11 +12,11 @@ interface ThemeToggleProps {
 }
 
 /**
- * Alternador de tema claro/escuro (next-themes).
+ * Alternador de tema claro/escuro (tema do DS Empreende IA V2).
  * Renderiza placeholder estável até montar para evitar hydration mismatch.
  */
 export function ThemeToggle({ variant = 'segmented', className }: ThemeToggleProps) {
-  const { resolvedTheme, setTheme } = useTheme()
+  const { theme: resolvedTheme, setTheme } = useEiaTheme()
   const [mounted, setMounted] = useState(false)
 
   useEffect(() => setMounted(true), [])

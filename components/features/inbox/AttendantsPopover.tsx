@@ -24,10 +24,10 @@ import {
   Popover,
   PopoverContent,
   PopoverTrigger,
-} from '@/components/ui/popover'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Switch } from '@/components/ui/switch'
+} from '@/components/legacy-ui/popover'
+import { Button } from '@/components/legacy-ui/button'
+import { Input } from '@/components/legacy-ui/input'
+import { Switch } from '@/components/legacy-ui/switch'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import type { AttendantToken, AttendantPermissions } from '@/types'

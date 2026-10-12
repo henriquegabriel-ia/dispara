@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { RefreshCw, Zap } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/components/legacy-ui/button';
 
 export interface TemplateListHeaderProps {
   templateCount: number;

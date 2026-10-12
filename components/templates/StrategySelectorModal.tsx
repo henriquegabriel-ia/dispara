@@ -7,7 +7,7 @@ import {
     DialogHeader,
     DialogTitle,
     DialogDescription
-} from "@/components/ui/dialog";
+} from "@/components/legacy-ui/dialog";
 import {
     Megaphone,
     Wrench,

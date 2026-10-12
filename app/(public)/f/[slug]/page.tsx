@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'next/navigation'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Label } from '@/components/ui/label'
-import { Input } from '@/components/ui/input'
-import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/legacy-ui/card'
+import { Label } from '@/components/legacy-ui/label'
+import { Input } from '@/components/legacy-ui/input'
+import { Button } from '@/components/legacy-ui/button'
 import { InternationalPhoneInput } from '@/components/app/international-phone-input'
 import { CircleSlash } from 'lucide-react'
 

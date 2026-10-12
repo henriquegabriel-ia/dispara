@@ -14,7 +14,7 @@ export default function manifest(): MetadataRoute.Manifest {
     scope: '/atendimento',
     display: 'standalone',
     orientation: 'portrait',
-    background_color: '#030712',
+    background_color: BRAND.themeColor,
     theme_color: BRAND.themeColor,
     icons: [
       {

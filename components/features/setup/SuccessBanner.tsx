@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { CheckCircle2, Send, X } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/components/legacy-ui/button';
 
 interface SuccessBannerProps {
   onSendTest: () => void;

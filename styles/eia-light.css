@@ -1,0 +1,956 @@
+/* Empreende.IA · vidro claro. Import after all component/showcase styles.
+ * A root theme attribute intentionally reaches body portals as well as the app.
+ * The original dark tokens remain the no-script and server-rendered default.
+ */
+.eia-theme-toggle .eia-theme-sun,
+.eia-theme-toggle .eia-theme-light-label {
+  display: none;
+}
+.eia-theme-toggle .eia-theme-moon {
+  display: block;
+}
+.eia-theme-toggle .eia-theme-dark-label {
+  display: inline;
+}
+.eia-logo-auto {
+  display: inline-flex;
+  align-items: center;
+}
+.eia-logo-auto .eia-logo-for-dark {
+  display: block;
+}
+.eia-logo-auto .eia-logo-for-light {
+  display: none;
+}
+html[data-eia-theme='light'] .eia-logo-auto .eia-logo-for-dark {
+  display: none;
+}
+html[data-eia-theme='light'] .eia-logo-auto .eia-logo-for-light {
+  display: block;
+}
+.eia-theme-toggle.eia-theme-toggle-icon {
+  width: var(--eia-control-sm);
+  padding-inline: 0;
+  gap: 0;
+}
+.eia-theme-toggle-icon .eia-button-label {
+  display: none;
+}
+html[data-eia-theme='light'] .eia-theme-toggle .eia-theme-moon,
+html[data-eia-theme='light'] .eia-theme-toggle .eia-theme-dark-label {
+  display: none;
+}
+html[data-eia-theme='light'] .eia-theme-toggle .eia-theme-sun {
+  display: block;
+}
+html[data-eia-theme='light'] .eia-theme-toggle .eia-theme-light-label {
+  display: inline;
+}
+
+html[data-eia-theme='light'] .eia-theme {
+  color-scheme: light;
+  --eia-color-bg: #f4f7f5;
+  --eia-color-surface: #ffffff;
+  --eia-color-surface-raised: #eaf0ec;
+  --eia-color-surface-hover: #dcebe2;
+  --eia-color-text: #10251a;
+  --eia-color-text-muted: #405d4c;
+  --eia-color-text-subtle: #546f5f;
+  --eia-color-text-inverse: #ffffff;
+  --eia-color-accent: #0fa968;
+  --eia-color-accent-bright: #13794f;
+  --eia-color-accent-text: #08643e;
+  --eia-color-accent-hover: #0c7048;
+  --eia-color-accent-pressed: #095436;
+  --eia-color-on-accent: #ffffff;
+  --eia-color-focus: #07683f;
+  --eia-color-selection: #c9ebd7;
+  --eia-color-success: #176340;
+  --eia-color-success-surface: #e4f4ea;
+  --eia-color-warning: #73510c;
+  --eia-color-warning-surface: #fcf3dc;
+  --eia-color-danger: #a42c31;
+  --eia-color-danger-surface: #fcebee;
+  --eia-color-info: #405d4c;
+  --eia-color-info-surface: #eaf0ec;
+  --eia-color-code-bg: #eaf1ed;
+  --eia-color-code-text: #254b37;
+  --eia-color-chart-1: #087749;
+  --eia-color-chart-2: #56856c;
+  --eia-color-chart-3: #92762c;
+  --eia-color-chart-4: #344c42;
+  --eia-color-chart-5: #76877d;
+  --eia-border-subtle: #164d2d24;
+  --eia-border-default: #164d2d38;
+  --eia-border-control: #6c8575;
+  --eia-border-strong: #365f47;
+  --eia-border-accent: #1683566b;
+  --eia-shadow-inset: inset 0 1px 0 #ffffffed, inset 0 -1px 0 #2b62471c;
+  --eia-shadow-panel:
+    inset 0 1px 0 #ffffff, inset 1px 0 0 #ffffffb3, 0 2px 5px #183d2910,
+    0 14px 30px #183d2910;
+  --eia-shadow-hero:
+    inset 0 1px 0 #ffffff, inset 1px 0 0 #ffffffcc, inset 0 -1px 0 #ffffff80,
+    0 2px 5px #183d2912, 0 22px 48px #183d2919;
+  --eia-shadow-action:
+    inset 0 1px 0 #b0f1d180, inset 0 -1px 1px #00472666, 0 5px 14px #0c704825;
+  --eia-shadow-overlay:
+    inset 0 1px 0 #ffffff, 0 2px 8px #183d2914, 0 24px 72px #183d292e;
+  --eia-material-hero:
+    linear-gradient(135deg, #ffffffa8 0%, #ffffff26 43%, #e0f2e952), #ffffff70;
+  --eia-material-panel:
+    linear-gradient(145deg, #ffffff91, #ffffff25 65%), #f6fbf8a8;
+  --eia-material-dense: #ffffff;
+  --eia-material-control:
+    linear-gradient(145deg, #fffffff2, #ffffffb8 70%), #e1ece5;
+  --eia-material-primary: linear-gradient(130deg, #13794f, #0b6140);
+  --eia-material-secondary:
+    linear-gradient(145deg, #ffffffe6, #ffffff7a), #dceae1;
+  --eia-material-scrim: #25463552;
+  --eia-opacity-disabled: 0.56;
+}
+
+/* Controls retain their optical edge on white and on real translucent planes. */
+html[data-eia-theme='light'] .eia-theme :is(.eia-input, .eia-select-trigger) {
+  box-shadow:
+    inset 0 1px 0 #ffffff,
+    inset 0 -1px 0 #2756380d,
+    0 1px 2px #173f2910;
+}
+html[data-eia-theme='light'] .eia-theme .eia-input[aria-invalid='true'],
+html[data-eia-theme='light']
+  .eia-theme
+  .eia-select-trigger[aria-invalid='true'] {
+  box-shadow: 0 0 0 1px #a42c311a;
+}
+html[data-eia-theme='light'] .eia-theme .eia-button-trailing {
+  border-color: #2756382b;
+}
+html[data-eia-theme='light']
+  .eia-theme
+  .eia-button[data-variant='primary']
+  .eia-button-trailing {
+  border-color: #ffffff40;
+}
+html[data-eia-theme='light'] .eia-theme .eia-button[data-variant='danger'] {
+  border-color: #a42c3159;
+  box-shadow: inset 0 1px 0 #ffffff;
+}
+html[data-eia-theme='light'] .eia-theme :is(.eia-checkbox, .eia-radio) {
+  box-shadow:
+    inset 0 1px 0 #ffffffb3,
+    0 1px 2px #173f2910;
+}
+html[data-eia-theme='light']
+  .eia-theme
+  :is(.eia-checkbox[data-checked], .eia-radio[data-checked]) {
+  box-shadow:
+    inset 0 1px 0 #ffffff45,
+    0 1px 2px #173f2918;
+}
+html[data-eia-theme='light'] .eia-theme .eia-radio-option:has([data-checked]) {
+  background: var(--eia-color-success-surface);
+}
+html[data-eia-theme='light'] .eia-theme .eia-switch {
+  background: #c4d3c9;
+  box-shadow: inset 0 1px 2px #183d2926;
+}
+html[data-eia-theme='light'] .eia-theme .eia-switch[data-checked] {
+  background: var(--eia-color-accent-bright);
+}
+html[data-eia-theme='light'] .eia-theme .eia-switch [data-slot='switch-thumb'] {
+  background: #fff;
+  box-shadow: 0 1px 3px #173f2940;
+}
+html[data-eia-theme='light'] .eia-theme .eia-panel::before {
+  background: linear-gradient(90deg, transparent, #fff, transparent);
+}
+html[data-eia-theme='light'] .eia-theme .eia-panel[data-material='dense'] {
+  box-shadow:
+    inset 0 1px 0 #ffffff,
+    0 1px 2px #173f2908;
+}
+html[data-eia-theme='light'] .eia-theme .eia-badge {
+  background: var(--eia-color-surface-raised);
+}
+html[data-eia-theme='light']
+  .eia-theme
+  :is(.eia-badge[data-tone='success'], .eia-alert[data-tone='success']) {
+  background: var(--eia-color-success-surface);
+  border-color: #17634047;
+}
+html[data-eia-theme='light']
+  .eia-theme
+  :is(.eia-badge[data-tone='warning'], .eia-alert[data-tone='warning']) {
+  background: var(--eia-color-warning-surface);
+  border-color: #73510c47;
+}
+html[data-eia-theme='light']
+  .eia-theme
+  :is(.eia-badge[data-tone='danger'], .eia-alert[data-tone='danger']) {
+  background: var(--eia-color-danger-surface);
+  border-color: #a42c3147;
+}
+html[data-eia-theme='light'] .eia-theme .eia-tab[data-active] {
+  box-shadow:
+    var(--eia-shadow-inset),
+    0 1px 3px #173f2912;
+}
+html[data-eia-theme='light'] .eia-theme .eia-table-head {
+  background: #edf3ef;
+}
+html[data-eia-theme='light'] .eia-theme .eia-table-row[data-state='selected'] {
+  background: #e3f2e9;
+}
+html[data-eia-theme='light'] .eia-overlay {
+  background: linear-gradient(145deg, #ffffffd9, #ffffffad 60%), #eaf2ed;
+}
+html[data-eia-theme='light'] .eia-overlay .eia-overlay-footer {
+  background: #edf3ef;
+}
+html[data-eia-theme='light'] .eia-theme .eia-skeleton {
+  background-image: linear-gradient(
+    100deg,
+    #164d2d08 20%,
+    #164d2d19 45%,
+    #164d2d08 70%
+  );
+}
+html[data-eia-theme='light'] .eia-theme .eia-progress-track,
+html[data-eia-theme='light']
+  .eia-theme
+  .eia-progress-track::-webkit-progress-bar {
+  background: #cdded3;
+}
+html[data-eia-theme='light']
+  .eia-theme
+  :is(.eia-table-block .filter-bar, .dashboard-glass .filter-bar) {
+  background: #edf4efb3;
+  box-shadow: inset 0 1px 2px #173f2908;
+}
+
+/* Existing application compositions: explicit light values, no image inversion. */
+html[data-eia-theme='light'] .eia-theme :is(.landing-glass, .dashboard-glass) {
+  background: var(--eia-color-bg);
+  color: var(--eia-color-text);
+}
+html[data-eia-theme='light'] .glass.eia-theme :is(.lab-toolbar, .surface-bar) {
+  background: #edf3ef;
+  color: var(--eia-color-text);
+  border-color: var(--eia-border-subtle);
+}
+html[data-eia-theme='light']
+  .glass.eia-theme
+  :is(.lab-symbol, .direction-subtitle, .current-study > span:last-child) {
+  border-color: var(--eia-border-default);
+}
+html[data-eia-theme='light'] .glass.eia-theme .lab-symbol span {
+  background: #edf3ef;
+}
+html[data-eia-theme='light']
+  .glass.eia-theme
+  :is(
+    .lab-id > div > span,
+    .direction-subtitle,
+    .current-study > span:last-child,
+    .info-button,
+    .surface-bar [data-slot='tabs-trigger']
+  ) {
+  color: var(--eia-color-text-muted);
+}
+html[data-eia-theme='light']
+  .glass.eia-theme
+  .surface-bar
+  [data-slot='tabs-trigger'][data-active] {
+  color: var(--eia-color-text);
+}
+html[data-eia-theme='light']
+  .eia-theme
+  :is(
+    .glass-nav nav,
+    .glass-floating-label,
+    .glass-step-symbol,
+    .round-arrow,
+    .dashboard-glass .optical-dashboard-nav nav,
+    .dashboard-glass .optical-dashboard-nav > .avatar,
+    .glass-step-diagram > span:not(.diagram-rule):not(.diagram-plus)
+  ) {
+  background: var(--eia-material-secondary);
+  border-color: var(--eia-border-default);
+  color: var(--eia-color-text-muted);
+  box-shadow:
+    var(--eia-shadow-inset),
+    0 3px 10px #173f290c;
+}
+html[data-eia-theme='light'] .eia-theme .glass-nav-cta {
+  color: var(--eia-color-text);
+}
+html[data-eia-theme='light'] .eia-theme .eia-hero-block {
+  --eia-hero-backdrop: #f4f7f5;
+  background:
+    radial-gradient(ellipse at 77% 47%, #b9ddc96b, transparent 52%),
+    var(--eia-color-bg);
+}
+html[data-eia-theme='light'] .eia-theme .glass-hero-art {
+  opacity: 0.19;
+  filter: none;
+  mix-blend-mode: multiply;
+  mask-image: radial-gradient(
+    ellipse 56% 58% at 65% 48%,
+    #000 40%,
+    transparent 90%
+  );
+}
+html[data-eia-theme='light'] .eia-theme .glass-hero::after {
+  background:
+    linear-gradient(90deg, #f4f7f5 1%, #f4f7f5b3 34%, transparent 63%),
+    linear-gradient(0deg, #f4f7f5, transparent 25%);
+}
+html[data-eia-theme='light'] .eia-theme .glass-kicker {
+  color: var(--eia-color-text-muted);
+  background: var(--eia-material-secondary);
+  border-color: var(--eia-border-default);
+  box-shadow:
+    var(--eia-shadow-inset),
+    0 3px 10px #173f290c;
+}
+html[data-eia-theme='light'] .eia-theme .kicker-mark {
+  background: #0fa96813;
+  color: var(--eia-color-accent-text);
+  border-color: var(--eia-border-subtle);
+}
+html[data-eia-theme='light']
+  .eia-theme
+  :is(.kicker-divider, .cat-header-divider) {
+  background: var(--eia-border-default);
+}
+html[data-eia-theme='light']
+  .eia-theme
+  :is(.glass-hero h1 > span, .glass-path h2 > span) {
+  color: #577463;
+}
+html[data-eia-theme='light'] .eia-theme .glass-hero h1 i {
+  color: var(--eia-color-accent-text);
+}
+html[data-eia-theme='light']
+  .eia-theme
+  :is(
+    .glass-hero-content > p,
+    .glass-hero-signoff,
+    .glass-hero-signoff strong,
+    .glass-live-head,
+    .glass-live-metric > div > span,
+    .glass-live-metric strong > span,
+    .glass-live-footer,
+    .glass-composition-caption,
+    .glass-path-heading > p,
+    .glass-path-grid p,
+    .glass-step-top > span:first-child,
+    .glass-step-diagram,
+    .glass-footer,
+    .glass-footer button
+  ) {
+  color: var(--eia-color-text-muted);
+}
+html[data-eia-theme='light'] .eia-theme .glass-live-metric strong {
+  color: var(--eia-color-text);
+}
+html[data-eia-theme='light']
+  .eia-theme
+  :is(
+    .live-demo,
+    .glass-metric-tag,
+    .tiny-monogram,
+    .glass-live-footer,
+    .glass-step-diagram,
+    .glass-footer
+  ) {
+  border-color: var(--eia-border-subtle);
+}
+html[data-eia-theme='light'] .eia-theme :is(.live-demo, .glass-metric-tag) {
+  color: var(--eia-color-accent-text);
+}
+html[data-eia-theme='light'] .eia-theme .glass-live-footer {
+  background: #ffffff45;
+}
+html[data-eia-theme='light'] .eia-theme .glass-path-heading .eyebrow {
+  color: var(--eia-color-accent-text);
+}
+html[data-eia-theme='light'] .eia-theme .glass-path-grid article {
+  background: var(--eia-material-panel);
+}
+html[data-eia-theme='light']
+  .eia-theme
+  .glass-step-diagram
+  :is(.diagram-active, .active) {
+  color: var(--eia-color-accent-text) !important;
+  background: var(--eia-color-success-surface) !important;
+  border-color: var(--eia-border-accent) !important;
+}
+html[data-eia-theme='light'] .eia-theme .dashboard-glass::before {
+  background:
+    radial-gradient(ellipse at 80% 16%, #9fd8b847, transparent 46%),
+    radial-gradient(ellipse at 15% 74%, #cadfd540, transparent 50%);
+  opacity: 1;
+}
+html[data-eia-theme='light'] .eia-theme .dashboard-glass::after {
+  background: linear-gradient(100deg, #91c3a328, #a3c7b61a, transparent);
+}
+html[data-eia-theme='light']
+  .eia-theme
+  .dashboard-glass
+  .optical-dashboard-nav {
+  border-color: var(--eia-border-subtle);
+}
+html[data-eia-theme='light']
+  .eia-theme
+  .dashboard-glass
+  .optical-dashboard-nav
+  nav
+  .active {
+  color: var(--eia-color-text);
+  background: #ffffffbc;
+  border-color: var(--eia-border-default);
+  box-shadow:
+    var(--eia-shadow-inset),
+    0 2px 5px #173f2912;
+}
+html[data-eia-theme='light']
+  .eia-theme
+  :is(
+    .dashboard-glass .optical-dashboard-nav nav a,
+    .workspace-crumb,
+    .dashboard-glass .demo-label,
+    .dashboard-glass .dashboard-heading .eyebrow,
+    .dashboard-glass .performance .panel-title > span,
+    .glass-chart-summary > strong > span,
+    .glass-chart-summary > div,
+    .glass-chart-summary small,
+    .dashboard-glass .kpi-label,
+    .dashboard-glass .kpi-index,
+    .dashboard-glass .kpi-label > svg,
+    .dashboard-glass .kpi-detail,
+    .dashboard-glass .project-number,
+    .dashboard-glass .progress-cell,
+    .dashboard-glass .table-index,
+    .dashboard-glass .table-footer,
+    .dashboard-glass .next-step .eyebrow,
+    .glass-project-stages,
+    .dashboard-glass .dashboard-footer
+  ) {
+  color: var(--eia-color-text-muted);
+}
+html[data-eia-theme='light']
+  .eia-theme
+  :is(
+    .glass-chart-summary > strong,
+    .dashboard-glass .dashboard-heading h1,
+    .dashboard-glass .performance .panel-title h2,
+    .dashboard-glass .projects-panel .panel-title h2,
+    .dashboard-glass .kpi-strip strong,
+    .dashboard-glass .next-step .panel-title h2,
+    .dashboard-glass .next-step h3
+  ) {
+  color: var(--eia-color-text);
+}
+html[data-eia-theme='light']
+  .eia-theme
+  :is(
+    .glass-chart-badge,
+    .dashboard-glass .demo-label,
+    .dashboard-glass .next-step .panel-title > span
+  ) {
+  color: var(--eia-color-accent-text);
+  background: var(--eia-color-success-surface);
+  border-color: var(--eia-border-accent);
+}
+html[data-eia-theme='light']
+  .eia-theme
+  .dashboard-glass
+  .kpi-strip
+  section
+  + section {
+  border-top-color: var(--eia-border-subtle) !important;
+}
+html[data-eia-theme='light']
+  .eia-theme
+  :is(
+    .dashboard-glass .next-step .panel-title,
+    .dashboard-glass .projects-panel td
+  ) {
+  border-color: var(--eia-border-subtle);
+}
+html[data-eia-theme='light']
+  .eia-theme
+  :is(
+    .dashboard-glass .export-button,
+    .dashboard-glass .row-open,
+    .dashboard-glass .next-step button
+  ) {
+  color: var(--eia-color-text);
+  background: var(--eia-material-secondary);
+  border-color: var(--eia-border-default);
+  box-shadow: var(--eia-shadow-inset);
+}
+html[data-eia-theme='light'] .eia-theme .dashboard-glass .status {
+  color: var(--eia-color-text-muted);
+  background: var(--eia-color-surface-raised);
+  border-color: var(--eia-border-default);
+}
+html[data-eia-theme='light'] .eia-theme .dashboard-glass .status.complete {
+  color: var(--eia-color-success);
+  background: var(--eia-color-success-surface);
+  border-color: var(--eia-border-accent);
+}
+html[data-eia-theme='light'] .eia-theme .stage-current {
+  color: var(--eia-color-accent-text);
+}
+html[data-eia-theme='light'] .eia-theme .stage-current > span::after {
+  background: var(--eia-color-accent-text);
+}
+html[data-eia-theme='light'] .eia-theme .chart-grid {
+  stroke: #164d2d26;
+}
+html[data-eia-theme='light'] .eia-theme .chart-line {
+  stroke: var(--eia-color-chart-1);
+}
+html[data-eia-theme='light'] .eia-theme .chart-dot {
+  fill: var(--eia-color-chart-1);
+}
+html[data-eia-theme='light'] .eia-theme .chart-axis {
+  color: var(--eia-color-text-subtle);
+}
+
+/* Catalog chrome and examples use the same light planes as product screens. */
+html[data-eia-theme='light'] .eia-theme.cat-shell {
+  background: var(--eia-color-bg);
+}
+html[data-eia-theme='light'] .eia-theme .cat-header {
+  background: #f8fbf9e6;
+  border-color: var(--eia-border-subtle);
+}
+html[data-eia-theme='light'] .eia-theme .cat-sidebar {
+  border-color: var(--eia-border-subtle);
+  scrollbar-color: #acbfb2 transparent;
+}
+html[data-eia-theme='light']
+  .eia-theme
+  :is(
+    .cat-header-name,
+    .cat-nav-group-label,
+    .cat-nav-item,
+    .cat-text-link,
+    .cat-section-permalink
+  ) {
+  color: var(--eia-color-text-muted) !important;
+}
+html[data-eia-theme='light']
+  .eia-theme
+  :is(.cat-nav-item:hover, .cat-nav-item-active) {
+  color: var(--eia-color-accent-text) !important;
+  background: var(--eia-color-success-surface);
+  border-color: var(--eia-border-accent);
+}
+html[data-eia-theme='light']
+  .eia-theme
+  :is(
+    .cat-header-name span,
+    .cat-header-demo,
+    .cat-sidebar-search,
+    .cat-sidebar-bottom,
+    .cat-search-results a,
+    .cat-principles,
+    .cat-code-details,
+    .cat-color-swatch,
+    .cat-status-palette,
+    .cat-type-specimen,
+    .cat-type-display,
+    .cat-foundation-card,
+    .cat-motion-card,
+    .cat-brand-cell,
+    .cat-page-heading,
+    .cat-example,
+    .cat-example-toolbar,
+    .cat-example-switch,
+    .cat-demo-state-grid,
+    .cat-form-footer,
+    .cat-table-scroll,
+    .cat-loading-demo
+  ) {
+  border-color: var(--eia-border-subtle);
+}
+html[data-eia-theme='light']
+  .eia-theme
+  :is(
+    .cat-header-nav a,
+    .cat-header-name span,
+    .cat-sidebar-search,
+    .cat-sidebar-search input,
+    .cat-sidebar-search input::placeholder,
+    .cat-sidebar-search button,
+    .cat-nav-group-label > span:last-child,
+    .cat-sidebar-bottom,
+    .cat-sidebar-bottom div > span,
+    .cat-search-results > p,
+    .cat-search-results a > small,
+    .cat-search-results a > svg,
+    .cat-breadcrumb,
+    .cat-breadcrumb strong,
+    .cat-overline,
+    .cat-shell em,
+    .cat-intro h1 em,
+    .cat-intro-copy > p,
+    .cat-principles > div > span,
+    .cat-principles p,
+    .cat-section-number,
+    .cat-section-heading p,
+    .cat-small-label,
+    .cat-guidance p,
+    .cat-color code,
+    .cat-status-palette p,
+    .cat-type-alphabet,
+    .cat-type-scale p,
+    .cat-type-scale .cat-overline,
+    .cat-foundation-card p,
+    .cat-motion-card p,
+    .cat-page-heading > p,
+    .cat-heading-meta > span,
+    .cat-heading-meta code,
+    .cat-example-toolbar p,
+    .cat-demo-feedback,
+    .cat-form-aside p,
+    .cat-form-footer > span,
+    .cat-muted,
+    .cat-tab-content p,
+    .cat-table-project span,
+    .cat-data-footer,
+    .cat-spinner-demo,
+    .cat-created-example p
+  ) {
+  color: var(--eia-color-text-muted);
+}
+html[data-eia-theme='light']
+  .eia-theme
+  :is(
+    .cat-header-nav a:hover,
+    .cat-header-nav a[aria-current],
+    .cat-breadcrumb a:hover,
+    .cat-guidance code,
+    .cat-code-details summary,
+    .cat-type-scale .cat-overline,
+    .cat-table-progress > span
+  ) {
+  color: var(--eia-color-text);
+}
+html[data-eia-theme='light']
+  .eia-theme
+  :is(.cat-header-demo:hover, .cat-search-results a:hover) {
+  background: var(--eia-color-surface-hover);
+}
+html[data-eia-theme='light'] .eia-theme .cat-sidebar-search {
+  background: #fff9;
+}
+html[data-eia-theme='light'] .eia-theme .cat-sidebar-search input::placeholder {
+  color: var(--eia-color-text-subtle);
+}
+html[data-eia-theme='light'] .cat-shell.eia-theme em {
+  color: var(--eia-color-text-muted);
+}
+html[data-eia-theme='light'] .eia-theme .cat-sidebar-search:focus-within {
+  outline-color: #07683f40;
+  border-color: var(--eia-color-focus);
+}
+html[data-eia-theme='light'] .eia-theme .cat-main-link {
+  background: var(--eia-material-primary);
+  color: #fff !important;
+  box-shadow: var(--eia-shadow-action);
+}
+html[data-eia-theme='light'] .eia-theme .cat-main-link:hover {
+  background: var(--eia-color-accent-hover);
+}
+html[data-eia-theme='light'] .eia-theme .cat-intro-visual {
+  background: radial-gradient(ellipse at 70% 40%, #b9ddc9, #edf3ef 70%);
+  border-color: var(--eia-border-default);
+  box-shadow: var(--eia-shadow-panel);
+}
+html[data-eia-theme='light'] .eia-theme .cat-intro-visual > img {
+  opacity: 0.24;
+  filter: none;
+  mix-blend-mode: multiply;
+}
+html[data-eia-theme='light'] .eia-theme .cat-intro-visual::after {
+  background: linear-gradient(0deg, #f4f7f5a6, transparent 60%);
+  box-shadow: inset 0 1px 0 #fff;
+}
+html[data-eia-theme='light']
+  .eia-theme
+  :is(.cat-visual-spec, .cat-overlay-scene, .cat-motion-object) {
+  background: var(--eia-material-hero);
+  border-color: var(--eia-border-default);
+  box-shadow: var(--eia-shadow-hero);
+}
+html[data-eia-theme='light']
+  .eia-theme
+  :is(
+    .cat-visual-spec > span,
+    .cat-visual-caption span,
+    .cat-material-legend > span:last-child,
+    .cat-material-footer > span,
+    .cat-material-footer a,
+    .cat-material-sample p,
+    .cat-material-sample code,
+    .cat-material-sample > svg,
+    .cat-radius-scale span,
+    .cat-spacing-scale code,
+    .cat-motion-object svg,
+    .cat-overlay-scene p
+  ) {
+  color: var(--eia-color-text-muted);
+}
+html[data-eia-theme='light']
+  .eia-theme
+  :is(.cat-material-stage, .cat-overlay-stage) {
+  background:
+    radial-gradient(ellipse at 70% 40%, #0fa9681c, transparent 50%),
+    linear-gradient(130deg, #edf2ef, #d9e5de 54%, #f4f7f5);
+  border-color: var(--eia-border-default);
+  box-shadow: inset 0 1px 0 #fff;
+}
+html[data-eia-theme='light']
+  .eia-theme
+  :is(
+    .cat-guidance,
+    .cat-code-details summary > svg,
+    .cat-tab-content > svg,
+    .cat-input-icon > svg
+  ) {
+  color: var(--eia-color-accent-text);
+}
+html[data-eia-theme='light'] .eia-theme .cat-swatch-bg {
+  color: var(--eia-color-text);
+}
+html[data-eia-theme='light']
+  .eia-theme
+  :is(.cat-swatch-text, .cat-swatch-muted) {
+  color: #fff;
+}
+html[data-eia-theme='light'] .eia-theme .cat-swatch-accent {
+  color: #062a1a;
+}
+html[data-eia-theme='light']
+  .eia-theme
+  :is(
+    .cat-type-specimen,
+    .cat-foundation-card,
+    .cat-example,
+    .cat-motion-card
+  ) {
+  background: var(--eia-material-panel);
+  box-shadow: var(--eia-shadow-panel);
+}
+html[data-eia-theme='light'] .eia-theme .cat-spacing-scale > div > span {
+  background: linear-gradient(90deg, #13794f, #90c6a7);
+  border-color: var(--eia-border-accent);
+}
+html[data-eia-theme='light'] .eia-theme .cat-radius-scale > div {
+  background: var(--eia-material-secondary);
+  border-color: var(--eia-border-default);
+  box-shadow: var(--eia-shadow-inset);
+}
+html[data-eia-theme='light'] .eia-theme .cat-motion-active .cat-motion-object {
+  background: var(--eia-material-panel);
+  box-shadow: var(--eia-shadow-hero);
+}
+html[data-eia-theme='light'] .eia-theme :is(.cat-brand-dark, .cat-brand-mono) {
+  background: var(--eia-material-secondary);
+}
+html[data-eia-theme='light'] .eia-theme .cat-example-toolbar {
+  background: #edf3ef;
+}
+html[data-eia-theme='light'] .eia-theme .cat-example-switch {
+  background: #fff8;
+}
+html[data-eia-theme='light'] .eia-theme .cat-example-switch button {
+  color: var(--eia-color-text-muted);
+}
+html[data-eia-theme='light']
+  .eia-theme
+  .cat-example-switch
+  button[aria-pressed='true'] {
+  background: #dcebe2;
+  color: var(--eia-color-text);
+  box-shadow: inset 0 1px 0 #fff;
+}
+html[data-eia-theme='light'] .eia-theme .cat-demo-divider {
+  background: var(--eia-border-subtle);
+}
+html[data-eia-theme='light'] .eia-theme .cat-table-scroll {
+  scrollbar-color: #acbfb2 #edf3ef;
+}
+html[data-eia-theme='light'] .eia-theme :is(.cat-code, .cat-code-block, pre) {
+  color: var(--eia-color-code-text);
+  background: var(--eia-color-code-bg);
+  border-color: var(--eia-border-subtle);
+}
+
+/* Use the approved positive wordmark on light; never invert the logo artwork. */
+html[data-eia-theme='light'] .eia-theme img[src$='/brand/eia-light.svg'] {
+  content: url('/brand/eia-dark.svg');
+}
+html[data-eia-theme='light'] .eia-theme .tiny-monogram {
+  padding: 4px 8px 4px 5px;
+  background: var(--eia-color-accent-bright);
+  border: 0;
+  border-radius: 5px;
+}
+html[data-eia-theme='light'] .eia-theme .cat-brand-mono {
+  background: linear-gradient(135deg, #163725, #0d2216);
+  color: #f6f7f6;
+}
+html[data-eia-theme='light'] .eia-theme .cat-brand-mono .cat-small-label {
+  color: #c5dccd;
+}
+html[data-eia-theme='light']
+  .eia-theme
+  :is(
+    .cat-demo-note,
+    .cat-code-toolbar > span,
+    .cat-copy-fallback p,
+    .cat-project-details > div > span,
+    .cat-footer > span,
+    .cat-footer a
+  ) {
+  color: var(--eia-color-text-muted);
+}
+html[data-eia-theme='light']
+  .eia-theme
+  :is(.cat-code-toolbar, .cat-project-details > div, .cat-footer) {
+  border-color: var(--eia-border-subtle);
+}
+html[data-eia-theme='light'] .eia-theme .cat-code-toolbar button {
+  background: var(--eia-material-secondary);
+  color: var(--eia-color-text);
+  border-color: var(--eia-border-default);
+}
+html[data-eia-theme='light'] .eia-theme .cat-code-toolbar button:hover {
+  background: var(--eia-color-surface-hover);
+}
+html[data-eia-theme='light'] .eia-theme .cat-copy-fallback textarea {
+  color: var(--eia-color-code-text);
+  background: var(--eia-color-code-bg);
+  border-color: var(--eia-border-control);
+}
+html[data-eia-theme='light'] .eia-theme .cat-code pre {
+  scrollbar-color: #acbfb2 #eaf1ed;
+}
+html[data-eia-theme='light']
+  .eia-theme
+  .cat-example-glass
+  > .cat-example-body:has(.cat-metric-grid) {
+  background:
+    radial-gradient(ellipse at 70% 40%, #0fa9681c, transparent 50%),
+    linear-gradient(130deg, #edf2ef, #d9e5de 54%, #f4f7f5);
+}
+
+@media (hover: hover) {
+  html[data-eia-theme='light']
+    .eia-theme
+    .eia-button:hover:not(:disabled):not([aria-disabled='true']) {
+    border-color: var(--eia-border-strong);
+    box-shadow:
+      var(--eia-shadow-inset),
+      0 5px 12px #173f2914;
+  }
+  html[data-eia-theme='light']
+    .eia-theme
+    .eia-button[data-variant='primary']:hover:not(:disabled) {
+    background: var(--eia-color-accent-hover);
+    box-shadow: var(--eia-shadow-action);
+  }
+  html[data-eia-theme='light']
+    .eia-theme
+    .eia-button[data-variant='ghost']:hover:not(:disabled) {
+    background: #164d2d09;
+    box-shadow: none;
+    border-color: transparent;
+  }
+  html[data-eia-theme='light'] .eia-theme .eia-table-body .eia-table-row:hover {
+    background: #edf5f0;
+  }
+}
+@supports not
+((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  html[data-eia-theme='light']
+    .eia-theme
+    :is(.eia-panel, .cat-visual-spec, .cat-overlay-scene, .cat-motion-object) {
+    background: var(--eia-color-surface);
+  }
+  html[data-eia-theme='light'] .eia-overlay-scrim {
+    background: #2546356b;
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  html[data-eia-theme='light']
+    .eia-theme
+    :is(.eia-panel, .cat-visual-spec, .cat-overlay-scene, .cat-motion-object) {
+    background: var(--eia-color-surface);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  html[data-eia-theme='light'] .eia-overlay-scrim {
+    background: #2546356b;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  html[data-eia-theme='light'] .eia-theme .eia-skeleton {
+    background: #dce7df;
+  }
+}
+@media (max-width: 860px) {
+  html[data-eia-theme='light'] .eia-theme .cat-sidebar {
+    background: #f4f7f5;
+  }
+}
+@media (forced-colors: active) {
+  html[data-eia-theme='light'] .eia-theme {
+    --eia-color-text: CanvasText;
+    --eia-color-text-muted: CanvasText;
+    --eia-color-text-subtle: GrayText;
+    --eia-color-focus: Highlight;
+    --eia-color-accent-text: LinkText;
+    --eia-border-default: ButtonText;
+    --eia-border-control: ButtonText;
+    --eia-color-surface: Canvas;
+    --eia-material-dense: Canvas;
+  }
+  html[data-eia-theme='light']
+    .eia-theme
+    :is(
+      .eia-checkbox[data-checked],
+      .eia-radio[data-checked],
+      .eia-switch[data-checked],
+      .eia-tab[data-active]
+    ) {
+    background: Highlight;
+    color: HighlightText;
+    border-color: Highlight;
+    forced-color-adjust: none;
+  }
+  html[data-eia-theme='light']
+    .eia-theme
+    .eia-radio[data-checked]
+    [data-slot='radio-group-indicator']
+    > span,
+  html[data-eia-theme='light']
+    .eia-theme
+    .eia-switch[data-checked]
+    [data-slot='switch-thumb'] {
+    background: HighlightText;
+  }
+}
+
+html[data-eia-theme='light'] .eia-theme .eia-checkbox[data-indeterminate] {
+  background: var(--eia-color-accent-text);
+  border-color: var(--eia-color-accent-text);
+  color: var(--eia-color-on-accent);
+}

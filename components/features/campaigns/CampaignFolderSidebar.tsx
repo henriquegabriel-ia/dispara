@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { cn } from '@/lib/utils'
 import { useCampaignFolders } from '@/hooks/useCampaignFolders'
 import { FolderIcon, FolderOpenIcon, FileIcon, SettingsIcon, PlusIcon, ChevronLeftIcon, ChevronRightIcon } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { Button } from '@/components/legacy-ui/button'
 import type { CampaignFolder } from '@/types'
 
 interface CampaignFolderSidebarProps {

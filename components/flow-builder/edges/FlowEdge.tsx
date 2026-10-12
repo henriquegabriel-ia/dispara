@@ -96,7 +96,7 @@ const FlowEdge = memo(function FlowEdge(props: EdgeProps) {
         )}
         {hasCount && (
           <div
-            className="pointer-events-none absolute flex items-center gap-1 rounded-full border border-sky-500/30 bg-sky-500/10 px-2 py-0.5 text-[11px] font-medium whitespace-nowrap text-sky-600 dark:text-sky-400"
+            className="pointer-events-none absolute flex items-center gap-1 rounded-full border border-sky-500/30 bg-sky-500/10 px-2 py-0.5 text-[11px] font-medium whitespace-nowrap text-sky-600 legacy-dark:text-sky-400"
             style={{
               transform: `translate(-50%,-50%) translate(${targetX}px,${targetY - 44}px)`,
             }}

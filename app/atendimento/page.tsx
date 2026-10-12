@@ -17,7 +17,7 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
-} from '@/components/ui/dropdown-menu'
+} from '@/components/legacy-ui/dropdown-menu'
 import { useTemplatesWithButtons } from '@/hooks/useTemplatesWithButtons'
 import { useAttendant } from '@/components/attendant/AttendantProvider'
 import { AttendantReconnectingBanner, AttendantReconnectingPage } from '@/components/attendant/AttendantReconnecting'

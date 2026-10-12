@@ -2,17 +2,17 @@
 
 import React, { useState } from 'react';
 import { BookmarkPlus, Check, ChevronDown, ListFilter, Pencil, RefreshCw, Trash2, Users } from 'lucide-react';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/legacy-ui/popover';
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogFooter,
-} from '@/components/ui/dialog';
+} from '@/components/legacy-ui/dialog';
 import { ConfirmationDialog } from '@/components/app/confirmation-dialog';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Button } from '@/components/legacy-ui/button';
+import { Input } from '@/components/legacy-ui/input';
 import type { ContactList } from '@/services/contactListService';
 
 export interface ContactListSelectorProps {
@@ -99,7 +99,7 @@ export const ContactListSelector: React.FC<ContactListSelectorProps> = ({
             <button
               type="button"
               className={`px-4 py-2.5 text-sm font-medium rounded-xl border transition-colors outline-none cursor-pointer flex items-center gap-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500 focus-visible:outline-offset-2 ${selectedList
-                ? 'text-primary-600 dark:text-primary-400 bg-primary-500/10 border-primary-500/30'
+                ? 'text-primary-600 legacy-dark:text-primary-400 bg-primary-500/10 border-primary-500/30'
                 : 'bg-[var(--ds-bg-elevated)] text-[var(--ds-text-primary)] border-[var(--ds-border-default)] hover:bg-[var(--ds-bg-hover)]'
                 }`}
               aria-label="Selecionar lista salva"
@@ -126,7 +126,7 @@ export const ContactListSelector: React.FC<ContactListSelectorProps> = ({
             >
               <Users size={15} className="text-[var(--ds-text-muted)] shrink-0" aria-hidden="true" />
               <span className="flex-1 text-left">Todos os contatos</span>
-              {!selectedListId && <Check size={15} className="text-primary-600 dark:text-primary-400 shrink-0" aria-hidden="true" />}
+              {!selectedListId && <Check size={15} className="text-primary-600 legacy-dark:text-primary-400 shrink-0" aria-hidden="true" />}
             </button>
 
             {lists.length > 0 && (
@@ -150,7 +150,7 @@ export const ContactListSelector: React.FC<ContactListSelectorProps> = ({
                   <ListFilter size={15} className="text-[var(--ds-text-muted)] shrink-0" aria-hidden="true" />
                   <span className="flex-1 truncate">{list.name}</span>
                   {selectedListId === list.id && (
-                    <Check size={15} className="text-primary-600 dark:text-primary-400 shrink-0" aria-hidden="true" />
+                    <Check size={15} className="text-primary-600 legacy-dark:text-primary-400 shrink-0" aria-hidden="true" />
                   )}
                 </button>
                 <button
@@ -168,7 +168,7 @@ export const ContactListSelector: React.FC<ContactListSelectorProps> = ({
                     setDeleteTarget(list);
                     setOpen(false);
                   }}
-                  className="p-1.5 mr-1 rounded-md text-[var(--ds-text-muted)] hover:text-red-600 dark:hover:text-red-400 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-all"
+                  className="p-1.5 mr-1 rounded-md text-[var(--ds-text-muted)] hover:text-red-600 legacy-dark:hover:text-red-400 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-all"
                   aria-label={`Excluir lista ${list.name}`}
                   title="Excluir"
                 >
@@ -191,7 +191,7 @@ export const ContactListSelector: React.FC<ContactListSelectorProps> = ({
             type="button"
             onClick={onUpdateListFilters}
             disabled={isUpdating}
-            className="px-3 py-2.5 text-sm font-medium rounded-xl border border-primary-500/30 text-primary-600 dark:text-primary-400 bg-primary-500/10 hover:bg-primary-500/20 transition-colors flex items-center gap-1.5 disabled:opacity-50"
+            className="px-3 py-2.5 text-sm font-medium rounded-xl border border-primary-500/30 text-primary-600 legacy-dark:text-primary-400 bg-primary-500/10 hover:bg-primary-500/20 transition-colors flex items-center gap-1.5 disabled:opacity-50"
             title={`Atualizar a lista "${selectedList.name}" com os filtros atuais`}
           >
             <RefreshCw size={14} className={isUpdating ? 'animate-spin' : undefined} aria-hidden="true" />

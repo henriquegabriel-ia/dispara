@@ -366,7 +366,7 @@ export function BookingConfigSection({
             type="button"
             onClick={handleSaveCalendarBooking}
             disabled={!!isSavingCalendarBooking}
-            className="h-10 px-6 rounded-lg bg-primary-600 text-white hover:bg-primary-500 dark:bg-white dark:text-black dark:hover:bg-neutral-100 transition-colors text-sm font-medium inline-flex items-center gap-2"
+            className="h-10 px-6 rounded-lg bg-primary-600 text-white hover:bg-primary-500 legacy-dark:bg-white legacy-dark:text-black legacy-dark:hover:bg-neutral-100 transition-colors text-sm font-medium inline-flex items-center gap-2"
           >
             {isSavingCalendarBooking ? 'Salvando...' : 'Salvar regras'}
           </button>

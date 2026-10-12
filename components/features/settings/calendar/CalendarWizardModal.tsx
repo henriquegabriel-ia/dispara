@@ -212,7 +212,7 @@ export function CalendarWizardModal({
             type="button"
             onClick={handleCalendarWizardNext}
             disabled={!calendarWizardCanContinue || calendarTestLoading}
-            className="h-10 px-6 rounded-lg bg-primary-600 text-white hover:bg-primary-500 dark:bg-white dark:text-black dark:hover:bg-neutral-100 text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            className="h-10 px-6 rounded-lg bg-primary-600 text-white hover:bg-primary-500 legacy-dark:bg-white legacy-dark:text-black legacy-dark:hover:bg-neutral-100 text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {calendarWizardStep === 3
               ? (calendarTestLoading ? 'Testando...' : 'Concluir')

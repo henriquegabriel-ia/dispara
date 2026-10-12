@@ -7,9 +7,9 @@
 
 import React, { useState, useCallback, useMemo } from 'react'
 import { Bot, Plus, Loader2, AlertCircle, ChevronDown, Sparkles } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
-import { Switch } from '@/components/ui/switch'
+import { Button } from '@/components/legacy-ui/button'
+import { Card, CardContent } from '@/components/legacy-ui/card'
+import { Switch } from '@/components/legacy-ui/switch'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -19,13 +19,13 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
+} from '@/components/legacy-ui/alert-dialog'
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
-} from '@/components/ui/collapsible'
-import { TooltipProvider } from '@/components/ui/tooltip'
+} from '@/components/legacy-ui/collapsible'
+import { TooltipProvider } from '@/components/legacy-ui/tooltip'
 import { AIAgentHeroCard } from './AIAgentHeroCard'
 import { AIAgentCompactCard } from './AIAgentCompactCard'
 import { AIAgentForm } from './AIAgentForm'

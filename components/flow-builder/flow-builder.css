@@ -97,7 +97,8 @@
   color: var(--chip-fg-light);
 }
 
-.dark .step-chip {
+/* Escuro = padrão do DS (html sem data-eia-theme="light"), dentro e fora do canvas. */
+html:not([data-eia-theme='light']) .step-chip {
   background: var(--chip-bg-dark);
   color: var(--chip-fg-dark);
 }

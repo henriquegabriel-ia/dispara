@@ -8,7 +8,7 @@ import {
   Users,
   BarChart3,
 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/components/legacy-ui/button';
 
 interface OnboardingCompleteStepProps {
   onComplete: () => void;

@@ -13,7 +13,7 @@
 import React, { useState, useMemo, useEffect } from 'react'
 import { Search, SlidersHorizontal, Bot, User, X, Inbox, ChevronDown, FileText } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { Input } from '@/components/ui/input'
+import { Input } from '@/components/legacy-ui/input'
 import {
   DropdownMenu as TemplateDropdown,
   DropdownMenuContent as TemplateDropdownContent,
@@ -21,7 +21,7 @@ import {
   DropdownMenuItem as TemplateDropdownItem,
   DropdownMenuLabel as TemplateDropdownLabel,
   DropdownMenuSeparator as TemplateDropdownSeparator,
-} from '@/components/ui/dropdown-menu'
+} from '@/components/legacy-ui/dropdown-menu'
 import { useTemplatesWithButtons } from '@/hooks/useTemplatesWithButtons'
 import {
   DropdownMenu,
@@ -30,7 +30,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+} from '@/components/legacy-ui/dropdown-menu'
 import { ConversationItem } from './ConversationItem'
 import { AttendantsPopover } from './AttendantsPopover'
 import { InboxSettingsPopover } from './InboxSettingsPopover'

@@ -31,7 +31,7 @@ const statusBadgeVariants = cva(
 
         // Campaign status (Dispara specific)
         draft: "bg-[var(--ds-bg-surface)] text-[var(--ds-text-secondary)]",
-        scheduled: "bg-violet-500/10 text-violet-600 dark:text-violet-400",
+        scheduled: "bg-violet-500/10 text-violet-600 legacy-dark:text-violet-400",
         sending: "bg-blue-500/10 text-[var(--ds-status-info-text)] animate-pulse",
         completed: "bg-green-500/10 text-[var(--ds-status-success-text)]",
         paused: "bg-amber-500/10 text-[var(--ds-status-warning-text)]",

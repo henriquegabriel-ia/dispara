@@ -1,8 +1,8 @@
 'use client'
 
 import type { LeadForm } from '@/types'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/legacy-ui/button'
+import { Badge } from '@/components/legacy-ui/badge'
 import { Container } from '@/components/app/container'
 import { Pencil } from 'lucide-react'
 

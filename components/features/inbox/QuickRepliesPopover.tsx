@@ -8,19 +8,19 @@
 import React, { useState, useMemo } from 'react'
 import { MessageSquareDashed, Search, Settings, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { Button } from '@/components/legacy-ui/button'
+import { Input } from '@/components/legacy-ui/input'
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
-} from '@/components/ui/popover'
-import { ScrollArea } from '@/components/ui/scroll-area'
+} from '@/components/legacy-ui/popover'
+import { ScrollArea } from '@/components/legacy-ui/scroll-area'
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from '@/components/ui/tooltip'
+} from '@/components/legacy-ui/tooltip'
 import { QuickReplyManager } from './QuickReplyManager'
 import type { InboxQuickReply } from '@/types'
 

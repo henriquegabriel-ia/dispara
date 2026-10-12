@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 
 import { Page, PageActions, PageDescription, PageHeader, PageTitle } from '@/components/app/page'
-import { Button } from '@/components/ui/button'
+import { Button } from '@/components/legacy-ui/button'
 import { FlowBuilderListView } from '@/components/features/flows/builder/FlowBuilderListView'
 import { useFlowsBuilderController } from '@/hooks/useFlowsBuilder'
 

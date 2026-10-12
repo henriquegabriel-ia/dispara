@@ -9,7 +9,7 @@ import {
   RefreshCw,
   FileText,
 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/components/legacy-ui/button';
 import { StepHeader } from './StepHeader';
 import { toast } from 'sonner';
 

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { ArrowLeft, Loader2 } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { Button } from '@/components/legacy-ui/button'
 import { Page, PageHeader, PageTitle, PageDescription } from '@/components/app/page'
 import { manualDraftsService } from '@/services/manualDraftsService'
 import { ManualTemplateBuilder } from '@/components/features/templates/ManualTemplateBuilder'
@@ -150,9 +150,9 @@ export default function ManualDraftEditorPage({
           Carregando rascunho...
         </div>
       ) : draftQuery.isError ? (
-        <div className="rounded-2xl border border-amber-400 dark:border-amber-400/30 bg-amber-100 dark:bg-amber-500/10 p-6 shadow-[var(--ds-shadow-lg)] text-amber-700 dark:text-amber-200 space-y-3">
+        <div className="rounded-2xl border border-amber-400 legacy-dark:border-amber-400/30 bg-amber-100 legacy-dark:bg-amber-500/10 p-6 shadow-[var(--ds-shadow-lg)] text-amber-700 legacy-dark:text-amber-200 space-y-3">
           <div className="font-medium">Falha ao carregar rascunho.</div>
-          <div className="text-sm text-amber-600 dark:text-amber-200/90 whitespace-pre-wrap">{loadErrorMessage}</div>
+          <div className="text-sm text-amber-600 legacy-dark:text-amber-200/90 whitespace-pre-wrap">{loadErrorMessage}</div>
           <div>
             <Button
               variant="outline"

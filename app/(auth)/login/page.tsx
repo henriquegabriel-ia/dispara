@@ -226,7 +226,7 @@ function LoginForm() {
 
 export default function LoginPage() {
   return (
-    <div className="dark relative min-h-screen overflow-hidden bg-[var(--br-void-black)] flex items-center justify-center p-4">
+    <div className="relative min-h-screen overflow-hidden bg-[var(--ds-bg-base)] flex items-center justify-center p-4">
       {/* Fundo corporativo compartilhado com o install wizard */}
       <CorporateBackground />
 

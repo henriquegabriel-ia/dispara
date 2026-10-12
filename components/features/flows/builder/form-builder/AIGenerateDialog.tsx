@@ -3,8 +3,8 @@
 import React, { useState } from 'react'
 import { toast } from 'sonner'
 
-import { Button } from '@/components/ui/button'
-import { Textarea } from '@/components/ui/textarea'
+import { Button } from '@/components/legacy-ui/button'
+import { Textarea } from '@/components/legacy-ui/textarea'
 import {
   Dialog,
   DialogContent,
@@ -12,7 +12,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog'
+} from '@/components/legacy-ui/dialog'
 
 import { FlowFormSpecV1 } from '@/lib/flow-form'
 import { AIGenerateDialogProps } from './types'

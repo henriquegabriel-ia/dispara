@@ -159,7 +159,7 @@ export function StepNavigation({
             disabled={!canContinue || !!isFinishing}
             className={`rounded-full px-5 py-2 text-sm font-semibold transition ${
               !isFinishing && canContinue
-                ? 'bg-primary-600 text-white dark:bg-white dark:text-black hover:bg-primary-500 dark:hover:bg-slate-200'
+                ? 'bg-primary-600 text-white legacy-dark:bg-white legacy-dark:text-black hover:bg-primary-500 legacy-dark:hover:bg-slate-200'
                 : 'cursor-not-allowed border border-[var(--ds-border-default)] bg-[var(--ds-bg-elevated)] text-[var(--ds-text-muted)]'
             }`}
           >

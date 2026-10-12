@@ -1,7 +1,7 @@
 'use client'
 
 import { memo, useEffect, useState } from 'react'
-import { useTheme } from 'next-themes'
+import { useEiaTheme } from '@/components/eia/theme'
 import {
   ChevronLeft,
   ChevronRight,
@@ -61,7 +61,7 @@ const BrandLogo = memo(function BrandLogo({
   name?: string
   className: string
 }) {
-  const { resolvedTheme } = useTheme()
+  const { theme: resolvedTheme } = useEiaTheme()
   const [mounted, setMounted] = useState(false)
   useEffect(() => setMounted(true), [])
 
@@ -121,7 +121,7 @@ const InboxUnreadBadge = memo(function InboxUnreadBadge({
 
   return (
     <span
-      className="ml-auto rounded-full bg-primary-500/15 px-1.5 py-[1px] text-[10px] font-semibold tabular-nums text-primary-700 dark:text-primary-300"
+      className="ml-auto rounded-full bg-primary-500/15 px-1.5 py-[1px] text-[10px] font-semibold tabular-nums text-primary-700 legacy-dark:text-primary-300"
       aria-label={`${count} mensagens não lidas`}
     >
       {displayCount}
@@ -136,7 +136,7 @@ const InboxUnreadBadge = memo(function InboxUnreadBadge({
 function StaticBadge({ label }: { label: string }) {
   return (
     <span
-      className="ml-auto rounded-md bg-primary-500/12 px-1.5 py-[2px] text-[9px] font-semibold uppercase tracking-wide text-primary-700 dark:text-primary-300"
+      className="ml-auto rounded-md bg-primary-500/12 px-1.5 py-[2px] text-[9px] font-semibold uppercase tracking-wide text-primary-700 legacy-dark:text-primary-300"
       aria-label={label}
     >
       {label}
@@ -202,7 +202,7 @@ const CompactSidebar = memo(function CompactSidebar({
               isDisabled
                 ? 'opacity-40 cursor-not-allowed text-[var(--ds-text-muted)]'
                 : isActive
-                  ? 'bg-primary-500/12 text-primary-600 dark:text-primary-400'
+                  ? 'bg-primary-500/12 text-primary-600 legacy-dark:text-primary-400'
                   : 'text-[var(--ds-text-secondary)] hover:bg-[var(--ds-bg-hover)] hover:text-[var(--ds-text-primary)] focus-visible:ring-2 focus-visible:ring-primary-500/50'
             )
 
@@ -361,7 +361,7 @@ const ExpandedSidebar = memo(function ExpandedSidebar({
                 isDisabled
                   ? 'opacity-40 cursor-not-allowed text-[var(--ds-text-muted)]'
                   : isActive
-                    ? 'bg-primary-500/10 font-medium text-primary-700 dark:text-primary-300'
+                    ? 'bg-primary-500/10 font-medium text-primary-700 legacy-dark:text-primary-300'
                     : 'text-[var(--ds-text-secondary)] hover:bg-[var(--ds-bg-hover)] hover:text-[var(--ds-text-primary)] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-500/50'
               )
 
@@ -427,7 +427,7 @@ const ExpandedSidebar = memo(function ExpandedSidebar({
             aria-label="Sair da conta"
           >
             <div
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary-500/12 text-sm font-semibold text-primary-700 dark:text-primary-300"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary-500/12 text-sm font-semibold text-primary-700 legacy-dark:text-primary-300"
               aria-hidden="true"
             >
               {(companyName || brandName || 'Dispara').charAt(0).toUpperCase()}

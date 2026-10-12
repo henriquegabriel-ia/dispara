@@ -7,7 +7,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
+} from '@/components/legacy-ui/select'
 import { ButtonData, Flow } from '../types'
 
 interface FlowButtonFieldsProps {
@@ -89,7 +89,7 @@ export function FlowButtonFields({
         </Select>
 
         {!hasMatch && currentFlowId && (
-          <div className="mt-3 text-[11px] text-amber-700 dark:text-amber-300">
+          <div className="mt-3 text-[11px] text-amber-700 legacy-dark:text-amber-300">
             O MiniApp atual nao esta publicado. Selecione um da lista.
           </div>
         )}

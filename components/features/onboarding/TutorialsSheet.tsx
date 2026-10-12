@@ -7,7 +7,7 @@ import {
   SheetHeader,
   SheetTitle,
   SheetTrigger,
-} from '@/components/ui/sheet'
+} from '@/components/legacy-ui/sheet'
 import { HelpCircle, ChevronRight } from 'lucide-react'
 import type { OnboardingStep } from './hooks/useOnboardingProgress'
 

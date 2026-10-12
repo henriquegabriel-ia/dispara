@@ -292,7 +292,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ stats, recentCampa
                       className="hover:bg-[var(--ds-bg-hover)] transition-all duration-200 group cursor-pointer"
                     >
                       <td className="px-6 py-5">
-                        <p className="font-semibold text-[var(--ds-text-primary)] text-sm group-hover:text-primary-600 dark:group-hover:text-primary-400 transition-colors">
+                        <p className="font-semibold text-[var(--ds-text-primary)] text-sm group-hover:text-primary-600 legacy-dark:group-hover:text-primary-400 transition-colors">
                           {campaign.name}
                         </p>
                         <p className="text-[var(--ds-text-muted)] text-xs mt-1">{formatDateFull(campaign.createdAt)}</p>

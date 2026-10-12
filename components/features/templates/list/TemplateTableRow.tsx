@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { FileText, Check, Loader2, Trash2, Eye, Send, Megaphone, Copy } from 'lucide-react';
 import { Template } from '../../../../types';
 import { StatusBadge } from './StatusBadge';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/components/legacy-ui/button';
 import { WhatsAppInlineText } from '@/components/app/whatsapp-text';
 
 export interface TemplateTableRowProps {

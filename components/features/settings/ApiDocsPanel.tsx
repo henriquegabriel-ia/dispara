@@ -1,7 +1,7 @@
 import React from 'react';
 import Link from 'next/link';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/legacy-ui/card';
+import { Button } from '@/components/legacy-ui/button';
 import { BookOpen, ExternalLink, Copy, Check } from 'lucide-react';
 import { useState } from 'react';
 

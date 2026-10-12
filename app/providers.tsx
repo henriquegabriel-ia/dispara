@@ -1,7 +1,7 @@
 'use client'
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { ThemeProvider } from 'next-themes'
+import { EiaThemeProvider } from '@/components/eia/theme'
 import { CentralizedRealtimeProvider } from '@/components/providers/CentralizedRealtimeProvider'
 import { DevModeProvider } from '@/components/providers/DevModeProvider'
 import { PWAProvider } from '@/components/pwa'
@@ -34,13 +34,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
   )
 
   return (
-    // Tema: dark é o default da marca; light disponível via toggle
-    // (next-themes gerencia a classe no <html>).
-    <ThemeProvider
-      attribute="class"
-      defaultTheme="dark"
-      disableTransitionOnChange
-    >
+    // Tema do DS Empreende IA V2: escuro por padrão; claro/sistema pelo toggle.
+    // O estado vive em <html data-eia-theme> (EiaThemeScript no layout).
+    <EiaThemeProvider>
       <QueryClientProvider client={queryClient}>
         <DevModeProvider>
           <CentralizedRealtimeProvider>
@@ -50,7 +46,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
           </CentralizedRealtimeProvider>
         </DevModeProvider>
       </QueryClientProvider>
-    </ThemeProvider>
+    </EiaThemeProvider>
   )
 }
 

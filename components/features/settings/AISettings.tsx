@@ -5,7 +5,7 @@ import { AI_PROVIDERS, type AIProvider, type AIProviderConfig } from '@/lib/ai/p
 import type { AiFallbackConfig, AiPromptsConfig, AiRoutesConfig } from '@/lib/ai/ai-center-defaults';
 import { Container } from '@/components/app/container';
 import { StatusBadge } from '@/components/app/status-badge';
-import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
+import { Alert, AlertTitle, AlertDescription } from '@/components/legacy-ui/alert';
 
 interface ProviderStatus {
     isConfigured: boolean;
@@ -353,7 +353,7 @@ export const AISettings: React.FC<AISettingsProps> = ({
                         <button
                             onClick={handleSave}
                             disabled={isSaving || (isEditing && !apiKey.trim() && !hasChanges)}
-                            className="px-6 py-2 bg-primary-600 text-white dark:bg-white dark:text-black font-medium rounded-lg hover:bg-primary-500 dark:hover:bg-neutral-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shadow-lg shadow-white/5"
+                            className="px-6 py-2 bg-primary-600 text-white legacy-dark:bg-white legacy-dark:text-black font-medium rounded-lg hover:bg-primary-500 legacy-dark:hover:bg-neutral-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shadow-lg shadow-white/5"
                         >
                             {isSaving ? (
                                 <>

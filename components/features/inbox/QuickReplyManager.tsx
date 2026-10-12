@@ -8,17 +8,17 @@
 import React, { useState, useCallback } from 'react'
 import { Plus, Pencil, Trash2, Loader2, X, Check, AlertCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
+import { Button } from '@/components/legacy-ui/button'
+import { Input } from '@/components/legacy-ui/input'
+import { Textarea } from '@/components/legacy-ui/textarea'
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogDescription,
-} from '@/components/ui/dialog'
-import { ScrollArea } from '@/components/ui/scroll-area'
+} from '@/components/legacy-ui/dialog'
+import { ScrollArea } from '@/components/legacy-ui/scroll-area'
 import type { InboxQuickReply } from '@/types'
 
 interface QuickReplyManagerProps {

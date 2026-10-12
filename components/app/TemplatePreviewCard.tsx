@@ -349,7 +349,7 @@ export const TemplatePreviewCard: React.FC<TemplatePreviewCardProps> = ({
       variant="glass"
       padding="lg"
       className={cn(
-        'shadow-[0_18px_45px_rgba(0,0,0,0.1)] dark:shadow-[0_18px_45px_rgba(0,0,0,0.45)] overflow-hidden',
+        'shadow-[0_18px_45px_rgba(0,0,0,0.1)] legacy-dark:shadow-[0_18px_45px_rgba(0,0,0,0.45)] overflow-hidden',
         className
       )}
       aria-label={`Preview do template ${templateName}`}

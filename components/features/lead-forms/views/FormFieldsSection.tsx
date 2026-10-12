@@ -1,7 +1,7 @@
 'use client'
 
 import type { LeadFormField } from '@/types'
-import { Button } from '@/components/ui/button'
+import { Button } from '@/components/legacy-ui/button'
 import { FormFieldEditor } from './FormFieldEditor'
 
 export interface FormFieldsSectionProps {

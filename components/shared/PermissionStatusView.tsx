@@ -1,7 +1,7 @@
 'use client'
 
 import { CheckCircle2, XCircle, AlertTriangle, ExternalLink, RefreshCw, Loader2, ShieldCheck, Clock, Smartphone } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { Button } from '@/components/legacy-ui/button'
 import { cn } from '@/lib/utils'
 import type { PermissionValidationResult } from '@/app/api/settings/validate-permissions/route'
 

@@ -46,7 +46,7 @@ import {
   splitPhone,
   joinPhone,
 } from './utils/templateBuilderUtils'
-import { Input } from '@/components/ui/input'
+import { Input } from '@/components/legacy-ui/input'
 import { Container } from '@/components/app/container'
 
 export function ManualTemplateBuilder({
@@ -584,14 +584,14 @@ export function ManualTemplateBuilder({
                 }}
                 className={`flex items-center gap-3 rounded-2xl border px-4 py-3 text-left text-sm transition ${
                   step === item.id
-                    ? 'border-primary-600 dark:border-primary-400/40 bg-primary-100 dark:bg-primary-500/10 text-primary-900 dark:text-white'
+                    ? 'border-primary-600 legacy-dark:border-primary-400/40 bg-primary-100 legacy-dark:bg-primary-500/10 text-primary-900 legacy-dark:text-white'
                     : 'border-[var(--ds-border-default)] bg-[var(--ds-bg-surface)] text-[var(--ds-text-muted)]'
                 } ${!isStepEnabled ? 'cursor-not-allowed opacity-40' : 'hover:text-[var(--ds-text-primary)]'}`}
               >
                 <span
                   className={`grid h-8 w-8 shrink-0 place-items-center rounded-full border text-xs font-semibold leading-none ${
                     step === item.id
-                      ? 'border-primary-600 dark:border-primary-400 bg-primary-200 dark:bg-primary-500/20 text-primary-800 dark:text-primary-200'
+                      ? 'border-primary-600 legacy-dark:border-primary-400 bg-primary-200 legacy-dark:bg-primary-500/20 text-primary-800 legacy-dark:text-primary-200'
                       : 'border-[var(--ds-border-default)] text-[var(--ds-text-muted)]'
                   }`}
                 >

@@ -6,9 +6,9 @@ import dynamic from 'next/dynamic'
 import { ArrowLeft, ExternalLink, Loader2, Save, UploadCloud, Wand2, LayoutTemplate, PenSquare, Check } from 'lucide-react'
 
 import { Page, PageActions, PageDescription, PageHeader, PageTitle } from '@/components/app/page'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Checkbox } from '@/components/ui/checkbox'
+import { Button } from '@/components/legacy-ui/button'
+import { Input } from '@/components/legacy-ui/input'
+import { Checkbox } from '@/components/legacy-ui/checkbox'
 import { MetaFlowPreview } from '@/components/app/MetaFlowPreview'
 
 // Dynamic imports para componentes pesados (~1700+ linhas cada)
@@ -29,7 +29,7 @@ const AdvancedFlowPanel = dynamic(
   () => import('@/components/features/flows/builder/dynamic-flow/AdvancedFlowPanel').then(m => m.AdvancedFlowPanel),
   { ssr: false }
 )
-import { Textarea } from '@/components/ui/textarea'
+import { Textarea } from '@/components/legacy-ui/textarea'
 import { FLOW_TEMPLATES } from '@/lib/flow-templates'
 import { useFlowBuilderController } from '@/hooks/useFlowBuilder'
 

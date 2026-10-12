@@ -3,8 +3,8 @@
 import React, { useEffect, useState } from 'react'
 import { Loader2, Pencil } from 'lucide-react'
 import { Modal, ModalCancelButton, ModalFooter, ModalHeader } from '@/components/app/Modal'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import { Input } from '@/components/legacy-ui/input'
+import { Label } from '@/components/legacy-ui/label'
 import type { Opportunity } from '@/services/crmService'
 
 export interface EditOpportunityModalProps {
@@ -46,7 +46,7 @@ export function EditOpportunityModal({
   return (
     <Modal isOpen={!!opportunity} onClose={onClose} maxWidth="md" showCloseButton>
       <ModalHeader
-        icon={<Pencil size={24} className="text-primary-600 dark:text-primary-400" />}
+        icon={<Pencil size={24} className="text-primary-600 legacy-dark:text-primary-400" />}
         iconClassName="bg-primary-500/10"
         title="Editar oportunidade"
       />
@@ -78,7 +78,7 @@ export function EditOpportunityModal({
             aria-invalid={isValueInvalid}
           />
           {isValueInvalid && (
-            <p className="text-xs text-red-600 dark:text-red-400">Informe um valor válido.</p>
+            <p className="text-xs text-red-600 legacy-dark:text-red-400">Informe um valor válido.</p>
           )}
         </div>
 

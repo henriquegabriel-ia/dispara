@@ -6,7 +6,7 @@ import {
   SheetContent,
   SheetHeader,
   SheetTitle,
-} from '@/components/ui/sheet'
+} from '@/components/legacy-ui/sheet'
 import { TemplatePreview } from './TemplatePreview'
 
 type HeaderFormat = 'TEXT' | 'IMAGE' | 'VIDEO' | 'GIF' | 'DOCUMENT' | 'LOCATION'

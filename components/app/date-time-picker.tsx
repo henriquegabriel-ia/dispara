@@ -2,8 +2,8 @@
 
 import * as React from "react"
 import { Clock } from "lucide-react"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/legacy-ui/popover"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/legacy-ui/select"
 import { cn } from "@/lib/utils"
 
 export interface DateTimePickerProps {

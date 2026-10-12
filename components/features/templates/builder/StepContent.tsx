@@ -2,7 +2,7 @@
 
 import React from 'react'
 import Image from 'next/image'
-import { Button } from '@/components/ui/button'
+import { Button } from '@/components/legacy-ui/button'
 import { Container } from '@/components/app/container'
 import {
   Dialog,
@@ -11,9 +11,9 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
+} from '@/components/legacy-ui/dialog'
+import { Input } from '@/components/legacy-ui/input'
+import { Textarea } from '@/components/legacy-ui/textarea'
 import {
   Code,
   Bold,
@@ -35,7 +35,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
+} from '@/components/legacy-ui/select'
 import { cn } from '@/lib/utils'
 
 type Spec = any
@@ -340,32 +340,32 @@ export function StepContent({
                 maxLength={60}
               />
               {headerLengthExceeded ? (
-                <p className="text-xs text-amber-700 dark:text-amber-300">Cabecalho excede 60 caracteres.</p>
+                <p className="text-xs text-amber-700 legacy-dark:text-amber-300">Cabecalho excede 60 caracteres.</p>
               ) : null}
               {!isHeaderVariableValid ? (
-                <p className="text-xs text-amber-700 dark:text-amber-300">O cabeçalho permite apenas 1 variavel.</p>
+                <p className="text-xs text-amber-700 legacy-dark:text-amber-300">O cabeçalho permite apenas 1 variavel.</p>
               ) : null}
               {namedHeaderChecks?.invalid.length ? (
-                <p className="text-xs text-amber-700 dark:text-amber-300">Variaveis devem ser minusculas com underscore (ex: first_name).</p>
+                <p className="text-xs text-amber-700 legacy-dark:text-amber-300">Variaveis devem ser minusculas com underscore (ex: first_name).</p>
               ) : null}
               {namedHeaderChecks?.duplicates.length ? (
-                <p className="text-xs text-amber-700 dark:text-amber-300">Nomes de variavel no cabeçalho devem ser unicos.</p>
+                <p className="text-xs text-amber-700 legacy-dark:text-amber-300">Nomes de variavel no cabeçalho devem ser unicos.</p>
               ) : null}
               {headerTextMissing ? (
-                <p className="text-xs text-amber-700 dark:text-amber-300">Cabeçalho de texto é obrigatório.</p>
+                <p className="text-xs text-amber-700 legacy-dark:text-amber-300">Cabeçalho de texto é obrigatório.</p>
               ) : null}
               {positionalHeaderInvalid.length ? (
-                <p className="text-xs text-amber-700 dark:text-amber-300">
+                <p className="text-xs text-amber-700 legacy-dark:text-amber-300">
                   No modo numerico, use apenas {'{{1}}'}, {'{{2}}'}...
                 </p>
               ) : null}
               {positionalHeaderMissing.length ? (
-                <p className="text-xs text-amber-700 dark:text-amber-300">
+                <p className="text-xs text-amber-700 legacy-dark:text-amber-300">
                   Sequencia posicional deve comecar em {'{{1}}'} e nao ter buracos.
                 </p>
               ) : null}
               {headerEdgeParameter.starts || headerEdgeParameter.ends ? (
-                <p className="text-xs text-amber-700 dark:text-amber-300">O cabeçalho nao pode comecar nem terminar com variavel.</p>
+                <p className="text-xs text-amber-700 legacy-dark:text-amber-300">O cabeçalho nao pode comecar nem terminar com variavel.</p>
               ) : null}
               <div className="flex items-center justify-end">
                 <Button
@@ -585,7 +585,7 @@ export function StepContent({
                       Enviando...
                     </span>
                   ) : headerMediaHandleValue ? (
-                    <span className="inline-flex items-center gap-1.5 rounded-full border border-primary-600 dark:border-primary-400/30 bg-primary-100 dark:bg-primary-500/10 px-2 py-1 text-[11px] text-primary-700 dark:text-primary-200">
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-primary-600 legacy-dark:border-primary-400/30 bg-primary-100 legacy-dark:bg-primary-500/10 px-2 py-1 text-[11px] text-primary-700 legacy-dark:text-primary-200">
                       <CheckCircle2 className="w-3.5 h-3.5" />
                       Pronto
                     </span>
@@ -696,7 +696,7 @@ export function StepContent({
               </p>
 
               {uploadHeaderMediaError ? (
-                <div className="text-xs text-amber-700 dark:text-amber-300 space-y-1">
+                <div className="text-xs text-amber-700 legacy-dark:text-amber-300 space-y-1">
                   <p>{uploadHeaderMediaError}</p>
                   {/* Mostrar link do conversor se for erro de codec */}
                   {(uploadHeaderMediaError.includes('formato') ||
@@ -715,7 +715,7 @@ export function StepContent({
                   )}
                 </div>
               ) : isHeaderMediaHandleMissing ? (
-                <p className="text-xs text-amber-700 dark:text-amber-300">
+                <p className="text-xs text-amber-700 legacy-dark:text-amber-300">
                   {headerMediaPreview ? 'Finalize o envio da midia para continuar.' : 'Selecione um arquivo para o cabeçalho.'}
                 </p>
               ) : null}
@@ -777,29 +777,29 @@ export function StepContent({
           </div>
 
           {namedBodyChecks?.invalid.length ? (
-            <div className="mt-2 text-xs text-amber-700 dark:text-amber-300">Use apenas minusculas e underscore nas variaveis do corpo.</div>
+            <div className="mt-2 text-xs text-amber-700 legacy-dark:text-amber-300">Use apenas minusculas e underscore nas variaveis do corpo.</div>
           ) : null}
           {namedBodyChecks?.duplicates.length ? (
-            <div className="mt-2 text-xs text-amber-700 dark:text-amber-300">Nomes de variavel no corpo devem ser unicos.</div>
+            <div className="mt-2 text-xs text-amber-700 legacy-dark:text-amber-300">Nomes de variavel no corpo devem ser unicos.</div>
           ) : null}
           {positionalBodyInvalid.length ? (
-            <div className="mt-2 text-xs text-amber-700 dark:text-amber-300">
+            <div className="mt-2 text-xs text-amber-700 legacy-dark:text-amber-300">
               No modo numerico, use apenas {'{{1}}'}, {'{{2}}'}...
             </div>
           ) : null}
           {positionalBodyMissing.length ? (
-            <div className="mt-2 text-xs text-amber-700 dark:text-amber-300">
+            <div className="mt-2 text-xs text-amber-700 legacy-dark:text-amber-300">
               Sequencia posicional deve comecar em {'{{1}}'} e nao ter buracos.
             </div>
           ) : null}
           {bodyLengthExceeded ? (
-            <div className="mt-2 text-xs text-amber-700 dark:text-amber-300">Corpo excede {bodyMaxLength} caracteres.</div>
+            <div className="mt-2 text-xs text-amber-700 legacy-dark:text-amber-300">Corpo excede {bodyMaxLength} caracteres.</div>
           ) : null}
           {bodyEdgeParameter.starts || bodyEdgeParameter.ends ? (
-            <div className="mt-2 text-xs text-amber-700 dark:text-amber-300">O corpo nao pode comecar nem terminar com variavel.</div>
+            <div className="mt-2 text-xs text-amber-700 legacy-dark:text-amber-300">O corpo nao pode comecar nem terminar com variavel.</div>
           ) : null}
           {!bodyText.trim() ? (
-            <div className="mt-2 text-xs text-amber-700 dark:text-amber-300">O corpo é obrigatório.</div>
+            <div className="mt-2 text-xs text-amber-700 legacy-dark:text-amber-300">O corpo é obrigatório.</div>
           ) : null}
         </div>
 
@@ -823,7 +823,7 @@ export function StepContent({
             </div>
 
             {isLimitedTimeOffer ? (
-              <div className="text-xs text-amber-700 dark:text-amber-300">Limited Time Offer não permite rodapé.</div>
+              <div className="text-xs text-amber-700 legacy-dark:text-amber-300">Limited Time Offer não permite rodapé.</div>
             ) : null}
 
             {spec.footer ? (
@@ -841,16 +841,16 @@ export function StepContent({
                   maxLength={60}
                 />
                 {footerLengthExceeded ? (
-                  <div className="text-xs text-amber-700 dark:text-amber-300">Rodapé excede 60 caracteres.</div>
+                  <div className="text-xs text-amber-700 legacy-dark:text-amber-300">Rodapé excede 60 caracteres.</div>
                 ) : null}
                 {footerHasVariables ? (
-                  <div className="text-xs text-amber-700 dark:text-amber-300">Rodapé não permite variáveis.</div>
+                  <div className="text-xs text-amber-700 legacy-dark:text-amber-300">Rodapé não permite variáveis.</div>
                 ) : null}
                 {namedFooterChecks?.invalid.length ? (
-                  <div className="text-xs text-amber-700 dark:text-amber-300">Use apenas minúsculas e underscore nas variáveis do rodapé.</div>
+                  <div className="text-xs text-amber-700 legacy-dark:text-amber-300">Use apenas minúsculas e underscore nas variáveis do rodapé.</div>
                 ) : null}
                 {namedFooterChecks?.duplicates.length ? (
-                  <div className="text-xs text-amber-700 dark:text-amber-300">Nomes de variável no rodapé devem ser únicos.</div>
+                  <div className="text-xs text-amber-700 legacy-dark:text-amber-300">Nomes de variável no rodapé devem ser únicos.</div>
                 ) : null}
               </div>
             ) : null}
@@ -883,7 +883,7 @@ export function StepContent({
               className="bg-[var(--ds-bg-elevated)] border-[var(--ds-border-default)] text-[var(--ds-text-primary)]"
               autoFocus
             />
-            {namedVarError ? <p className="text-xs text-amber-700 dark:text-amber-300">{namedVarError}</p> : null}
+            {namedVarError ? <p className="text-xs text-amber-700 legacy-dark:text-amber-300">{namedVarError}</p> : null}
           </div>
           <DialogFooter className="gap-2">
             <Button type="button" variant="ghost" onClick={() => setNamedVarDialogOpen(false)}>

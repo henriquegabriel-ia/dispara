@@ -6,7 +6,7 @@ import {
     SheetHeader,
     SheetTitle,
     SheetTrigger,
-} from '@/components/ui/sheet';
+} from '@/components/legacy-ui/sheet';
 import { Type } from 'lucide-react';
 import { CustomFieldsManager } from './CustomFieldsManager';
 import type { CustomFieldDefinition } from '@/types';

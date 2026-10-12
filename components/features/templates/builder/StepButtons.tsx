@@ -124,13 +124,13 @@ export function StepButtons({
 
         {/* Validation Messages */}
         {isAtMaxButtons && (
-          <div className="text-xs text-amber-700 dark:text-amber-300">
+          <div className="text-xs text-amber-700 legacy-dark:text-amber-300">
             Voce ja atingiu o limite de {maxButtons} botoes.
           </div>
         )}
 
         {buttonErrors.length > 0 && (
-          <div className="text-xs text-amber-700 dark:text-amber-300 space-y-1">
+          <div className="text-xs text-amber-700 legacy-dark:text-amber-300 space-y-1">
             {buttonErrors.map((err) => (
               <div key={err}>{err}</div>
             ))}

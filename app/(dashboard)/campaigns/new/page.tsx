@@ -9,7 +9,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+} from '@/components/legacy-ui/dropdown-menu'
 import { Braces, Calendar as CalendarIcon, Check, Eye, FolderIcon, Layers, MessageSquare, Plus, RefreshCw, Save, Search, Sparkles, Users, Wand2 } from 'lucide-react'
 import { CustomFieldsSheet } from '@/components/features/contacts/CustomFieldsSheet'
 import {
@@ -18,14 +18,14 @@ import {
   SheetDescription,
   SheetHeader,
   SheetTitle,
-} from '@/components/ui/sheet'
+} from '@/components/legacy-ui/sheet'
 import { TemplatePreviewCard } from '@/components/app/TemplatePreviewCard'
 import { ContactQuickEditModal } from '@/components/features/contacts/ContactQuickEditModal'
-import { Calendar } from '@/components/ui/calendar'
+import { Calendar } from '@/components/legacy-ui/calendar'
 import DateTimePicker from '@/components/app/date-time-picker'
 import { ptBRLight as ptBR } from '@/lib/locale-pt-br-light'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/legacy-ui/popover'
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/legacy-ui/command'
 import { useCampaignNewController, steps, formatDateLabel, parsePickerDate } from '@/hooks/useCampaignNew'
 
 export default function CampaignsNewRealPage() {
@@ -75,14 +75,14 @@ export default function CampaignsNewRealPage() {
                   }
                   className={`flex items-center gap-3 rounded-2xl border px-4 py-3 text-left text-sm transition ${
                     ctrl.step === item.id
-                      ? 'border-primary-600 dark:border-primary-400/40 bg-primary-100 dark:bg-primary-500/10 text-[var(--ds-text-primary)]'
+                      ? 'border-primary-600 legacy-dark:border-primary-400/40 bg-primary-100 legacy-dark:bg-primary-500/10 text-[var(--ds-text-primary)]'
                       : 'border-[var(--ds-border-default)] bg-[var(--ds-bg-surface)] text-[var(--ds-text-secondary)]'
                   } ${!isStepEnabled ? 'cursor-not-allowed opacity-40' : 'hover:text-[var(--ds-text-primary)]'}`}
                 >
                   <span
                     className={`grid h-8 w-8 shrink-0 aspect-square place-items-center rounded-full border text-xs font-semibold leading-none ${
                       ctrl.step === item.id
-                        ? 'border-primary-400 bg-primary-100 dark:bg-primary-500/20 text-primary-700 dark:text-primary-200'
+                        ? 'border-primary-400 bg-primary-100 legacy-dark:bg-primary-500/20 text-primary-700 legacy-dark:text-primary-200'
                         : 'border-[var(--ds-border-default)] text-[var(--ds-text-secondary)]'
                     }`}
                   >
@@ -115,7 +115,7 @@ export default function CampaignsNewRealPage() {
                     <option value="Marketing">Marketing</option>
                     <option value="Autenticacao">Autenticação</option>
                   </select>
-                  <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-lg text-primary-700 dark:text-primary-200">
+                  <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-lg text-primary-700 legacy-dark:text-primary-200">
                     ▾
                   </span>
                 </div>
@@ -124,7 +124,7 @@ export default function CampaignsNewRealPage() {
               {ctrl.templateSelected ? (
                 <div className="flex h-11 flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--ds-border-default)] bg-[var(--ds-bg-elevated)] px-4 text-sm">
                   <div className="flex items-center gap-3">
-                    <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-primary-600 dark:border-primary-400/40 text-[10px] text-primary-700 dark:text-primary-300">
+                    <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-primary-600 legacy-dark:border-primary-400/40 text-[10px] text-primary-700 legacy-dark:text-primary-300">
                       ✓
                     </span>
                     <div className="flex items-center gap-2">
@@ -142,7 +142,7 @@ export default function CampaignsNewRealPage() {
                       ctrl.setTemplateSelected(false)
                       ctrl.setPreviewTemplate(null)
                     }}
-                    className="text-xs text-primary-600 dark:text-primary-400/80 hover:text-primary-700 dark:text-primary-300"
+                    className="text-xs text-primary-600 legacy-dark:text-primary-400/80 hover:text-primary-700 legacy-dark:text-primary-300"
                   >
                     Trocar
                   </button>
@@ -166,12 +166,12 @@ export default function CampaignsNewRealPage() {
                       <div className="mt-2 text-xs text-[var(--ds-text-muted)]">Carregando templates...</div>
                     )}
                     {ctrl.templatesQuery.isError && (
-                      <div className="mt-2 text-xs text-amber-700 dark:text-amber-300">
+                      <div className="mt-2 text-xs text-amber-700 legacy-dark:text-amber-300">
                         Falha ao carregar templates. Verifique as credenciais.
                       </div>
                     )}
                     {!ctrl.templatesQuery.isLoading && !ctrl.templatesQuery.isError && ctrl.templateOptions.length === 0 && (
-                      <div className="mt-2 text-xs text-amber-700 dark:text-amber-300">Nenhum template aprovado encontrado.</div>
+                      <div className="mt-2 text-xs text-amber-700 legacy-dark:text-amber-300">Nenhum template aprovado encontrado.</div>
                     )}
                   </div>
 
@@ -214,7 +214,7 @@ export default function CampaignsNewRealPage() {
                                 ctrl.setTemplateSelected(true)
                                 ctrl.setPreviewTemplate(null)
                               }}
-                              className="w-full rounded-lg border border-[var(--ds-border-default)] bg-[var(--ds-bg-elevated)] px-3 py-2 text-left text-[var(--ds-text-secondary)] hover:border-primary-600 dark:hover:border-primary-400/40"
+                              className="w-full rounded-lg border border-[var(--ds-border-default)] bg-[var(--ds-bg-elevated)] px-3 py-2 text-left text-[var(--ds-text-secondary)] hover:border-primary-600 legacy-dark:hover:border-primary-400/40"
                             >
                               <div className="flex items-center justify-between">
                                 <span className="font-semibold text-[var(--ds-text-primary)]">{template.name}</span>
@@ -242,7 +242,7 @@ export default function CampaignsNewRealPage() {
                                   ctrl.setTemplateSelected(true)
                                   ctrl.setPreviewTemplate(null)
                                 }}
-                                className="w-full rounded-lg border border-[var(--ds-border-default)] bg-[var(--ds-bg-elevated)] px-3 py-2 text-left text-[var(--ds-text-secondary)] hover:border-primary-600 dark:hover:border-primary-400/40"
+                                className="w-full rounded-lg border border-[var(--ds-border-default)] bg-[var(--ds-bg-elevated)] px-3 py-2 text-left text-[var(--ds-text-secondary)] hover:border-primary-600 legacy-dark:hover:border-primary-400/40"
                               >
                                 <div className="font-semibold text-[var(--ds-text-primary)]">{template.name}</div>
                                 <div className="mt-1 text-xs text-[var(--ds-text-muted)]">{template.category}</div>
@@ -264,7 +264,7 @@ export default function CampaignsNewRealPage() {
                                   ctrl.setTemplateSelected(true)
                                   ctrl.setPreviewTemplate(null)
                                 }}
-                                className="w-full rounded-lg border border-[var(--ds-border-default)] bg-[var(--ds-bg-elevated)] px-3 py-2 text-left text-[var(--ds-text-secondary)] hover:border-primary-600 dark:hover:border-primary-400/40"
+                                className="w-full rounded-lg border border-[var(--ds-border-default)] bg-[var(--ds-bg-elevated)] px-3 py-2 text-left text-[var(--ds-text-secondary)] hover:border-primary-600 legacy-dark:hover:border-primary-400/40"
                               >
                                 <div className="font-semibold text-[var(--ds-text-primary)]">{template.name}</div>
                                 <div className="mt-1 text-xs text-[var(--ds-text-muted)]">{template.category}</div>
@@ -277,7 +277,7 @@ export default function CampaignsNewRealPage() {
                         <button
                           type="button"
                           onClick={() => ctrl.setShowAllTemplates(true)}
-                          className="mt-4 text-xs text-primary-700 dark:text-primary-300"
+                          className="mt-4 text-xs text-primary-700 legacy-dark:text-primary-300"
                         >
                           Ver todos os templates
                         </button>
@@ -288,9 +288,9 @@ export default function CampaignsNewRealPage() {
               )}
 
               {ctrl.templateSelected && ctrl.hasTemplateVariables && (
-                <div className="rounded-2xl border border-primary-400/30 bg-primary-100 dark:bg-primary-500/10 p-6 shadow-[0_12px_30px_rgba(0,0,0,0.35)]">
+                <div className="rounded-2xl border border-primary-400/30 bg-primary-100 legacy-dark:bg-primary-500/10 p-6 shadow-[0_12px_30px_rgba(0,0,0,0.35)]">
                   <div className="flex items-start gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary-100 dark:bg-primary-500/20 text-primary-700 dark:text-primary-200">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary-100 legacy-dark:bg-primary-500/20 text-primary-700 legacy-dark:text-primary-200">
                       <Sparkles size={18} />
                     </div>
                     <div>
@@ -303,9 +303,9 @@ export default function CampaignsNewRealPage() {
 
                   <div className="mt-5 space-y-5">
                     {ctrl.templateSpecError && (
-                      <div className="rounded-xl border border-amber-400 dark:border-amber-400/30 bg-amber-100 dark:bg-amber-500/10 p-4 text-sm text-amber-700 dark:text-amber-200">
+                      <div className="rounded-xl border border-amber-400 legacy-dark:border-amber-400/30 bg-amber-100 legacy-dark:bg-amber-500/10 p-4 text-sm text-amber-700 legacy-dark:text-amber-200">
                         <div className="font-semibold">Template com contrato inválido</div>
-                        <div className="mt-1 text-xs text-amber-700 dark:text-amber-200/80">{ctrl.templateSpecError}</div>
+                        <div className="mt-1 text-xs text-amber-700 legacy-dark:text-amber-200/80">{ctrl.templateSpecError}</div>
                       </div>
                     )}
                     {ctrl.templateVars.header.length > 0 && (
@@ -317,7 +317,7 @@ export default function CampaignsNewRealPage() {
                       <div className="space-y-3">
                           {ctrl.templateVars.header.map((item, index) => (
                             <div key={item.key} className="flex items-center gap-3">
-                              <span className="rounded-lg bg-amber-100 dark:bg-amber-500/20 px-2 py-1 text-xs text-amber-700 dark:text-amber-200">
+                              <span className="rounded-lg bg-amber-100 legacy-dark:bg-amber-500/20 px-2 py-1 text-xs text-amber-700 legacy-dark:text-amber-200">
                                 {item.placeholder}
                               </span>
                               <div className="relative flex flex-1 items-center">
@@ -327,7 +327,7 @@ export default function CampaignsNewRealPage() {
                                   placeholder={`Variável do cabeçalho (${item.placeholder})`}
                                   className={`w-full rounded-xl border bg-[var(--ds-bg-elevated)] px-4 py-2 pr-10 text-sm text-[var(--ds-text-primary)] placeholder:text-[var(--ds-text-muted)] ${
                                     !item.value.trim() && item.required
-                                      ? 'border-amber-400 dark:border-amber-400/40'
+                                      ? 'border-amber-400 legacy-dark:border-amber-400/40'
                                       : 'border-[var(--ds-border-default)]'
                                   }`}
                                 />
@@ -335,7 +335,7 @@ export default function CampaignsNewRealPage() {
                                   <DropdownMenuTrigger asChild>
                                     <button
                                       type="button"
-                                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--ds-text-secondary)] hover:text-amber-700 dark:text-amber-300"
+                                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--ds-text-secondary)] hover:text-amber-700 legacy-dark:text-amber-300"
                                     >
                                       <Braces size={14} />
                                     </button>
@@ -380,7 +380,7 @@ export default function CampaignsNewRealPage() {
                                             onSelect={() => ctrl.setTemplateVarValue('header', index, `{{${field.key}}}`)}
                                             className="flex items-center gap-2"
                                           >
-                                            <div className="text-amber-600 dark:text-amber-400 font-mono text-[10px] w-3.5 text-center">#</div>
+                                            <div className="text-amber-600 legacy-dark:text-amber-400 font-mono text-[10px] w-3.5 text-center">#</div>
                                             <span>{field.label || field.key}</span>
                                           </DropdownMenuItem>
                                         ))}
@@ -389,14 +389,14 @@ export default function CampaignsNewRealPage() {
                                     )}
                                     <DropdownMenuItem
                                       onSelect={() => ctrl.setIsFieldsSheetOpen(true)}
-                                      className="text-xs text-amber-600 dark:text-amber-400"
+                                      className="text-xs text-amber-600 legacy-dark:text-amber-400"
                                     >
                                       <Plus size={12} /> Gerenciar campos
                                     </DropdownMenuItem>
                                   </DropdownMenuContent>
                                 </DropdownMenu>
                               </div>
-                              {item.required && <span className="text-xs text-amber-700 dark:text-amber-300">obrigatório</span>}
+                              {item.required && <span className="text-xs text-amber-700 legacy-dark:text-amber-300">obrigatório</span>}
                             </div>
                           ))}
                         </div>
@@ -412,7 +412,7 @@ export default function CampaignsNewRealPage() {
                         <div className="space-y-3">
                           {ctrl.templateVars.body.map((item, index) => (
                             <div key={`${item.key}-${index}`} className="flex items-center gap-3">
-                              <span className="rounded-lg bg-amber-100 dark:bg-amber-500/20 px-2 py-1 text-xs text-amber-700 dark:text-amber-200">
+                              <span className="rounded-lg bg-amber-100 legacy-dark:bg-amber-500/20 px-2 py-1 text-xs text-amber-700 legacy-dark:text-amber-200">
                                 {item.placeholder}
                               </span>
                               <div className="relative flex flex-1 items-center">
@@ -422,7 +422,7 @@ export default function CampaignsNewRealPage() {
                                   placeholder={`Variável do corpo (${item.placeholder})`}
                                   className={`w-full rounded-xl border bg-[var(--ds-bg-elevated)] px-4 py-2 pr-10 text-sm text-[var(--ds-text-primary)] placeholder:text-[var(--ds-text-muted)] ${
                                     !item.value.trim() && item.required
-                                      ? 'border-amber-400 dark:border-amber-400/40'
+                                      ? 'border-amber-400 legacy-dark:border-amber-400/40'
                                       : 'border-[var(--ds-border-default)]'
                                   }`}
                                 />
@@ -430,7 +430,7 @@ export default function CampaignsNewRealPage() {
                                   <DropdownMenuTrigger asChild>
                                     <button
                                       type="button"
-                                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--ds-text-secondary)] hover:text-amber-700 dark:text-amber-300"
+                                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--ds-text-secondary)] hover:text-amber-700 legacy-dark:text-amber-300"
                                     >
                                       <Braces size={14} />
                                     </button>
@@ -475,7 +475,7 @@ export default function CampaignsNewRealPage() {
                                             onSelect={() => ctrl.setTemplateVarValue('body', index, `{{${field.key}}}`)}
                                             className="flex items-center gap-2"
                                           >
-                                            <div className="text-amber-600 dark:text-amber-400 font-mono text-[10px] w-3.5 text-center">#</div>
+                                            <div className="text-amber-600 legacy-dark:text-amber-400 font-mono text-[10px] w-3.5 text-center">#</div>
                                             <span>{field.label || field.key}</span>
                                           </DropdownMenuItem>
                                         ))}
@@ -484,14 +484,14 @@ export default function CampaignsNewRealPage() {
                                     )}
                                     <DropdownMenuItem
                                       onSelect={() => ctrl.setIsFieldsSheetOpen(true)}
-                                      className="text-xs text-amber-600 dark:text-amber-400"
+                                      className="text-xs text-amber-600 legacy-dark:text-amber-400"
                                     >
                                       <Plus size={12} /> Gerenciar campos
                                     </DropdownMenuItem>
                                   </DropdownMenuContent>
                                 </DropdownMenu>
                               </div>
-                              {item.required && <span className="text-xs text-amber-700 dark:text-amber-300">obrigatório</span>}
+                              {item.required && <span className="text-xs text-amber-700 legacy-dark:text-amber-300">obrigatório</span>}
                             </div>
                           ))}
                         </div>
@@ -501,7 +501,7 @@ export default function CampaignsNewRealPage() {
                     {ctrl.buttonAudit.some((b: any) => b.kind === 'url' && b.isDynamic) && (
                       <div className="space-y-3 border-t border-[var(--ds-border-default)] pt-4">
                         <div className="flex items-center gap-2 text-xs uppercase tracking-widest text-[var(--ds-text-muted)]">
-                          <span className="text-[10px] font-mono text-primary-700 dark:text-primary-200">URL</span>
+                          <span className="text-[10px] font-mono text-primary-700 legacy-dark:text-primary-200">URL</span>
                           <span>Variáveis dos botões</span>
                         </div>
 
@@ -520,21 +520,21 @@ export default function CampaignsNewRealPage() {
                                     const value = ctrl.templateButtonVars[`button_${b.index}_${k}`] || ''
                                     return (
                                       <div key={`btn-${b.index}-${k}`} className="flex items-center gap-3">
-                                        <span className="rounded-lg bg-amber-100 dark:bg-amber-500/20 px-2 py-1 text-xs text-amber-700 dark:text-amber-200">{id}</span>
+                                        <span className="rounded-lg bg-amber-100 legacy-dark:bg-amber-500/20 px-2 py-1 text-xs text-amber-700 legacy-dark:text-amber-200">{id}</span>
                                         <div className="relative flex flex-1 items-center">
                                           <input
                                             value={value}
                                             onChange={(event) => ctrl.setButtonVarValue(b.index, k, event.target.value)}
                                             placeholder={`Variável do botão (${id})`}
                                             className={`w-full rounded-xl border bg-[var(--ds-bg-elevated)] px-4 py-2 pr-10 text-sm text-[var(--ds-text-primary)] placeholder:text-[var(--ds-text-muted)] ${
-                                              !value.trim() ? 'border-amber-400 dark:border-amber-400/40' : 'border-[var(--ds-border-default)]'
+                                              !value.trim() ? 'border-amber-400 legacy-dark:border-amber-400/40' : 'border-[var(--ds-border-default)]'
                                             }`}
                                           />
                                           <DropdownMenu>
                                             <DropdownMenuTrigger asChild>
                                               <button
                                                 type="button"
-                                                className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--ds-text-secondary)] hover:text-amber-700 dark:text-amber-300"
+                                                className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--ds-text-secondary)] hover:text-amber-700 legacy-dark:text-amber-300"
                                               >
                                                 <Braces size={14} />
                                               </button>
@@ -579,7 +579,7 @@ export default function CampaignsNewRealPage() {
                                                       onSelect={() => ctrl.setButtonVarValue(b.index, k, `{{${field.key}}}`)}
                                                       className="flex items-center gap-2"
                                                     >
-                                                      <div className="text-amber-600 dark:text-amber-400 font-mono text-[10px] w-3.5 text-center">#</div>
+                                                      <div className="text-amber-600 legacy-dark:text-amber-400 font-mono text-[10px] w-3.5 text-center">#</div>
                                                       <span>{field.label || field.key}</span>
                                                     </DropdownMenuItem>
                                                   ))}
@@ -588,14 +588,14 @@ export default function CampaignsNewRealPage() {
                                               )}
                                               <DropdownMenuItem
                                                 onSelect={() => ctrl.setIsFieldsSheetOpen(true)}
-                                                className="text-xs text-amber-600 dark:text-amber-400"
+                                                className="text-xs text-amber-600 legacy-dark:text-amber-400"
                                               >
                                                 <Plus size={12} /> Gerenciar campos
                                               </DropdownMenuItem>
                                             </DropdownMenuContent>
                                           </DropdownMenu>
                                         </div>
-                                        <span className="text-xs text-amber-700 dark:text-amber-300">obrigatório</span>
+                                        <span className="text-xs text-amber-700 legacy-dark:text-amber-300">obrigatório</span>
                                       </div>
                                     )
                                   })}
@@ -705,7 +705,7 @@ export default function CampaignsNewRealPage() {
                         {ctrl.abSelectedTemplate ? (
                           <div className="mt-2 flex items-center justify-between rounded-xl border border-[var(--ds-border-default)] bg-[var(--ds-bg-elevated)] px-4 py-3 text-sm">
                             <div className="flex items-center gap-2">
-                              <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-primary-600 dark:border-primary-400/40 text-[10px] text-primary-700 dark:text-primary-300">
+                              <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-primary-600 legacy-dark:border-primary-400/40 text-[10px] text-primary-700 legacy-dark:text-primary-300">
                                 B
                               </span>
                               <span className="font-semibold text-[var(--ds-text-primary)]">{ctrl.abSelectedTemplate.name}</span>
@@ -713,7 +713,7 @@ export default function CampaignsNewRealPage() {
                             <button
                               type="button"
                               onClick={() => ctrl.setAbSelectedTemplate(null)}
-                              className="text-xs text-primary-600 dark:text-primary-400/80 hover:text-primary-700 dark:text-primary-300"
+                              className="text-xs text-primary-600 legacy-dark:text-primary-400/80 hover:text-primary-700 legacy-dark:text-primary-300"
                             >
                               Trocar
                             </button>
@@ -730,7 +730,7 @@ export default function CampaignsNewRealPage() {
                                     key={template.id}
                                     type="button"
                                     onClick={() => ctrl.setAbSelectedTemplate(template)}
-                                    className="w-full rounded-lg border border-[var(--ds-border-default)] bg-[var(--ds-bg-elevated)] px-3 py-2 text-left text-[var(--ds-text-secondary)] hover:border-primary-600 dark:hover:border-primary-400/40"
+                                    className="w-full rounded-lg border border-[var(--ds-border-default)] bg-[var(--ds-bg-elevated)] px-3 py-2 text-left text-[var(--ds-text-secondary)] hover:border-primary-600 legacy-dark:hover:border-primary-400/40"
                                   >
                                     <div className="flex items-center justify-between">
                                       <span className="font-semibold text-[var(--ds-text-primary)]">{template.name}</span>
@@ -782,7 +782,7 @@ export default function CampaignsNewRealPage() {
                     <button
                       type="button"
                       onClick={() => ctrl.setCollapseAudienceChoice(false)}
-                      className="text-xs text-primary-700 dark:text-primary-300"
+                      className="text-xs text-primary-700 legacy-dark:text-primary-300"
                     >
                       Editar público
                     </button>
@@ -805,7 +805,7 @@ export default function CampaignsNewRealPage() {
                           onClick={() => ctrl.setAudienceMode(item.value)}
                           className={`rounded-2xl border px-4 py-4 text-left text-sm ${
                             ctrl.audienceMode === item.value
-                              ? 'border-primary-600 dark:border-primary-400/40 bg-primary-100 dark:bg-primary-500/10 text-[var(--ds-text-primary)]'
+                              ? 'border-primary-600 legacy-dark:border-primary-400/40 bg-primary-100 legacy-dark:bg-primary-500/10 text-[var(--ds-text-primary)]'
                               : 'border-[var(--ds-border-default)] bg-[var(--ds-bg-elevated)] text-[var(--ds-text-secondary)]'
                           }`}
                         >
@@ -830,7 +830,7 @@ export default function CampaignsNewRealPage() {
                       <p className="text-xs text-[var(--ds-text-muted)]">Elegíveis</p>
                     </div>
                     <div className="rounded-xl border border-[var(--ds-border-default)] bg-[var(--ds-bg-elevated)] p-4 text-center">
-                      <p className="text-2xl font-semibold text-amber-700 dark:text-amber-200">{ctrl.statsQuery.data?.optOut ?? 0}</p>
+                      <p className="text-2xl font-semibold text-amber-700 legacy-dark:text-amber-200">{ctrl.statsQuery.data?.optOut ?? 0}</p>
                       <p className="text-xs text-[var(--ds-text-muted)]">Suprimidos</p>
                     </div>
                     <div className="rounded-xl border border-[var(--ds-border-default)] bg-[var(--ds-bg-elevated)] p-4 text-center">
@@ -856,7 +856,7 @@ export default function CampaignsNewRealPage() {
                       </SheetHeader>
                       <div className="space-y-4 p-6">
                         {!ctrl.isBrSelected && (
-                          <div className="rounded-lg border border-amber-300 dark:border-amber-400/20 bg-amber-100 dark:bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-200">
+                          <div className="rounded-lg border border-amber-300 legacy-dark:border-amber-400/20 bg-amber-100 legacy-dark:bg-amber-500/10 px-3 py-2 text-xs text-amber-700 legacy-dark:text-amber-200">
                             Selecione BR no DDI para habilitar as UFs.
                           </div>
                         )}
@@ -890,12 +890,12 @@ export default function CampaignsNewRealPage() {
                                   }}
                                   className={`rounded-full border px-3 py-1 text-xs ${
                                     active
-                                      ? 'border-primary-600 dark:border-primary-400/40 bg-primary-100 dark:bg-primary-500/10 text-primary-700 dark:text-primary-100'
+                                      ? 'border-primary-600 legacy-dark:border-primary-400/40 bg-primary-100 legacy-dark:bg-primary-500/10 text-primary-700 legacy-dark:text-primary-100'
                                       : 'border-[var(--ds-border-default)] bg-[var(--ds-bg-elevated)] text-[var(--ds-text-secondary)]'
                                   } ${disabled ? 'cursor-not-allowed opacity-40' : ''}`}
                                 >
                                   <span>{item.code}</span>
-                                  <sup className="ml-1 text-[8px] leading-none text-amber-700 dark:text-amber-300">{item.count}</sup>
+                                  <sup className="ml-1 text-[8px] leading-none text-amber-700 legacy-dark:text-amber-300">{item.count}</sup>
                                 </button>
                               )
                             })}
@@ -913,7 +913,7 @@ export default function CampaignsNewRealPage() {
                       <button
                         type="button"
                         onClick={() => ctrl.setCollapseQuickSegments(false)}
-                        className="text-xs text-primary-700 dark:text-primary-300"
+                        className="text-xs text-primary-700 legacy-dark:text-primary-300"
                       >
                         Editar segmentos
                       </button>
@@ -934,7 +934,7 @@ export default function CampaignsNewRealPage() {
                           onClick={() => ctrl.setCombineMode('or')}
                           className={`rounded-full border px-3 py-1 ${
                             ctrl.combineMode === 'or'
-                              ? 'border-primary-600 dark:border-primary-400/40 bg-primary-100 dark:bg-primary-500/10 text-primary-700 dark:text-primary-200'
+                              ? 'border-primary-600 legacy-dark:border-primary-400/40 bg-primary-100 legacy-dark:bg-primary-500/10 text-primary-700 legacy-dark:text-primary-200'
                               : 'border-[var(--ds-border-default)] bg-[var(--ds-bg-elevated)] text-[var(--ds-text-secondary)]'
                           }`}
                         >
@@ -945,7 +945,7 @@ export default function CampaignsNewRealPage() {
                           onClick={() => ctrl.setCombineMode('and')}
                           className={`rounded-full border px-3 py-1 ${
                             ctrl.combineMode === 'and'
-                              ? 'border-primary-600 dark:border-primary-400/40 bg-primary-100 dark:bg-primary-500/10 text-primary-700 dark:text-primary-200'
+                              ? 'border-primary-600 legacy-dark:border-primary-400/40 bg-primary-100 legacy-dark:bg-primary-500/10 text-primary-700 legacy-dark:text-primary-200'
                               : 'border-[var(--ds-border-default)] bg-[var(--ds-bg-elevated)] text-[var(--ds-text-secondary)]'
                           }`}
                         >
@@ -1020,13 +1020,13 @@ export default function CampaignsNewRealPage() {
                                   onClick={() => ctrl.toggleSelection(tag, ctrl.selectedTags, ctrl.setSelectedTags)}
                                   className={`rounded-full border px-3 py-1 text-xs ${
                                     active
-                                      ? 'border-primary-600 dark:border-primary-400/40 bg-primary-100 dark:bg-primary-500/10 text-primary-700 dark:text-primary-100'
+                                      ? 'border-primary-600 legacy-dark:border-primary-400/40 bg-primary-100 legacy-dark:bg-primary-500/10 text-primary-700 legacy-dark:text-primary-100'
                                       : 'border-[var(--ds-border-default)] bg-[var(--ds-bg-elevated)] text-[var(--ds-text-secondary)]'
                                   }`}
                                 >
                                   <span>{tag}</span>
                                   {typeof count === 'number' && (
-                                    <sup className="ml-1 text-[8px] leading-none text-amber-700 dark:text-amber-300">{count}</sup>
+                                    <sup className="ml-1 text-[8px] leading-none text-amber-700 legacy-dark:text-amber-300">{count}</sup>
                                   )}
                                 </button>
                               )
@@ -1040,11 +1040,11 @@ export default function CampaignsNewRealPage() {
                                     key={tag}
                                     type="button"
                                     onClick={() => ctrl.toggleSelection(tag, ctrl.selectedTags, ctrl.setSelectedTags)}
-                                    className="rounded-full border border-primary-600 dark:border-primary-400/40 bg-primary-100 dark:bg-primary-500/10 px-3 py-1 text-xs text-primary-700 dark:text-primary-100"
+                                    className="rounded-full border border-primary-600 legacy-dark:border-primary-400/40 bg-primary-100 legacy-dark:bg-primary-500/10 px-3 py-1 text-xs text-primary-700 legacy-dark:text-primary-100"
                                   >
                                     <span>{tag}</span>
                                     {typeof count === 'number' && (
-                                      <sup className="ml-1 text-[8px] leading-none text-amber-700 dark:text-amber-300">{count}</sup>
+                                      <sup className="ml-1 text-[8px] leading-none text-amber-700 legacy-dark:text-amber-300">{count}</sup>
                                     )}
                                   </button>
                                 )
@@ -1079,13 +1079,13 @@ export default function CampaignsNewRealPage() {
                                   }}
                                   className={`rounded-full border px-3 py-1 text-xs ${
                                     active
-                                      ? 'border-primary-600 dark:border-primary-400/40 bg-primary-100 dark:bg-primary-500/10 text-primary-700 dark:text-primary-100'
+                                      ? 'border-primary-600 legacy-dark:border-primary-400/40 bg-primary-100 legacy-dark:bg-primary-500/10 text-primary-700 legacy-dark:text-primary-100'
                                       : 'border-[var(--ds-border-default)] bg-[var(--ds-bg-elevated)] text-[var(--ds-text-secondary)]'
                                   }`}
                                 >
                                   <span>{chip}</span>
                                   {typeof count === 'number' && (
-                                    <sup className="ml-1 text-[8px] leading-none text-amber-700 dark:text-amber-300">{count}</sup>
+                                    <sup className="ml-1 text-[8px] leading-none text-amber-700 legacy-dark:text-amber-300">{count}</sup>
                                   )}
                                 </button>
                               )
@@ -1121,13 +1121,13 @@ export default function CampaignsNewRealPage() {
                                   }}
                                   className={`rounded-full border px-3 py-1 text-xs ${
                                     active
-                                      ? 'border-primary-600 dark:border-primary-400/40 bg-primary-100 dark:bg-primary-500/10 text-primary-700 dark:text-primary-100'
+                                      ? 'border-primary-600 legacy-dark:border-primary-400/40 bg-primary-100 legacy-dark:bg-primary-500/10 text-primary-700 legacy-dark:text-primary-100'
                                       : 'border-[var(--ds-border-default)] bg-[var(--ds-bg-elevated)] text-[var(--ds-text-secondary)]'
                                   } ${disabled ? 'cursor-not-allowed opacity-40' : ''}`}
                                 >
                                   <span>{chip}</span>
                                   {typeof count === 'number' && (
-                                    <sup className="ml-1 text-[8px] leading-none text-amber-700 dark:text-amber-300">{count}</sup>
+                                    <sup className="ml-1 text-[8px] leading-none text-amber-700 legacy-dark:text-amber-300">{count}</sup>
                                   )}
                                 </button>
                               )
@@ -1167,7 +1167,7 @@ export default function CampaignsNewRealPage() {
                     <div className="rounded-2xl border border-[var(--ds-border-default)] bg-[var(--ds-bg-elevated)] p-4">
                       <div className="flex items-center justify-between">
                         <label className="text-xs uppercase tracking-widest text-[var(--ds-text-muted)]">Telefone de teste (settings)</label>
-                        <a href="/settings#test-contact" className="text-xs text-primary-700 dark:text-primary-300">
+                        <a href="/settings#test-contact" className="text-xs text-primary-700 legacy-dark:text-primary-300">
                           Editar em configurações
                         </a>
                       </div>
@@ -1179,7 +1179,7 @@ export default function CampaignsNewRealPage() {
                         }}
                         className={`mt-3 w-full rounded-xl border bg-[var(--ds-bg-elevated)] px-4 py-3 text-left text-sm ${
                           ctrl.sendToConfigured && ctrl.hasConfiguredContact
-                            ? 'border-primary-600 dark:border-primary-400/40 text-[var(--ds-text-primary)]'
+                            ? 'border-primary-600 legacy-dark:border-primary-400/40 text-[var(--ds-text-primary)]'
                             : 'border-[var(--ds-border-default)] text-[var(--ds-text-secondary)]'
                         } ${!ctrl.hasConfiguredContact ? 'cursor-not-allowed opacity-60' : ''}`}
                       >
@@ -1188,7 +1188,7 @@ export default function CampaignsNewRealPage() {
                       {ctrl.hasConfiguredContact ? (
                         <p className="mt-2 text-xs text-[var(--ds-text-muted)]">Clique para incluir/remover no envio.</p>
                       ) : (
-                        <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">Nenhum telefone de teste configurado.</p>
+                        <p className="mt-2 text-xs text-amber-700 legacy-dark:text-amber-300">Nenhum telefone de teste configurado.</p>
                       )}
                     </div>
                     <div className="rounded-2xl border border-[var(--ds-border-default)] bg-[var(--ds-bg-elevated)] p-4">
@@ -1206,7 +1206,7 @@ export default function CampaignsNewRealPage() {
                         <p className="mt-2 text-xs text-[var(--ds-text-muted)]">Buscando contatos...</p>
                       )}
                       {ctrl.contactSearchQuery.isError && (
-                        <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">Erro ao buscar contatos.</p>
+                        <p className="mt-2 text-xs text-amber-700 legacy-dark:text-amber-300">Erro ao buscar contatos.</p>
                       )}
                       <div className="mt-3 space-y-2 text-sm text-[var(--ds-text-secondary)]">
                         {ctrl.displayTestContacts.map((contact) => {
@@ -1226,10 +1226,10 @@ export default function CampaignsNewRealPage() {
                               }}
                               className={`w-full rounded-xl border bg-[var(--ds-bg-elevated)] px-3 py-2 text-left transition ${
                                 isActive
-                                  ? 'border-primary-600 dark:border-primary-400/40 text-[var(--ds-text-primary)]'
+                                  ? 'border-primary-600 legacy-dark:border-primary-400/40 text-[var(--ds-text-primary)]'
                                   : isSelected
                                     ? 'border-[var(--ds-border-default)] text-[var(--ds-text-secondary)]'
-                                    : 'border-[var(--ds-border-default)] text-[var(--ds-text-secondary)] hover:border-primary-600 dark:hover:border-primary-400/40'
+                                    : 'border-[var(--ds-border-default)] text-[var(--ds-text-secondary)] hover:border-primary-600 legacy-dark:hover:border-primary-400/40'
                               }`}
                             >
                               <div className="flex items-center justify-between">
@@ -1275,13 +1275,13 @@ export default function CampaignsNewRealPage() {
                     <p className="text-xs text-[var(--ds-text-muted)]">Válidos</p>
                   </div>
                   <div className="rounded-xl border border-[var(--ds-border-default)] bg-[var(--ds-bg-elevated)] p-4 text-center">
-                    <p className="text-2xl font-semibold text-amber-700 dark:text-amber-300">
+                    <p className="text-2xl font-semibold text-amber-700 legacy-dark:text-amber-300">
                       {ctrl.isPrecheckLoading ? '—' : ctrl.precheckTotals?.skipped ?? '—'}
                     </p>
                     <p className="text-xs text-[var(--ds-text-muted)]">Ignorados</p>
                   </div>
                   <div className="rounded-xl border border-[var(--ds-border-default)] bg-[var(--ds-bg-elevated)] p-4 text-center">
-                    <p className="text-2xl font-semibold text-primary-700 dark:text-primary-300">
+                    <p className="text-2xl font-semibold text-primary-700 legacy-dark:text-primary-300">
                       {ctrl.precheckError
                         ? 'Falhou'
                         : ctrl.isPrecheckLoading
@@ -1294,7 +1294,7 @@ export default function CampaignsNewRealPage() {
                   </div>
                 </div>
                 {ctrl.precheckError && (
-                  <p className="mt-3 text-xs text-amber-700 dark:text-amber-300">{ctrl.precheckError}</p>
+                  <p className="mt-3 text-xs text-amber-700 legacy-dark:text-amber-300">{ctrl.precheckError}</p>
                 )}
 
                 {ctrl.precheckTotals && ctrl.precheckTotals.skipped > 0 && (
@@ -1316,17 +1316,17 @@ export default function CampaignsNewRealPage() {
                           }}
                           className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${
                             ctrl.bulkKeys.length
-                              ? 'border-amber-400 dark:border-amber-500/20 bg-[var(--ds-bg-elevated)] text-amber-700 dark:text-amber-200 hover:bg-amber-200 dark:hover:bg-amber-500/15 hover:border-amber-500 dark:hover:border-amber-500/40'
+                              ? 'border-amber-400 legacy-dark:border-amber-500/20 bg-[var(--ds-bg-elevated)] text-amber-700 legacy-dark:text-amber-200 hover:bg-amber-200 legacy-dark:hover:bg-amber-500/15 hover:border-amber-500 legacy-dark:hover:border-amber-500/40'
                               : 'border-[var(--ds-border-default)] bg-[var(--ds-bg-elevated)] text-[var(--ds-text-muted)]'
                           }`}
                         >
-                          <Layers size={16} className={ctrl.bulkKeys.length ? 'text-amber-700 dark:text-amber-300' : 'text-[var(--ds-text-muted)]'} />
+                          <Layers size={16} className={ctrl.bulkKeys.length ? 'text-amber-700 legacy-dark:text-amber-300' : 'text-[var(--ds-text-muted)]'} />
                           <span className="whitespace-nowrap">Aplicar em massa</span>
                         </button>
                         <button
                           type="button"
                           onClick={() => ctrl.runPrecheck()}
-                          className="inline-flex items-center gap-2 rounded-lg border border-transparent bg-primary-600 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-700 dark:bg-white dark:text-black dark:hover:bg-slate-200"
+                          className="inline-flex items-center gap-2 rounded-lg border border-transparent bg-primary-600 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-700 legacy-dark:bg-white legacy-dark:text-black legacy-dark:hover:bg-slate-200"
                         >
                           <RefreshCw size={16} />
                           <span className="whitespace-nowrap">Validar novamente</span>
@@ -1412,7 +1412,7 @@ export default function CampaignsNewRealPage() {
                           </div>
                         </div>
 
-                        {ctrl.bulkError && <p className="mt-3 text-xs text-amber-700 dark:text-amber-300">{ctrl.bulkError}</p>}
+                        {ctrl.bulkError && <p className="mt-3 text-xs text-amber-700 legacy-dark:text-amber-300">{ctrl.bulkError}</p>}
 
                         <div className="mt-4 flex items-center justify-end gap-2">
                           <button
@@ -1433,7 +1433,7 @@ export default function CampaignsNewRealPage() {
                             disabled={ctrl.bulkLoading}
                             className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${
                               !ctrl.bulkLoading
-                                ? 'border-amber-400 dark:border-amber-500/30 bg-amber-100 dark:bg-amber-500/10 text-amber-700 dark:text-amber-200 hover:bg-amber-200 dark:hover:bg-amber-500/15 hover:border-amber-500 dark:hover:border-amber-500/50'
+                                ? 'border-amber-400 legacy-dark:border-amber-500/30 bg-amber-100 legacy-dark:bg-amber-500/10 text-amber-700 legacy-dark:text-amber-200 hover:bg-amber-200 legacy-dark:hover:bg-amber-500/15 hover:border-amber-500 legacy-dark:hover:border-amber-500/50'
                                 : 'border-[var(--ds-border-default)] bg-[var(--ds-bg-elevated)] text-[var(--ds-text-muted)]'
                             }`}
                           >
@@ -1501,7 +1501,7 @@ export default function CampaignsNewRealPage() {
                     onClick={() => ctrl.setScheduleMode('imediato')}
                     className={`rounded-xl border px-4 py-3 text-left text-sm ${
                       ctrl.scheduleMode === 'imediato'
-                        ? 'border-primary-600 dark:border-primary-400/40 bg-primary-100 dark:bg-primary-500/10 text-primary-700 dark:text-primary-200'
+                        ? 'border-primary-600 legacy-dark:border-primary-400/40 bg-primary-100 legacy-dark:bg-primary-500/10 text-primary-700 legacy-dark:text-primary-200'
                         : 'border-[var(--ds-border-default)] bg-[var(--ds-bg-elevated)] text-[var(--ds-text-secondary)]'
                     }`}
                   >
@@ -1512,7 +1512,7 @@ export default function CampaignsNewRealPage() {
                     onClick={() => ctrl.setScheduleMode('agendar')}
                     className={`rounded-xl border px-4 py-3 text-left text-sm ${
                       ctrl.scheduleMode === 'agendar'
-                        ? 'border-primary-600 dark:border-primary-400/40 bg-primary-100 dark:bg-primary-500/10 text-primary-700 dark:text-primary-200'
+                        ? 'border-primary-600 legacy-dark:border-primary-400/40 bg-primary-100 legacy-dark:bg-primary-500/10 text-primary-700 legacy-dark:text-primary-200'
                         : 'border-[var(--ds-border-default)] bg-[var(--ds-bg-elevated)] text-[var(--ds-text-secondary)]'
                     }`}
                   >
@@ -1590,7 +1590,7 @@ export default function CampaignsNewRealPage() {
                         onClick={() => ctrl.setSelectedFolderId(null)}
                         className={`flex items-center gap-2 rounded-xl border px-4 py-3 text-left text-sm transition ${
                           ctrl.selectedFolderId === null
-                            ? 'border-primary-600 dark:border-primary-400/40 bg-primary-100 dark:bg-primary-500/10 text-primary-700 dark:text-primary-200'
+                            ? 'border-primary-600 legacy-dark:border-primary-400/40 bg-primary-100 legacy-dark:bg-primary-500/10 text-primary-700 legacy-dark:text-primary-200'
                             : 'border-[var(--ds-border-default)] bg-[var(--ds-bg-elevated)] text-[var(--ds-text-secondary)] hover:border-[var(--ds-border-default)]'
                         }`}
                       >
@@ -1605,7 +1605,7 @@ export default function CampaignsNewRealPage() {
                           onClick={() => ctrl.setSelectedFolderId(folder.id)}
                           className={`flex items-center gap-2 rounded-xl border px-4 py-3 text-left text-sm transition ${
                             ctrl.selectedFolderId === folder.id
-                              ? 'border-primary-600 dark:border-primary-400/40 bg-primary-100 dark:bg-primary-500/10 text-primary-700 dark:text-primary-200'
+                              ? 'border-primary-600 legacy-dark:border-primary-400/40 bg-primary-100 legacy-dark:bg-primary-500/10 text-primary-700 legacy-dark:text-primary-200'
                               : 'border-[var(--ds-border-default)] bg-[var(--ds-bg-elevated)] text-[var(--ds-text-secondary)] hover:border-[var(--ds-border-default)]'
                           }`}
                         >
@@ -1620,7 +1620,7 @@ export default function CampaignsNewRealPage() {
 
               {/* Resumo A/B Testing (Step 4 review) */}
               {ctrl.abTestEnabled && ctrl.abSelectedTemplate && (
-                <div className="rounded-2xl border border-primary-400/30 bg-primary-100 dark:bg-primary-500/10 p-6 shadow-[0_12px_30px_rgba(0,0,0,0.35)]">
+                <div className="rounded-2xl border border-primary-400/30 bg-primary-100 legacy-dark:bg-primary-500/10 p-6 shadow-[0_12px_30px_rgba(0,0,0,0.35)]">
                   <div className="flex items-center gap-3 mb-4">
                     <Layers size={18} className="text-primary-400" />
                     <h2 className="text-base font-semibold text-[var(--ds-text-primary)]">Teste A/B Ativo</h2>
@@ -1746,7 +1746,7 @@ export default function CampaignsNewRealPage() {
                   }}
                   className={`rounded-full px-5 py-2 text-sm font-semibold transition ${
                     ctrl.canContinue && !ctrl.isLaunching && !ctrl.isSavingDraft
-                      ? 'bg-primary-600 text-white dark:bg-white dark:text-black'
+                      ? 'bg-primary-600 text-white legacy-dark:bg-white legacy-dark:text-black'
                       : 'cursor-not-allowed border border-[var(--ds-border-default)] bg-[var(--ds-bg-hover)] text-[var(--ds-text-muted)]'
                   }`}
                   disabled={!ctrl.canContinue || ctrl.isLaunching || ctrl.isSavingDraft}
@@ -1756,7 +1756,7 @@ export default function CampaignsNewRealPage() {
               </div>
             </div>
             {ctrl.launchError && (
-              <p className="mt-3 text-xs text-amber-700 dark:text-amber-300">{ctrl.launchError}</p>
+              <p className="mt-3 text-xs text-amber-700 legacy-dark:text-amber-300">{ctrl.launchError}</p>
             )}
           </div>
         </div>
@@ -1765,7 +1765,7 @@ export default function CampaignsNewRealPage() {
           <div className="rounded-2xl border border-[var(--ds-border-default)] bg-[var(--ds-bg-surface)] p-6 shadow-[0_12px_30px_rgba(0,0,0,0.35)]">
             <div className="flex items-center justify-between">
               <div className="text-xs uppercase tracking-widest text-[var(--ds-text-muted)]">Resumo</div>
-              <button className="rounded-full border border-primary-600 dark:border-primary-400/40 bg-primary-100 dark:bg-primary-500/10 px-3 py-1 text-[11px] font-semibold text-primary-700 dark:text-primary-200">
+              <button className="rounded-full border border-primary-600 legacy-dark:border-primary-400/40 bg-primary-100 legacy-dark:bg-primary-500/10 px-3 py-1 text-[11px] font-semibold text-primary-700 legacy-dark:text-primary-200">
                 Campanha Rapida
               </button>
             </div>
@@ -1779,14 +1779,14 @@ export default function CampaignsNewRealPage() {
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-[var(--ds-text-muted)]">Custo</span>
-                    <span className="text-primary-700 dark:text-primary-300">{ctrl.displayAudienceCost}</span>
+                    <span className="text-primary-700 legacy-dark:text-primary-300">{ctrl.displayAudienceCost}</span>
                   </div>
                 </>
               )}
               <div className="flex items-center justify-between">
                 <span className="text-[var(--ds-text-muted)]">Custo Base</span>
                 <div className="text-right">
-                  <div className="text-primary-700 dark:text-primary-300">{ctrl.basePricePerMessage}/msg</div>
+                  <div className="text-primary-700 legacy-dark:text-primary-300">{ctrl.basePricePerMessage}/msg</div>
                   <div className="text-[10px] text-[var(--ds-text-muted)]">
                     {ctrl.selectedTemplate?.category || '—'} • {ctrl.exchangeRateLabel}
                   </div>

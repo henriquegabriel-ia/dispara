@@ -11,10 +11,10 @@ import {
   Check,
   Loader2,
 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Checkbox } from '@/components/ui/checkbox';
+import { Button } from '@/components/legacy-ui/button';
+import { Input } from '@/components/legacy-ui/input';
+import { Label } from '@/components/legacy-ui/label';
+import { Checkbox } from '@/components/legacy-ui/checkbox';
 import { StepHeader } from './StepHeader';
 import { toast } from 'sonner';
 

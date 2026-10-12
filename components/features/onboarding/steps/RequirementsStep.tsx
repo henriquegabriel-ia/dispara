@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { ArrowLeft, ArrowRight, AlertTriangle, CheckCircle2, Info } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/components/legacy-ui/button';
 import { StepHeader } from './StepHeader';
 
 interface RequirementsStepProps {

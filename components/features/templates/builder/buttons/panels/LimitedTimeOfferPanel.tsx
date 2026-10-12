@@ -1,16 +1,16 @@
 'use client'
 
 import React from 'react'
-import { Button } from '@/components/ui/button'
+import { Button } from '@/components/legacy-ui/button'
 import { Container } from '@/components/app/container'
-import { Input } from '@/components/ui/input'
+import { Input } from '@/components/legacy-ui/input'
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
+} from '@/components/legacy-ui/select'
 import { Spec } from '../types'
 
 interface LimitedTimeOfferPanelProps {
@@ -111,13 +111,13 @@ export function LimitedTimeOfferPanel({
           </div>
 
           {limitedTimeOfferTextTooLong && (
-            <div className="text-xs text-amber-700 dark:text-amber-300">Texto do LTO deve ter ate 16 caracteres.</div>
+            <div className="text-xs text-amber-700 legacy-dark:text-amber-300">Texto do LTO deve ter ate 16 caracteres.</div>
           )}
           {limitedTimeOfferTextMissing && (
-            <div className="text-xs text-amber-700 dark:text-amber-300">Texto do LTO é obrigatório.</div>
+            <div className="text-xs text-amber-700 legacy-dark:text-amber-300">Texto do LTO é obrigatório.</div>
           )}
           {limitedTimeOfferCategoryInvalid && (
-            <div className="text-xs text-amber-700 dark:text-amber-300">Limited Time Offer so e permitido em Marketing.</div>
+            <div className="text-xs text-amber-700 legacy-dark:text-amber-300">Limited Time Offer so e permitido em Marketing.</div>
           )}
         </>
       )}

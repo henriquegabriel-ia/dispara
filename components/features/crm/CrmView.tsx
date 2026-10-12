@@ -2,7 +2,7 @@
 
 import React from 'react'
 import { KanbanSquare, Loader2, MoreVertical, Pencil, Plus, SlidersHorizontal, Trash2 } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { Button } from '@/components/legacy-ui/button'
 import { Container } from '@/components/app/container'
 import { ConfirmDeleteModal } from '@/components/app/ConfirmDeleteModal'
 import {
@@ -11,14 +11,14 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+} from '@/components/legacy-ui/dropdown-menu'
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
+} from '@/components/legacy-ui/select'
 import { PageDescription, PageTitle } from '@/components/app/page'
 import type { CrmController } from '@/hooks/useCrm'
 import { KanbanBoard } from './KanbanBoard'
@@ -132,7 +132,7 @@ export function CrmView({ controller }: CrmViewProps) {
         <div className="flex-1 flex items-center justify-center">
           <Container padding="xl" className="max-w-md text-center">
             <div className="mx-auto w-12 h-12 rounded-xl bg-primary-500/10 flex items-center justify-center mb-4">
-              <KanbanSquare className="w-6 h-6 text-primary-600 dark:text-primary-400" />
+              <KanbanSquare className="w-6 h-6 text-primary-600 legacy-dark:text-primary-400" />
             </div>
             <h2 className="text-lg font-semibold text-[var(--ds-text-primary)]">
               Crie seu primeiro pipeline
