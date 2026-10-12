@@ -9,15 +9,14 @@ import { CalendarBookingPanel } from './CalendarBookingPanel';
 import { FlowEndpointPanel } from './FlowEndpointPanel';
 import { CredentialsForm } from './CredentialsForm';
 import { ApiDocsPanel } from './ApiDocsPanel';
-import { BrandPanel } from './BrandPanel';
 import { useDevMode } from '@/components/providers/DevModeProvider';
-import { MessageSquare, FileText, Palette } from 'lucide-react';
+import { MessageSquare, FileText } from 'lucide-react';
 import type { SettingsViewProps } from './types';
 
 // Re-export types for consumers
 export type { SettingsViewProps } from './types';
 
-type SettingsTab = 'whatsapp' | 'brand' | 'api';
+type SettingsTab = 'whatsapp' | 'api';
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
   settings,
@@ -106,7 +105,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
   const tabs: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
     { id: 'whatsapp', label: 'WhatsApp', icon: <MessageSquare className="w-4 h-4" /> },
-    { id: 'brand', label: 'Marca', icon: <Palette className="w-4 h-4" /> },
     { id: 'api', label: 'Documentação API', icon: <FileText className="w-4 h-4" /> },
   ];
 
@@ -254,11 +252,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               />
             )}
           </>
-        )}
-
-        {/* ═══════ ABA: Marca (whitelabel) ═══════ */}
-        {activeTab === 'brand' && (
-          <BrandPanel />
         )}
 
         {/* ═══════ ABA: Documentação API ═══════ */}

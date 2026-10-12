@@ -50,7 +50,7 @@ import {
     useGuidedTour,
 } from '@/components/features/setup'
 import { useOnboardingStatus } from '@/hooks/useOnboardingStatus'
-import { useBrand } from '@/hooks/useBrand'
+import { BRAND } from '@/lib/branding'
 import { logoutAndRedirect } from '@/lib/logout-client'
 
 export function DashboardShell({
@@ -153,9 +153,6 @@ export function DashboardShell({
     })
 
     const companyName = authStatus?.company?.name || initialAuthStatus?.company?.name
-
-    // Whitelabel: nome/logo da marca do deploy (fallback 'Dispara' / /brand/logo.svg)
-    const { brand } = useBrand()
 
     // Logout handler: revoga a sessão, limpa o cache do service worker e navega com
     // reload completo (descarta Router Cache e React Query) — lib/logout-client.ts.
@@ -425,8 +422,8 @@ export function DashboardShell({
         isMobileMenuOpen,
         isLoggingOut,
         companyName: companyName || null,
-        brandName: brand.name,
-        brandLogoUrl: brand.logoUrl,
+        brandName: BRAND.name,
+        brandLogoUrl: BRAND.logoUrl,
         onToggleSidebar: updateSidebarExpanded,
         onCloseMobileMenu: handleCloseMobileMenu,
         onLogout: handleLogout,
@@ -438,8 +435,6 @@ export function DashboardShell({
         isMobileMenuOpen,
         isLoggingOut,
         companyName,
-        brand.name,
-        brand.logoUrl,
         updateSidebarExpanded,
         handleCloseMobileMenu,
         handleLogout,

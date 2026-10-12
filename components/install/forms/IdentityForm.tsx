@@ -2,10 +2,9 @@
 
 import { useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { User, Mail, Lock, Eye, EyeOff, Sparkles, Palette } from 'lucide-react';
+import { User, Mail, Lock, Eye, EyeOff, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import { LogoUploader } from '@/components/brand/LogoUploader';
 import { isValidEmail, VALIDATION } from '@/lib/installer/types';
 import type { FormProps } from './types';
 
@@ -43,9 +42,6 @@ export function IdentityForm({ data, onComplete }: FormProps) {
   const [email, setEmail] = useState(data.email);
   const [password, setPassword] = useState(data.password);
   const [confirmPassword, setConfirmPassword] = useState(data.password);
-  // Whitelabel (opcional)
-  const [brandLogoUrl, setBrandLogoUrl] = useState(data.brandLogoUrl || '');
-  const [brandPrimaryColor, setBrandPrimaryColor] = useState(data.brandPrimaryColor || '#10b981');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -83,16 +79,10 @@ export function IdentityForm({ data, onComplete }: FormProps) {
       return;
     }
 
-    const normalizedColor = /^#[0-9a-fA-F]{6}$/.test(brandPrimaryColor)
-      ? brandPrimaryColor.toLowerCase()
-      : '#10b981';
-
     onComplete({
       name: name.trim(),
       email: email.trim(),
       password,
-      brandLogoUrl: brandLogoUrl.trim(),
-      brandPrimaryColor: normalizedColor,
     });
   };
 
@@ -240,52 +230,6 @@ export function IdentityForm({ data, onComplete }: FormProps) {
             {password === confirmPassword ? '[OK] códigos correspondem' : '[!] códigos não correspondem'}
           </motion.p>
         )}
-      </div>
-
-      {/* Whitelabel: Logo (opcional) — upload de imagem ou URL */}
-      <LogoUploader
-        value={brandLogoUrl}
-        onChange={setBrandLogoUrl}
-        variant="installer"
-        label="Logo (opcional)"
-      />
-
-      {/* Whitelabel: Cor primária (opcional) */}
-      <div>
-        <label className="block text-xs font-mono text-[var(--br-muted-cyan)] mb-2 uppercase tracking-wider">
-          {'>'} Cor primária
-        </label>
-        <div className="flex items-center gap-3">
-          <div className="relative">
-            <input
-              type="color"
-              value={/^#[0-9a-fA-F]{6}$/.test(brandPrimaryColor) ? brandPrimaryColor : '#10b981'}
-              onChange={(e) => setBrandPrimaryColor(e.target.value)}
-              aria-label="Cor primária da marca"
-              className="h-11 w-14 cursor-pointer rounded-lg border border-[var(--br-dust-gray)]/50 bg-[var(--br-void-black)]/80 p-1"
-            />
-          </div>
-          <div className="relative flex-1">
-            <Palette className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--br-dust-gray)]" />
-            <input
-              type="text"
-              value={brandPrimaryColor}
-              onChange={(e) => setBrandPrimaryColor(e.target.value)}
-              placeholder="#10b981"
-              className={inputClass}
-            />
-          </div>
-          {/* Preview */}
-          <div
-            className="h-11 w-11 shrink-0 rounded-lg border border-[var(--br-dust-gray)]/50"
-            style={{ backgroundColor: /^#[0-9a-fA-F]{6}$/.test(brandPrimaryColor) ? brandPrimaryColor : '#10b981' }}
-            aria-hidden="true"
-            title="Preview da cor"
-          />
-        </div>
-        <p className="mt-1 text-[10px] font-mono text-[var(--br-dust-gray)]">
-          Default: #10b981 (emerald)
-        </p>
       </div>
 
       {/* Error */}

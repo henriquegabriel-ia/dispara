@@ -35,9 +35,9 @@ export interface DashboardSidebarProps {
   isMobileMenuOpen: boolean
   isLoggingOut: boolean
   companyName: string | null
-  /** Whitelabel: nome da marca do deploy (fallback 'Dispara') */
+  /** Nome da marca (lib/branding.ts) */
   brandName?: string
-  /** Whitelabel: URL do logo do deploy (fallback /brand/logo.svg) */
+  /** Logo da marca (lib/branding.ts) */
   brandLogoUrl?: string
   onToggleSidebar: (expanded: boolean) => void
   onCloseMobileMenu: () => void
@@ -66,8 +66,7 @@ const BrandLogo = memo(function BrandLogo({
   useEffect(() => setMounted(true), [])
 
   // O wordmark padrão é branco (invisível no tema claro) — troca pela variante
-  // de texto escuro quando o tema é light. Logos custom do whitelabel ficam
-  // como o cliente enviou.
+  // de texto escuro quando o tema é light.
   const isDefault = !logoUrl || logoUrl === DEFAULT_LOGO
   const src =
     isDefault && mounted && resolvedTheme === 'light' ? DEFAULT_LOGO_LIGHT : logoUrl || DEFAULT_LOGO

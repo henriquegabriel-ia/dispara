@@ -19,7 +19,8 @@
 // v2: whitelabel (brandLogoUrl + brandPrimaryColor no step de identidade)
 // v3: migração QStash→pg_cron — removidos os steps QStash(4) e Redis(5); onboarding
 //     agora é só Identidade + Vercel + Supabase (3 passos).
-export const SCHEMA_VERSION = 3;
+// v4: whitelabel removido (marca fixa do DS Empreende IA V2) — sem brandLogoUrl/brandPrimaryColor.
+export const SCHEMA_VERSION = 4;
 
 /** Flag para habilitar logs de debug (desabilitar em produção) */
 export const DEBUG = process.env.NODE_ENV === 'development';
@@ -59,10 +60,6 @@ export interface InstallData {
   name: string;
   email: string;
   password: string;
-  /** Whitelabel: URL do logo (opcional — vazio usa /brand/logo.svg) */
-  brandLogoUrl: string;
-  /** Whitelabel: cor primária hex (default #10b981) */
-  brandPrimaryColor: string;
   vercelToken: string;
   supabasePat: string;
 }
@@ -71,8 +68,6 @@ export const EMPTY_INSTALL_DATA: InstallData = {
   name: '',
   email: '',
   password: '',
-  brandLogoUrl: '',
-  brandPrimaryColor: '#10b981',
   vercelToken: '',
   supabasePat: '',
 };
@@ -258,9 +253,6 @@ export interface ProvisionPayload {
     name: string;
     email: string;
     password: string;
-    /** Whitelabel (opcional) */
-    brandLogoUrl?: string;
-    brandPrimaryColor?: string;
   };
   vercel: {
     token: string;

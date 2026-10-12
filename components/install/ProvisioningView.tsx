@@ -39,8 +39,6 @@ export function ProvisioningView({ data, progress, title, subtitle, onProgress, 
         name: data.name,
         email: data.email,
         password: data.password,
-        brandLogoUrl: data.brandLogoUrl || undefined,
-        brandPrimaryColor: data.brandPrimaryColor || undefined,
       },
       vercel: {
         token: data.vercelToken,

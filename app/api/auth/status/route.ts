@@ -6,7 +6,6 @@
 
 import { NextResponse } from 'next/server'
 import { getUserAuthStatus } from '@/lib/user-auth'
-import { getBrandConfig } from '@/lib/branding'
 
 // Este endpoint controla redirects do login.
 // No Edge, env vars/SDK podem se comportar diferente e fazer isSetup/isAuthenticated
@@ -30,10 +29,6 @@ export async function GET() {
     log('🔍 [AUTH-STATUS] SETUP_COMPLETE exists:', !!process.env.SETUP_COMPLETE)
     const isConfigured = !!process.env.MASTER_PASSWORD
 
-    // Whitelabel: brand vai junto no status para o login não fazer request extra
-    // getBrandConfig() nunca lança (retorna defaults se Supabase não configurado)
-    const brandPromise = getBrandConfig()
-
     if (!isConfigured) {
       log('🔍 [AUTH-STATUS] Not configured, returning early')
       return NextResponse.json({
@@ -43,12 +38,11 @@ export async function GET() {
         isSetup: false,
         isAuthenticated: false,
         company: null,
-        brand: await brandPromise
       })
     }
 
     log('🔍 [AUTH-STATUS] Calling getUserAuthStatus...')
-    const [status, brand] = await Promise.all([getUserAuthStatus(), brandPromise])
+    const status = await getUserAuthStatus()
     log('🔍 [AUTH-STATUS] getUserAuthStatus result:', JSON.stringify(status, null, 2))
 
     const response = {
@@ -56,7 +50,6 @@ export async function GET() {
       isSetup: status.isSetup,
       isAuthenticated: status.isAuthenticated,
       company: status.company,
-      brand
     }
 
     log('🔍 [AUTH-STATUS] Final response:', JSON.stringify(response, null, 2))

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { broadcastPushNotification, sendNewMessageNotification, PushPayload } from '@/lib/push-notifications'
-import { getBrandConfig } from '@/lib/branding'
+import { BRAND } from '@/lib/branding'
 
 /**
  * POST /api/push/send
@@ -37,11 +37,8 @@ export async function POST(request: Request) {
     }
 
     // Notificação customizada
-    // Whitelabel: título default vem do brand_name do deploy (nunca lança)
-    const defaultTitle = body.title ? null : (await getBrandConfig()).name
-
     const payload: PushPayload = {
-      title: body.title || defaultTitle || 'Dispara',
+      title: body.title || BRAND.name,
       body: body.body || '',
       icon: body.icon || '/icons/icon-192.png',
       badge: body.badge || '/icons/icon-192.png',
