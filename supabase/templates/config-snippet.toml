@@ -1,0 +1,40 @@
+# Dispara · templates de e-mail do Supabase Auth (formato do Supabase CLI)
+#
+# 1. Os seis arquivos .html já estão em supabase/templates/.
+# 2. O repositório não tem supabase/config.toml. Para um Supabase local, gere um com
+#    "supabase init" (ou use o seu) e cole os blocos abaixo nele.
+#    content_path é relativo à raiz do projeto (a pasta que contém supabase/).
+# 3. Local: supabase stop && supabase start.
+#    Projeto hospedado: aplique pelo painel (README.md). Não use "supabase config push"
+#    até espelhar no config.toml TODA a configuração de Auth do painel (site_url,
+#    additional_redirect_urls, enable_signup, [auth.email] enable_confirmations,
+#    double_confirm_changes, secure_password_change, otp_expiry, otp_length,
+#    max_frequency, SMTP). O push compara a seção [auth] inteira com os padrões do CLI e
+#    pode, por exemplo, desligar a confirmação de e-mail, reabrir o cadastro público ou
+#    trocar a Site URL pelo endereço local. Revise o diff do CLI antes de confirmar.
+#
+# Os assuntos abaixo precisam ser iguais aos de subjects.json: o build-preview.mjs confere.
+
+[auth.email.template.confirmation]
+subject = "Confirme seu e-mail no Dispara"
+content_path = "./supabase/templates/confirmation.html"
+
+[auth.email.template.invite]
+subject = "Convite para o Dispara"
+content_path = "./supabase/templates/invite.html"
+
+[auth.email.template.magic_link]
+subject = "Seu link de acesso ao Dispara"
+content_path = "./supabase/templates/magic_link.html"
+
+[auth.email.template.email_change]
+subject = "Confirme a alteração de e-mail no Dispara"
+content_path = "./supabase/templates/email_change.html"
+
+[auth.email.template.recovery]
+subject = "Pedido de redefinição de senha no Dispara"
+content_path = "./supabase/templates/recovery.html"
+
+[auth.email.template.reauthentication]
+subject = "Código de verificação do Dispara"
+content_path = "./supabase/templates/reauthentication.html"
