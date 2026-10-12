@@ -6,7 +6,7 @@
  * - A View apenas renderiza e emite eventos
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { useTypedForm } from '@/components/app/Form';
 import { contactFormSchema, ContactForm } from '@/lib/validation/schemas';
 import { contactService } from '@/services/contactService';

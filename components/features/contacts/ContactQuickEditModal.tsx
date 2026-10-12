@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
 import { AlertTriangle, Loader2, RefreshCw, X } from 'lucide-react';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 
 import type { Contact, CustomFieldDefinition } from '@/types';
 import { contactService } from '@/services/contactService';

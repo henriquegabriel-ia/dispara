@@ -22,7 +22,7 @@ import {
 import { Button } from '@/components/legacy-ui/button'
 import { Input } from '@/components/legacy-ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/legacy-ui/tabs'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 import type { CampaignFolder, CampaignTag } from '@/types'
 
 interface OrganizationModalsProps {

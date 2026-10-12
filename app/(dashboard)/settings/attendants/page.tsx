@@ -30,7 +30,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/legacy-ui/dropdown-menu'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 import type { AttendantToken, AttendantPermissions } from '@/types'
 
 // =============================================================================

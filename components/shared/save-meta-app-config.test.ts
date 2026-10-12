@@ -7,7 +7,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
  */
 
 const toastMock = vi.hoisted(() => ({ error: vi.fn(), warning: vi.fn(), success: vi.fn() }))
-vi.mock('sonner', () => ({ toast: toastMock }))
+vi.mock('@/lib/toast', () => ({ toast: toastMock }))
 
 import { saveMetaAppConfigWithFeedback } from '@/components/shared/save-meta-app-config'
 

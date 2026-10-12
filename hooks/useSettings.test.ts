@@ -16,8 +16,8 @@ vi.mock('next/navigation', () => ({
   usePathname: () => '/',
 }))
 
-// Mock sonner toast
-vi.mock('sonner', () => ({
+// Mock do toast (lib/toast)
+vi.mock('@/lib/toast', () => ({
   toast: {
     success: vi.fn(),
     error: vi.fn(),
@@ -702,7 +702,7 @@ describe('useSettingsController', () => {
 
     it('deve exibir toast de erro ao falhar fetchPhoneDetails', async () => {
       mockFetchPhoneDetails.mockRejectedValue(new Error('Invalid credentials'))
-      const { toast } = await import('sonner')
+      const { toast } = await import('@/lib/toast')
 
       const { result } = renderHookWithProviders(() => useSettingsController())
 

@@ -13,7 +13,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Loader2, X } from "lucide-react";
 import { useState } from "react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { api, type SavedWorkflow } from "@/lib/builder/api-client";
 import type { WorkflowSettings } from "@/lib/builder/workflow-settings";
 

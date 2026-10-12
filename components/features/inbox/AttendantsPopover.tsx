@@ -28,7 +28,7 @@ import {
 import { Button } from '@/components/legacy-ui/button'
 import { Input } from '@/components/legacy-ui/input'
 import { Switch } from '@/components/legacy-ui/switch'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 import { cn } from '@/lib/utils'
 import type { AttendantToken, AttendantPermissions } from '@/types'
 

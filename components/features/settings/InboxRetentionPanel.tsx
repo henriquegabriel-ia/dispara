@@ -7,7 +7,7 @@
 
 import { useState, useEffect } from 'react'
 import { Archive, Save, Loader2 } from 'lucide-react'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 
 interface InboxSettings {
   retention_days: number

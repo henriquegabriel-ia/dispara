@@ -36,7 +36,7 @@ import {
   shouldRetryAttendantQuery,
   useStickyQueryError,
 } from '@/hooks/useAttendantConversations'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 
 // =============================================================================
 // TYPES

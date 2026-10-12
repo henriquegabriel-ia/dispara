@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo } from 'react';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { contactService } from '../services';
 import { ContactStatus } from '../types';
 import {

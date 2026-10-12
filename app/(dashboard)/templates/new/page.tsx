@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Badge } from '@/components/legacy-ui/badge';
 import { VenetianMask, Megaphone, Wrench, Sparkles, ArrowLeft, ArrowRight, Wand2, Loader2, Check, Save, AlertCircle, CheckSquare, Square, Pencil, FileText, Brain, Zap, RotateCcw } from 'lucide-react';
 import { useTemplateProjectMutations } from '@/hooks/useTemplateProjects';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { GeneratedTemplate } from '@/lib/ai/services/template-agent';
 import { templateService } from '@/lib/whatsapp/template.service';
 import { Page, PageHeader } from '@/components/app/page';

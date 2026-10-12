@@ -26,7 +26,7 @@
 
 import { useEffect, useRef, useCallback } from 'react'
 import { useQueryClient, type QueryClient } from '@tanstack/react-query'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 import { createRealtimeChannel, subscribeToTable, activateChannel, removeChannel } from '@/lib/supabase-realtime'
 import { campaignService } from '@/services/campaignService'
 import type { RealtimePayload, RealtimeTable } from '@/types'

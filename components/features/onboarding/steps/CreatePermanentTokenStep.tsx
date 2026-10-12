@@ -16,7 +16,7 @@ import { Input } from '@/components/legacy-ui/input';
 import { Label } from '@/components/legacy-ui/label';
 import { Checkbox } from '@/components/legacy-ui/checkbox';
 import { StepHeader } from './StepHeader';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 
 interface CreatePermanentTokenStepProps {
   currentToken: string;

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { Brain, Eye, EyeOff, Info, Loader2, Check, ExternalLink, Trash2 } from 'lucide-react';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 
 interface Mem0Config {
   enabled: boolean;

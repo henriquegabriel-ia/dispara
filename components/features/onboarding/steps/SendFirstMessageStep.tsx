@@ -13,7 +13,7 @@ import {
 import { Button } from '@/components/legacy-ui/button';
 import { Input } from '@/components/legacy-ui/input';
 import { StepHeader } from './StepHeader';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 
 interface SendFirstMessageStepProps {
   onNext: () => void;

@@ -24,7 +24,7 @@ import {
 import { useOnboardingProgress, type OnboardingStep } from './hooks/useOnboardingProgress';
 import { cn } from '@/lib/utils';
 import type { HealthStatus } from '@/lib/health-check';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 
 interface ChecklistItem {
   id: string;

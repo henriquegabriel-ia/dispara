@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Bot, Save, Key, CheckCircle, ExternalLink, RefreshCw, ChevronDown } from 'lucide-react';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { AI_PROVIDERS, type AIProvider, type AIProviderConfig } from '@/lib/ai/providers';
 import type { AiFallbackConfig, AiPromptsConfig, AiRoutesConfig } from '@/lib/ai/ai-center-defaults';
 import { Container } from '@/components/app/container';

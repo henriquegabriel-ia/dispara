@@ -265,5 +265,12 @@ html[data-eia-theme='light'] .eia-theme {
 }
 
 /* 4. Desvios locais ---------------------------------------------------------
-   (vazio na fundação; entram com o PR-3: kicker do EiaDialog, cor do ícone
-   de aviso no toast, rótulos sr-only em barras de filtro) */
+   Lacunas do DS ainda não resolvidas no repositório do DS. Cada regra cita a
+   lacuna; quando o DS corrigir, a regra sai no próximo npm run ds:sync. */
+
+/* Toast de aviso: o eia.css só colore o ícone de success/danger dentro de
+   .eia-toast-content (o seletor de warning é de filho direto e não alcança o
+   ícone do toast). O app usa toast.warning, então o tom precisa existir. */
+.eia-toast[data-tone='warning'] .eia-toast-content > .eia-feedback-icon {
+  color: var(--eia-color-warning);
+}

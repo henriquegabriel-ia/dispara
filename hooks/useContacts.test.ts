@@ -17,8 +17,8 @@ vi.mock('next/navigation', () => ({
   usePathname: () => '/',
 }))
 
-// Mock sonner toast
-vi.mock('sonner', () => ({
+// Mock do toast (lib/toast)
+vi.mock('@/lib/toast', () => ({
   toast: {
     success: vi.fn(),
     error: vi.fn(),

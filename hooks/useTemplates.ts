@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { templateService, UtilityCategory, GeneratedTemplate, GenerateUtilityParams } from '../services/templateService';
 import { manualDraftsService } from '../services/manualDraftsService';
 import { Template } from '../types';

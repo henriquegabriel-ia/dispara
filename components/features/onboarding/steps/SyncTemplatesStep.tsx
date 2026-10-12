@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/legacy-ui/button';
 import { StepHeader } from './StepHeader';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 
 interface SyncTemplatesStepProps {
   onNext: () => void;

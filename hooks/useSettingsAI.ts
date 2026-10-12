@@ -13,7 +13,7 @@ import {
   type AiRoutesConfig,
 } from '@/lib/ai/ai-center-defaults'
 import { settingsService, type OCRConfig, type OCRProviderType } from '@/services/settingsService'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 
 type ProviderStatus = {
   isConfigured: boolean

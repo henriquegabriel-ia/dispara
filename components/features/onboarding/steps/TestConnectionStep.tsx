@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { CheckCircle2, XCircle, Loader2, PartyPopper, RefreshCw, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/legacy-ui/button';
 import { StepHeader } from './StepHeader';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { settingsService } from '@/services/settingsService';
 
 /**

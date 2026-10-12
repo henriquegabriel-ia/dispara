@@ -8,7 +8,7 @@ import {
     RefreshCw, Filter, ChevronDown, CheckCircle, XCircle, AlertTriangle,
     Copy, CheckSquare, Square, Eye, Pencil, X
 } from 'lucide-react';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { createClient } from '@/utils/supabase/client';
 import { cn } from '@/lib/utils';

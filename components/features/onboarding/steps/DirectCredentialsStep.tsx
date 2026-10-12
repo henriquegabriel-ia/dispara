@@ -3,7 +3,7 @@
 import React, { useState, useCallback } from 'react'
 import { ArrowLeft, Loader2, PartyPopper } from 'lucide-react'
 import { Button } from '@/components/legacy-ui/button'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 import { WhatsAppCredentialsForm, type WhatsAppCredentials } from '@/components/shared/WhatsAppCredentialsForm'
 
 interface DirectCredentialsStepProps {
