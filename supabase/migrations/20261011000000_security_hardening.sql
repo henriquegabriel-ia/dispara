@@ -72,7 +72,7 @@
 --    PREMISSA do realtime.send: a trigger chama realtime.send FORA de bloco de exceção
 --    (uma subtransação por evento, não duas), contando que ele tenha o próprio
 --    EXCEPTION WHEN OTHERS — o do Supabase tem: o INSERT em realtime.messages fica num
---    BEGIN ... EXCEPTION WHEN OTHERS THEN RAISE WARNING 'ErrorSendingBroadcastMessage'.
+--    BEGIN ... EXCEPTION WHEN OTHERS THEN RAISE WARNING 'WarnSendingBroadcastMessage'.
 --    Isso é verificado, não presumido: as triggers só são criadas se o fonte de
 --    realtime.send(jsonb,text,text,boolean) (pg_proc.prosrc, sem literais e comentários)
 --    tiver EXCEPTION WHEN OTHERS THEN e nenhum comando que lance erro (só RAISE
@@ -86,9 +86,14 @@
 --    está DENTRO do bloco protegido e não detecta erro lançado por outro caminho no
 --    handler (ex.: 1/0). Um fonte escrito para enganá-la passaria e uma falha no INSERT
 --    derrubaria a escrita. O alvo é o realtime.send do próprio Supabase (versões
---    conhecidas: handler com RAISE WARNING 'ErrorSendingBroadcastMessage' ou com
---    PERFORM pg_notify('realtime:system', ...) — as duas passam e não relançam); confira
---    o fonte real com o modo --verify-only do scripts/check-migrations.mjs.
+--    conhecidas: handler com RAISE WARNING 'WarnSendingBroadcastMessage' — a atual, conferida
+--    num projeto real em 2026-10 —, 'ErrorSendingBroadcastMessage' ou PERFORM
+--    pg_notify('realtime:system', ...): todas passam e não relançam); confira o fonte real
+--    com o modo --verify-only do scripts/check-migrations.mjs.
+--    realtime.messages é particionada por dia e quem cria as partições é o servidor
+--    Realtime, quando um cliente conecta. Se ninguém abriu o dashboard há dias, não há
+--    partição para hoje: o send só avisa e nada é publicado (não chegaria a ninguém) até a
+--    próxima conexão recriar a janela. Nada a fazer aqui; o --verify-only informa.
 --    Efeito colateral conhecido do throttle de campaigns: o BEFORE set_updated_at grava
 --    updated_at também nos UPDATEs só de dispatch_lock_* (try_lock/release do dreno), que
 --    não publicam mas "gastam" a janela de 2s — um contador logo depois pode não publicar.
@@ -559,7 +564,7 @@ BEGIN
   -- CREATE OR REPLACE FUNCTION mantém o dono). Quem INSERE em realtime.messages é esse
   -- dono, ou o dono do send se ele for SECURITY DEFINER (no Supabase é SECURITY INVOKER).
   -- Sem USAGE/EXECUTE a trigger não publica; sem INSERT, ou barrado pelo RLS de
-  -- realtime.messages, o send engole o erro (WARNING ErrorSendingBroadcastMessage a cada
+  -- realtime.messages, o send engole o erro (WARNING WarnSendingBroadcastMessage a cada
   -- escrita) e o realtime morre em silêncio. Nenhum dos casos derruba escrita, então as
   -- triggers são criadas assim mesmo (corrigido o privilégio, o realtime volta sem
   -- reaplicar) — mas avisa aqui. `npm run db:check -- --verify-only` confere o mesmo.
@@ -574,7 +579,7 @@ BEGIN
       v_fn_owner::regrole, v_fn_owner::regrole, v_fn_owner::regrole;
   ELSIF v_messages IS NULL
      OR NOT (has_schema_privilege(v_inserter, v_realtime, 'USAGE') AND has_table_privilege(v_inserter, v_messages, 'INSERT')) THEN
-    RAISE WARNING 'security_hardening: % sem INSERT em realtime.messages — realtime.send engole o erro (WARNING ErrorSendingBroadcastMessage a cada escrita) e o realtime do dashboard morre em silêncio (fica só no polling). Corrija com GRANT INSERT ON realtime.messages TO % (não precisa reaplicar esta migration).',
+    RAISE WARNING 'security_hardening: % sem INSERT em realtime.messages — realtime.send engole o erro (WARNING WarnSendingBroadcastMessage a cada escrita) e o realtime do dashboard morre em silêncio (fica só no polling). Corrija com GRANT INSERT ON realtime.messages TO % (não precisa reaplicar esta migration).',
       v_inserter::regrole, v_inserter::regrole;
   ELSIF EXISTS (
     -- RLS ligado em realtime.messages (o Supabase liga, para os canais privados) e nada que
@@ -593,7 +598,7 @@ BEGIN
                OR EXISTS (SELECT 1 FROM unnest(pol.polroles) AS pr(role) WHERE pr.role <> 0 AND pg_has_role(v_inserter, pr.role, 'USAGE')))
       )
   ) THEN
-    RAISE WARNING 'security_hardening: realtime.messages tem RLS ligado e % não tem BYPASSRLS nem policy de INSERT — realtime.send engole o erro (WARNING ErrorSendingBroadcastMessage a cada escrita) e o realtime do dashboard morre em silêncio (fica só no polling). Corrija com CREATE POLICY dispara_broadcast_insert ON realtime.messages FOR INSERT TO % WITH CHECK (topic = ''dispara-db'') (não precisa reaplicar esta migration).',
+    RAISE WARNING 'security_hardening: realtime.messages tem RLS ligado e % não tem BYPASSRLS nem policy de INSERT — realtime.send engole o erro (WARNING WarnSendingBroadcastMessage a cada escrita) e o realtime do dashboard morre em silêncio (fica só no polling). Corrija com CREATE POLICY dispara_broadcast_insert ON realtime.messages FOR INSERT TO % WITH CHECK (topic = ''dispara-db'') (não precisa reaplicar esta migration).',
       v_inserter::regrole, v_inserter::regrole;
   END IF;
 

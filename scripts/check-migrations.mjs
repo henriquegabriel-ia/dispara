@@ -44,12 +44,19 @@
  *    (`supabase_owner`) fazendo o papel do `postgres` do Supabase — as migrations rodam
  *    com ele, então erros de permissão aparecem como apareceriam no Supabase;
  *  - os default privileges do Supabase (tudo que o dono cria em `public` nasce com
- *    GRANT para anon/authenticated/service_role) — é isso que torna o REVOKE relevante;
- *  - schemas `extensions` (vector, uuid-ossp), `realtime` (messages com RLS ligado + send,
- *    igual ao Supabase, com o bloco EXCEPTION interno), `vault`, `cron` e `net` (stubs). O
- *    cron.schedule é SECURITY INVOKER e grava current_user em cron.job.username, como o
- *    pg_cron (o job roda como esse usuário);
+ *    GRANT para o próprio dono, anon, authenticated e service_role) — é isso que torna o
+ *    REVOKE relevante;
+ *  - schemas `extensions` (vector, uuid-ossp), `realtime`, `vault`, `cron` e `net` (stubs).
+ *    O `realtime` é o do Supabase: messages particionada por dia em inserted_at, com RLS
+ *    ligado e a janela de partições (ontem … +3 dias) que o servidor Realtime cria quando um
+ *    cliente conecta; send com o corpo EXATO do Supabase atual (copiado de um projeto real
+ *    em 2026-10: põe `id` no payload e avisa WarnSendingBroadcastMessage). O cron.schedule é
+ *    SECURITY INVOKER e grava current_user em cron.job.username, como o pg_cron (o job roda
+ *    como esse usuário);
  *  - a publicação `supabase_realtime`.
+ *  Conferido contra o projeto de produção (2026-10-12, só leitura): schema de public
+ *  (colunas, funções com corpo, triggers, índices), donos, ACLs, RLS, policies e
+ *  publicação idênticos ao que as migrations produzem aqui; default privileges iguais.
  *
  * Cenários (npm run db:check):
  *  0. estáticos: RPCs chamadas pelo código × SERVER_RPCS (com aviso para .rpc() de nome não
@@ -71,7 +78,7 @@
  *     (incrementos na mesma transação, janela envelhecida em vez de esperar o relógio);
  *     disparo simulado de 50 contatos pela sequência real do app (realtime.messages cresce
  *     O(1), não O(contatos)); qualquer WARNING de dispara_broadcast_change ou
- *     ErrorSendingBroadcastMessage numa escrita FALHA o check (com controle positivo);
+ *     Warn/ErrorSendingBroadcastMessage numa escrita FALHA o check (com controle positivo);
  *     escrita nunca falha se o realtime quebrar (inclusive sem USAGE no schema realtime);
  *     objetos futuros; pg_cron;
  *  5. realtime indisponível na instalação: bootstrap sem realtime.send, ou com um send sem
@@ -85,7 +92,11 @@
  *  7. dono sem permissão de gravar em realtime.messages (INSERT revogado; RLS sem BYPASSRLS
  *     nem policy) ou sem USAGE no schema realtime: a escrita segue sem publicar, a migration
  *     avisa, o --verify-only aponta com o GRANT/policy que falta, e corrigir o privilégio
- *     volta a publicar sem reaplicar.
+ *     volta a publicar sem reaplicar;
+ *  8. realtime.messages sem partição para hoje (janela vencida: ninguém conectou ao Realtime
+ *     há dias — o estado da produção em 2026-10-12): a escrita segue sem publicar, o
+ *     --verify-only informa (sem falhar: é benigno) e, quando um cliente conecta e o
+ *     Realtime recria a janela, volta a publicar sem reaplicar nada.
  *
  * Sai com código 1 se qualquer verificação falhar.
  */
@@ -195,7 +206,10 @@ export const PII_VALUES = ['5511987654321', 'Maria Teste', 'maria@teste.com', 'm
 const PII_SQL = `'Maria Teste <maria@teste.com> +5511987654321: mensagem secreta do cliente'`
 const PII_JSONB_SQL = `jsonb_build_object('nome', 'Maria Teste', 'telefone', '5511987654321', 'email', 'maria@teste.com', 'texto', 'mensagem secreta do cliente')`
 
-const BROADCAST_WARNING_RE = /dispara_broadcast_change|ErrorSendingBroadcastMessage/
+// Aviso do realtime.send quando o INSERT em realtime.messages falha: WarnSendingBroadcastMessage
+// no Supabase atual, ErrorSendingBroadcastMessage em versões anteriores
+const SEND_WARNING_RE = /(?:Warn|Error)SendingBroadcastMessage/
+const BROADCAST_WARNING_RE = /dispara_broadcast_change|(?:Warn|Error)SendingBroadcastMessage/
 
 /**
  * Critério da migration para realtime.send (guarda de dispara_broadcast_change e bloco das
@@ -213,11 +227,11 @@ export const SEND_HANDLER_RE = String.raw`\mexception\s+when\s+others\s+then\M`
 export const SEND_THROWS_RE = String.raw`\m(?:assert|raise(?!\s+(?:debug|log|info|notice|warning)\M))\M`
 
 /** CREATE OR REPLACE de realtime.send com o corpo dado (mesma assinatura do Supabase). */
-function realtimeSendSql(body) {
+function realtimeSendSql(body, declare = '') {
   return `
 CREATE OR REPLACE FUNCTION realtime.send(payload jsonb, event text, topic text, private boolean DEFAULT true)
 RETURNS void LANGUAGE plpgsql AS $fn$
-BEGIN
+${declare ? `DECLARE\n${declare}\n` : ''}BEGIN
 ${body}
 END;
 $fn$`
@@ -226,10 +240,34 @@ $fn$`
 const SEND_INSERT = `INSERT INTO realtime.messages (payload, event, topic, private, extension)
     VALUES (payload, event, topic, private, 'broadcast');`
 
-// realtime.send como no Supabase (fonte do Realtime, com os comentários): o INSERT em
-// realtime.messages fica num bloco EXCEPTION WHEN OTHERS próprio que só avisa (a migration
-// de hardening exige isso para criar as triggers).
-const REALTIME_SEND_SQL = realtimeSendSql(`
+// realtime.send do Supabase ATUAL, com o corpo exato de um projeto real (2026-10; md5 do
+// prosrc lá: c12384e30dda994bf2e0d23daeaea20b): põe `id` no payload quando ele não tem, e o
+// INSERT em realtime.messages fica num bloco EXCEPTION WHEN OTHERS próprio que só avisa
+// (WarnSendingBroadcastMessage) — a migration de hardening exige esse bloco para criar as
+// triggers.
+const REALTIME_SEND_SQL = realtimeSendSql(`  BEGIN
+    generated_id := gen_random_uuid();
+
+    -- Check if payload has an 'id' key, if not, add the generated UUID
+    IF payload ? 'id' THEN
+      final_payload := payload;
+    ELSE
+      final_payload := jsonb_set(payload, '{id}', to_jsonb(generated_id));
+    END IF;
+
+    -- Set the topic configuration
+    EXECUTE format('SET LOCAL realtime.topic TO %L', topic);
+
+    INSERT INTO realtime.messages (id, payload, event, topic, private, extension)
+    VALUES (generated_id, final_payload, event, topic, private, 'broadcast');
+  EXCEPTION
+    WHEN OTHERS THEN
+      RAISE WARNING 'WarnSendingBroadcastMessage: %', SQLERRM;
+  END;`, `  generated_id uuid;
+  final_payload jsonb;`)
+
+// Versão anterior do send do Supabase (sem id no payload; avisa ErrorSendingBroadcastMessage)
+const REALTIME_SEND_PREVIOUS_SQL = realtimeSendSql(`
   BEGIN
     -- Set the topic configuration
     EXECUTE format('SET LOCAL realtime.topic TO %L', topic);
@@ -283,6 +321,7 @@ const REALTIME_SEND_VARIANTS = [
   PERFORM 'EXCEPTION WHEN OTHERS THEN RAISE WARNING';
   ${SEND_INSERT}`),
   },
+  { key: 'do Supabase, versão anterior (ErrorSendingBroadcastMessage, sem id no payload)', safe: true, sql: REALTIME_SEND_PREVIOUS_SQL },
   {
     key: 'do Supabase com "raise" em comentário e literal', safe: true,
     sql: realtimeSendSql(`  BEGIN
@@ -295,6 +334,26 @@ const REALTIME_SEND_VARIANTS = [
   END;`),
   },
 ]
+
+/** md5 do prosrc de realtime.send no projeto real de onde REALTIME_SEND_SQL foi copiado. */
+const SUPABASE_SEND_PROSRC_MD5 = 'c12384e30dda994bf2e0d23daeaea20b'
+
+/**
+ * A janela de partições de realtime.messages que o servidor Realtime cria quando um cliente
+ * conecta (e o janitor renova enquanto houver conexões): ontem, hoje e os 3 dias seguintes.
+ * Idempotente. O nome segue o do Supabase (messages_AAAA_MM_DD).
+ */
+const REALTIME_PARTITION_WINDOW_SQL = `
+DO $window$
+DECLARE d date;
+BEGIN
+  FOR i IN -1..3 LOOP
+    d := localtimestamp::date + i;
+    EXECUTE format('CREATE TABLE IF NOT EXISTS realtime.%I PARTITION OF realtime.messages FOR VALUES FROM (%L) TO (%L)',
+                   'messages_' || to_char(d, 'YYYY_MM_DD'), d::timestamp, (d + 1)::timestamp);
+  END LOOP;
+END
+$window$;`
 
 // ---------------------------------------------------------------------------
 // Bootstrap "Supabase" (roda como superusuário, antes das migrations)
@@ -322,12 +381,13 @@ CREATE EXTENSION "uuid-ossp" WITH SCHEMA extensions;
 GRANT USAGE ON SCHEMA extensions TO ${OWNER}, anon, authenticated, service_role;
 
 -- Default privileges do Supabase: objetos criados pelo dono em public nascem abertos
--- para as roles da API (é isso que a migration de hardening precisa desfazer).
-ALTER DEFAULT PRIVILEGES FOR ROLE ${OWNER} IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
-ALTER DEFAULT PRIVILEGES FOR ROLE ${OWNER} IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
-ALTER DEFAULT PRIVILEGES FOR ROLE ${OWNER} IN SCHEMA public GRANT ALL ON FUNCTIONS TO anon, authenticated, service_role;
+-- para as roles da API (é isso que a migration de hardening precisa desfazer). Como lá, o
+-- próprio dono também é grantee explícito.
+ALTER DEFAULT PRIVILEGES FOR ROLE ${OWNER} IN SCHEMA public GRANT ALL ON TABLES TO ${OWNER}, anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES FOR ROLE ${OWNER} IN SCHEMA public GRANT ALL ON SEQUENCES TO ${OWNER}, anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES FOR ROLE ${OWNER} IN SCHEMA public GRANT ALL ON FUNCTIONS TO ${OWNER}, anon, authenticated, service_role;
 
--- realtime (Broadcast from Database), como no Supabase
+-- realtime (Broadcast from Database), como no Supabase: particionada por dia
 CREATE SCHEMA realtime;
 GRANT USAGE ON SCHEMA realtime TO ${OWNER}, anon, authenticated, service_role;
 CREATE TABLE realtime.messages (
@@ -339,9 +399,13 @@ CREATE TABLE realtime.messages (
   updated_at timestamp NOT NULL DEFAULT now(),
   inserted_at timestamp NOT NULL DEFAULT now(),
   id uuid NOT NULL DEFAULT gen_random_uuid(),
+  binary_payload bytea,
+  skip_broadcast boolean NOT NULL DEFAULT false,
   -- só do harness (não existe no Supabase): ordem de chegada dos eventos
-  harness_seq bigserial
-);
+  harness_seq bigserial,
+  PRIMARY KEY (id, inserted_at)
+) PARTITION BY RANGE (inserted_at);
+${REALTIME_PARTITION_WINDOW_SQL}
 GRANT SELECT, INSERT ON realtime.messages TO ${OWNER}, service_role;
 GRANT USAGE ON SEQUENCE realtime.messages_harness_seq_seq TO ${OWNER}, service_role;
 -- Como no Supabase (autorização dos canais privados): RLS ligado. O dono das migrations
@@ -422,6 +486,7 @@ function check(name, ok, detail = '') {
 }
 
 function info(message) {
+  reporter.infos?.push(message)
   if (!reporter.silent) console.log(`  · ${message}`)
 }
 
@@ -430,10 +495,13 @@ function scenario(title) {
   if (!reporter.silent) console.log(`\n▶ ${title}`)
 }
 
-/** Roda verificações sem imprimir e devolve os resultados (para controles do próprio harness). */
-async function captureChecks(fn) {
+/**
+ * Roda verificações sem imprimir e devolve os resultados (para controles do próprio harness).
+ * `infos`, se passado, recebe as mensagens informativas emitidas.
+ */
+async function captureChecks(fn, infos) {
   const outer = reporter
-  reporter = { results: [], scenario: outer.scenario, silent: true }
+  reporter = { results: [], scenario: outer.scenario, silent: true, infos }
   try {
     await fn()
     return reporter.results
@@ -1078,6 +1146,31 @@ async function readRealtimeSendState(ex) {
   }
 }
 
+/**
+ * Partições de realtime.messages (no Supabase, RANGE por dia em inserted_at, criadas pelo
+ * servidor Realtime quando um cliente conecta). `coversNow`: alguma partição (ou a DEFAULT)
+ * aceita uma linha inserida agora — inserted_at é timestamp sem fuso com DEFAULT now(), ou
+ * seja, localtimestamp.
+ */
+export async function readRealtimePartitions(ex) {
+  const [row] = await ex.query(`
+    SELECT p.relkind::text = 'p' AS partitioned,
+           count(b.bound)::int AS count,
+           coalesce(bool_or(b.bound = 'DEFAULT'
+                            OR (localtimestamp >= b.m[1]::timestamp AND localtimestamp < b.m[2]::timestamp)), false) AS "coversNow",
+           max(b.m[2]::timestamp)::text AS "newestEnd"
+    FROM pg_class p
+    LEFT JOIN LATERAL (
+      SELECT pg_get_expr(c.relpartbound, c.oid) AS bound,
+             regexp_match(pg_get_expr(c.relpartbound, c.oid), $re$^FOR VALUES FROM \\('([^']+)'\\) TO \\('([^']+)'\\)$$re$) AS m
+      FROM pg_inherits i JOIN pg_class c ON c.oid = i.inhrelid
+      WHERE i.inhparent = p.oid
+    ) b ON true
+    WHERE p.oid = to_regclass('realtime.messages')
+    GROUP BY p.relkind`)
+  return row ?? { partitioned: false, count: 0, coversNow: false, newestEnd: null }
+}
+
 /** Por que quem insere NÃO consegue gravar em realtime.messages (com a correção), ou null. */
 function realtimeInsertProblem(send) {
   const role = quoteIdent(send.inserter)
@@ -1106,7 +1199,7 @@ async function verifyBroadcastTriggers(ex) {
     const problem = realtimeInsertProblem(send)
     check(`realtime.messages: quem insere (${send.inserter}, ${send.sendDefiner ? 'dono do realtime.send SECURITY DEFINER' : 'dono de dispara_broadcast_change'}) consegue gravar (privilégio INSERT e RLS)`,
       problem === null,
-      `${problem} — sem isso realtime.send engole o erro (WARNING ErrorSendingBroadcastMessage ou pg_notify realtime:system, conforme a versão) e o realtime do dashboard morre em silêncio; não precisa reaplicar a migration`)
+      `${problem} — sem isso realtime.send engole o erro (WARNING WarnSendingBroadcastMessage/ErrorSendingBroadcastMessage ou pg_notify realtime:system, conforme a versão) e o realtime do dashboard morre em silêncio; não precisa reaplicar a migration`)
     if (problem === null && send.rlsAccess === 'policy') {
       info(`INSERT de ${send.inserter} em realtime.messages liberado pelo RLS via policy (${send.policies}); o WITH CHECK não é avaliado aqui: confira que aceita topic = 'dispara-db'`)
     }
@@ -1119,11 +1212,15 @@ async function verifyBroadcastTriggers(ex) {
     }
     // Mostra qual variante do realtime.send o banco tem (a guarda da migration é heurística: ver LIMITAÇÃO no cabeçalho)
     const src = await ex.query(`
-      SELECT md5(prosrc) AS md5, prosrc ~* 'pg_notify' AS notifies, prosrc ~* 'ErrorSendingBroadcastMessage' AS warns
+      SELECT md5(prosrc) AS md5, prosrc ~* 'pg_notify' AS notifies, substring(prosrc from '(?:Warn|Error)SendingBroadcastMessage') AS warns
       FROM pg_proc WHERE oid = to_regprocedure('realtime.send(jsonb,text,text,boolean)')`)
     if (src[0]) {
-      const kind = src[0].warns ? "RAISE WARNING 'ErrorSendingBroadcastMessage'" : src[0].notifies ? "pg_notify('realtime:system')" : 'outro formato'
+      const kind = src[0].warns ? `RAISE WARNING '${src[0].warns}'` : src[0].notifies ? "pg_notify('realtime:system')" : 'outro formato'
       info(`realtime.send: falhas reportadas via ${kind} (md5 do fonte ${src[0].md5})`)
+    }
+    const parts = await readRealtimePartitions(ex)
+    if (parts.partitioned && !parts.coversNow) {
+      info(`realtime.messages sem partição para agora (${parts.count} partição(ões)${parts.newestEnd ? `; a mais nova termina em ${parts.newestEnd}` : ''}): normal se nenhum cliente conectou ao Realtime nos últimos dias — o servidor Realtime cria a janela (ontem … +3 dias) quando o dashboard conecta. Até lá o send só avisa e nada é publicado (sem ninguém conectado, não chegaria a ninguém); a escrita do app não é afetada`)
     }
   }
 
@@ -1286,7 +1383,7 @@ export function takeBroadcastWarnings(ex) {
 
 function checkNoBroadcastWarnings(ex, label) {
   const warnings = takeBroadcastWarnings(ex)
-  check(`[${label}] nenhum WARNING de dispara_broadcast_change/ErrorSendingBroadcastMessage nas escritas`, warnings.length === 0,
+  check(`[${label}] nenhum WARNING de dispara_broadcast_change/Warn/ErrorSendingBroadcastMessage nas escritas`, warnings.length === 0,
     [...new Set(warnings.map((w) => w.message))].slice(0, 5).join(' | '))
 }
 
@@ -1310,8 +1407,12 @@ export function findPii(payload, piiValues = PII_VALUES) {
 export function validatePayloadShape(payload) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return ['payload não é objeto']
   const problems = []
-  const top = Object.keys(payload).sort().join(',')
+  // `id` não vem da migration: o realtime.send do Supabase atual o acrescenta (UUID do envio)
+  const top = Object.keys(payload).filter((k) => k !== 'id').sort().join(',')
   if (top !== 'commit_timestamp,eventType,new,old,table') problems.push(`chaves do topo: ${top}`)
+  if ('id' in payload && !(typeof payload.id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(payload.id))) {
+    problems.push(`id do topo não é o UUID do realtime.send: ${JSON.stringify(payload.id)}`)
+  }
   const spec = BROADCAST_PAYLOAD_KEYS[payload.table]
   if (!spec) return [...problems, `tabela fora do contrato: ${payload.table}`]
   if (!['INSERT', 'UPDATE', 'DELETE'].includes(payload.eventType)) problems.push(`eventType inválido: ${payload.eventType}`)
@@ -2068,8 +2169,8 @@ async function verifyRealtimeResilience(ex) {
   await ex.exec(`ALTER TABLE realtime.messages ADD CONSTRAINT harness_block CHECK (false) NOT VALID`)
   let err = await write(`UPDATE public.campaigns SET status = 'Pausado' WHERE id = 'rt_c1'`)
   const sendWarnings = takeBroadcastWarnings(ex)
-  check('escrita segue quando o INSERT em realtime.messages falha (e o WARNING ErrorSendingBroadcastMessage é capturado)',
-    err === null && sendWarnings.some((w) => /ErrorSendingBroadcastMessage/.test(w.message)), `erro: ${err} avisos: ${sendWarnings.map((w) => w.message).join(' | ')}`)
+  check('escrita segue quando o INSERT em realtime.messages falha (e o WARNING WarnSendingBroadcastMessage é capturado)',
+    err === null && sendWarnings.some((w) => SEND_WARNING_RE.test(w.message)), `erro: ${err} avisos: ${sendWarnings.map((w) => w.message).join(' | ')}`)
   await ex.exec(`ALTER TABLE realtime.messages DROP CONSTRAINT harness_block`)
 
   // 2) sem EXECUTE em realtime.send
@@ -2244,7 +2345,7 @@ async function verifySendVariants(ex) {
     } finally {
       await ex.exec(`ALTER TABLE realtime.messages DROP CONSTRAINT harness_block`)
     }
-    takeBroadcastWarnings(ex) // a variante segura avisa (ErrorSendingBroadcastMessage) com o INSERT falhando: esperado
+    takeBroadcastWarnings(ex) // a variante segura avisa (Warn/ErrorSendingBroadcastMessage) com o INSERT falhando: esperado
     const { events } = await delta(ex, () => writeAs(ex, 'service_role', toggle))
     const reapplied = await reapplyHardening(ex)
     const state = await readRealtimeSendState(ex)
@@ -2349,6 +2450,9 @@ async function scenarioFreshInstall(files) {
   }
   check('nenhuma migration emite WARNING (Realtime ativo)', warnings.length === 0, [...new Set(warnings)].slice(0, 3).join(' | '))
   await asSuperuser(ex)
+  // \r fora: num checkout CRLF o template literal traz \r\n
+  const [send] = await ex.query(`SELECT md5(replace(prosrc, E'\\r', '')) AS md5 FROM pg_proc WHERE oid = 'realtime.send(jsonb,text,text,boolean)'::regprocedure`)
+  check('realtime.send simulado = o do Supabase de produção, byte a byte (md5 do prosrc)', send?.md5 === SUPABASE_SEND_PROSRC_MD5, `md5=${send?.md5}`)
   const fingerprint = await readBroadcastTriggers(ex)
   await runVerifyOnly(ex)
 
@@ -2564,12 +2668,12 @@ async function scenarioRealtimeInsertDenied(files) {
   const ex = await createSupabaseLikeDb()
   const INSERT_CHECK = /^realtime\.messages: quem insere/
   const CALL_CHECK = /^realtime\.send: o dono de dispara_broadcast_change/
-  // Uma escrita do app: erro, eventos publicados e WARNINGs ErrorSendingBroadcastMessage SÓ dela
+  // Uma escrita do app: erro, eventos publicados e WARNINGs do realtime.send SÓ dela
   const toggle = async () => {
     takeBroadcastWarnings(ex)
     const { result: error, events } = await delta(ex, () => tryAsRole(ex, 'service_role',
       `UPDATE public.campaigns SET status = CASE WHEN status = 'Enviando' THEN 'Pausado' ELSE 'Enviando' END WHERE id = 'ins_c1'`))
-    const sendWarnings = takeBroadcastWarnings(ex).filter((w) => /ErrorSendingBroadcastMessage/.test(w.message))
+    const sendWarnings = takeBroadcastWarnings(ex).filter((w) => SEND_WARNING_RE.test(w.message))
     return { error, events: events.length, sendWarnings: sendWarnings.length }
   }
   const migrationWarning = (warnings, re) => warnings.some((w) => re.test(w))
@@ -2646,6 +2750,86 @@ async function scenarioRealtimeInsertDenied(files) {
   }
 }
 
+/**
+ * Janela de partições vencida: só existem partições de ~60 dias atrás. É o estado da
+ * produção em 2026-10-12 (a última conexão de cliente ao Realtime foi em agosto).
+ */
+const LAPSE_REALTIME_PARTITIONS_SQL = `
+DO $lapse$
+DECLARE r record; d date;
+BEGIN
+  FOR r IN SELECT c.relname FROM pg_inherits i JOIN pg_class c ON c.oid = i.inhrelid
+           WHERE i.inhparent = 'realtime.messages'::regclass LOOP
+    EXECUTE format('DROP TABLE realtime.%I', r.relname);
+  END LOOP;
+  FOR i IN -1..3 LOOP
+    d := localtimestamp::date - 60 + i;
+    EXECUTE format('CREATE TABLE realtime.%I PARTITION OF realtime.messages FOR VALUES FROM (%L) TO (%L)',
+                   'messages_' || to_char(d, 'YYYY_MM_DD'), d::timestamp, (d + 1)::timestamp);
+  END LOOP;
+END
+$lapse$;`
+
+async function scenarioRealtimePartitionLapsed(files) {
+  scenario('8. realtime.messages sem partição para hoje (janela vencida: o estado da produção em 2026-10-12)')
+  const ex = await createSupabaseLikeDb()
+  const PARTITION_INFO = /^realtime\.messages sem partição para agora/
+  // Uma escrita do app: erro, eventos publicados e WARNINGs do realtime.send SÓ dela
+  const toggle = async () => {
+    takeBroadcastWarnings(ex)
+    const { result: error, events } = await delta(ex, () => tryAsRole(ex, 'service_role',
+      `UPDATE public.campaigns SET status = CASE WHEN status = 'Enviando' THEN 'Pausado' ELSE 'Enviando' END WHERE id = 'part_c1'`))
+    const sendWarnings = takeBroadcastWarnings(ex).filter((w) => SEND_WARNING_RE.test(w.message)).map((w) => w.message)
+    return { error, events, sendWarnings }
+  }
+  const verify = async () => {
+    const infos = []
+    const failed = (await captureChecks(() => runVerifyOnly(ex), infos)).filter((r) => !r.ok)
+    return { failed, partitionInfo: infos.some((m) => PARTITION_INFO.test(m)) }
+  }
+
+  try {
+    // O caminho do deploy em produção: banco sem hardening, janela vencida, aplica a hardening
+    const before = await applyAll(ex, files.filter((f) => f !== HARDENING), 'janela vencida (antes do hardening)')
+    if (!before) return
+    await writeAs(ex, 'service_role', `INSERT INTO public.campaigns (id, name, status) VALUES ('part_c1', 'Campanha', 'Rascunho')`)
+    await ex.exec(LAPSE_REALTIME_PARTITIONS_SQL)
+    const applied = await applyAll(ex, [HARDENING], 'janela vencida')
+    if (!applied) return
+    const triggers = describeDbTriggers(await readBroadcastTriggers(ex))
+    check('janela vencida: a migration de hardening aplica sem WARNING e cria as triggers (a partição não é pré-requisito)',
+      applied[HARDENING].warnings.length === 0 && sameList(triggers, EXPECTED_SORTED),
+      `${applied[HARDENING].warnings.join(' | ') || 'sem WARNING'} — triggers: ${listDiff(triggers, EXPECTED_SORTED) || 'ok'}`)
+
+    const parts = await readRealtimePartitions(ex)
+    check('janela vencida: readRealtimePartitions vê a tabela particionada sem partição para agora',
+      parts.partitioned && !parts.coversNow && parts.count === 5 && parts.newestEnd !== null, JSON.stringify(parts))
+
+    let w = await toggle()
+    check('janela vencida: a escrita segue, nada é publicado e o send só avisa (no partition … found for row)',
+      w.error === null && w.events.length === 0 && w.sendWarnings.length === 1 && /no partition of relation/.test(w.sendWarnings[0]),
+      JSON.stringify({ ...w, events: w.events.length }))
+    let report = await verify()
+    check('janela vencida: verify-only não falha (é benigno) e informa a falta de partição',
+      report.failed.length === 0 && report.partitionInfo, `${describeFailures(report.failed)} info=${report.partitionInfo}`)
+
+    // Um cliente conecta: o servidor Realtime recria a janela (ontem … +3 dias)
+    await ex.exec(REALTIME_PARTITION_WINDOW_SQL)
+    w = await toggle()
+    const payload = w.events[0]?.payload
+    check('cliente conectou (janela recriada): volta a publicar sem reaplicar nada — payload no contrato, com o id que o send acrescenta',
+      w.error === null && w.events.length === 1 && w.sendWarnings.length === 0 && validatePayloadShape(payload).length === 0
+        && typeof payload?.id === 'string' && payload?.new?.id === 'part_c1',
+      JSON.stringify({ ...w, events: w.events.map((e) => e.payload) }))
+    report = await verify()
+    check('cliente conectou: verify-only passa inteiro e não informa mais a falta de partição',
+      report.failed.length === 0 && !report.partitionInfo, `${describeFailures(report.failed)} info=${report.partitionInfo}`)
+    checkNoBroadcastWarnings(ex, 'janela de partições (fora o caso acima, esperado)')
+  } finally {
+    await ex.close()
+  }
+}
+
 // ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
@@ -2700,6 +2884,7 @@ async function mainAll() {
   await scenarioRealtimeUnavailable(files)
   await scenarioVerifyOnlyOverNetwork(files)
   await scenarioRealtimeInsertDenied(files)
+  await scenarioRealtimePartitionLapsed(files)
   return printSummary()
 }
 
