@@ -1,6 +1,8 @@
 'use client'
 
 import { Code2 } from 'lucide-react'
+import { EiaIconButton } from '@/components/eia'
+import { EiaTooltip } from '@/components/eia/extended'
 import { useDevMode } from '@/components/providers/DevModeProvider'
 
 interface DevModeToggleProps {
@@ -8,26 +10,30 @@ interface DevModeToggleProps {
   className?: string
 }
 
+/** Rótulo fixo: o tooltip mostra exatamente o nome acessível (Label in Name). */
+const DEV_MODE_LABEL = 'Modo desenvolvedor'
+
 /**
  * Toggle para ativar/desativar o Modo Desenvolvedor
- * Exibe ferramentas de debug e painéis avançados quando ativo
+ * Exibe ferramentas de debug e painéis avançados quando ativo.
+ * Botão de alternância: nome fixo e o estado em aria-pressed.
  */
 export function DevModeToggle({ className = '' }: DevModeToggleProps) {
   const { isDevMode, toggleDevMode } = useDevMode()
 
   return (
-    <button
-      onClick={toggleDevMode}
-      className={`flex h-9 w-9 items-center justify-center rounded-lg border transition-colors
-        ${isDevMode
-          ? 'border-primary-500/50 bg-primary-500/10 text-primary-500'
-          : 'border-transparent text-[var(--ds-text-secondary)] hover:border-[var(--ds-border-default)] hover:bg-[var(--ds-bg-hover)] hover:text-[var(--ds-text-primary)]'
-        }
-        ${className}`}
-      aria-label={isDevMode ? 'Desativar modo desenvolvedor' : 'Ativar modo desenvolvedor'}
-      title={isDevMode ? 'Modo Dev: Ativo' : 'Modo Dev: Inativo'}
-    >
-      <Code2 className="h-4 w-4" />
-    </button>
+    <EiaTooltip content={DEV_MODE_LABEL} side="bottom">
+      <EiaIconButton
+        label={DEV_MODE_LABEL}
+        aria-pressed={isDevMode}
+        size="sm"
+        // Ativo: superfície secundária + ícone em esmeralda (indicador pontual).
+        variant={isDevMode ? 'secondary' : 'ghost'}
+        className={className || undefined}
+        onClick={toggleDevMode}
+      >
+        <Code2 size={18} className={isDevMode ? 'text-eia-accent-text' : undefined} />
+      </EiaIconButton>
+    </EiaTooltip>
   )
 }

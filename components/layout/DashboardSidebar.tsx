@@ -1,15 +1,16 @@
 'use client'
 
-import { memo, useEffect, useState } from 'react'
-import { useEiaTheme } from '@/components/eia/theme'
+import { memo, type Ref } from 'react'
 import {
-  ChevronLeft,
-  ChevronRight,
-  Plus,
   LogOut,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Plus,
   X,
-  LucideIcon,
+  type LucideIcon,
 } from 'lucide-react'
+import { EiaBadge, EiaIconButton } from '@/components/eia'
+import { EiaAvatar, EiaTooltip } from '@/components/eia/extended'
 import { PrefetchLink } from '@/components/app/PrefetchLink'
 import { ThemeToggle } from '@/components/app/theme-toggle'
 import { cn } from '@/lib/utils'
@@ -43,16 +44,63 @@ export interface DashboardSidebarProps {
   onCloseMobileMenu: () => void
   onLogout: () => void
   onPrefetchRoute: (path: string) => void
+  /**
+   * Botão "Fechar menu" da gaveta mobile: o shell move o foco para ele ao
+   * abrir a gaveta (gestão de foco em DashboardShell).
+   */
+  mobileCloseButtonRef?: Ref<HTMLButtonElement>
 }
 
+/** id da gaveta de navegação (ExpandedSidebar), alvo do aria-controls do botão de menu. */
+export const MOBILE_NAV_ID = 'dispara-mobile-nav'
+
 // =============================================================================
-// BRAND LOGO (com fallback de erro de imagem)
+// ESTILOS COMPARTILHADOS (tokens do DS V2)
+// =============================================================================
+
+/** Foco visível com o anel do DS (--eia-color-focus). */
+const FOCUS_RING =
+  'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-eia-focus'
+
+/** Estados de um item de navegação: ativo = superfície hover + texto forte. */
+function navItemStateClass(isActive: boolean, isDisabled?: boolean) {
+  if (isDisabled) return 'cursor-not-allowed text-eia-subtle opacity-50'
+  if (isActive) return 'bg-eia-hover font-(--eia-weight-semibold) text-eia-text'
+  return 'text-eia-muted hover:bg-eia-raised hover:text-eia-text'
+}
+
+/** Indicador esmeralda pontual do item ativo (barra de 3px à esquerda). */
+function ActiveIndicator({ className }: { className?: string }) {
+  return (
+    <span
+      className={cn('absolute top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-r-full bg-eia-accent', className)}
+      aria-hidden="true"
+    />
+  )
+}
+
+const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION
+
+// =============================================================================
+// MARCA
 // =============================================================================
 
 const DEFAULT_LOGO = '/brand/logo.svg'
 const DEFAULT_LOGO_LIGHT = '/brand/logo-light.svg'
+const DEFAULT_MARK = '/brand/mark.svg'
 
-const BrandLogo = memo(function BrandLogo({
+function isCustomLogo(logoUrl?: string): logoUrl is string {
+  return !!logoUrl && logoUrl !== DEFAULT_LOGO
+}
+
+/**
+ * Wordmark do Dispara. O padrão troca por tema só com CSS (.eia-logo-auto do
+ * DS, regras em styles/eia-light.css): logo.svg (texto claro) no escuro e
+ * logo-light.svg (texto escuro) no claro — sem JS nem flash na hidratação.
+ * A imagem oculta sai da árvore de acessibilidade (display: none), por isso
+ * as duas levam o alt.
+ */
+const BrandWordmark = memo(function BrandWordmark({
   logoUrl,
   name,
   className,
@@ -61,32 +109,84 @@ const BrandLogo = memo(function BrandLogo({
   name?: string
   className: string
 }) {
-  const { theme: resolvedTheme } = useEiaTheme()
-  const [mounted, setMounted] = useState(false)
-  useEffect(() => setMounted(true), [])
+  const alt = name || 'Dispara'
 
-  // O wordmark padrão é branco (invisível no tema claro) — troca pela variante
-  // de texto escuro quando o tema é light.
-  const isDefault = !logoUrl || logoUrl === DEFAULT_LOGO
-  const src =
-    isDefault && mounted && resolvedTheme === 'light' ? DEFAULT_LOGO_LIGHT : logoUrl || DEFAULT_LOGO
+  if (isCustomLogo(logoUrl)) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element -- SVG estático/URL arbitrária, sem otimização
+      <img
+        src={logoUrl}
+        alt={alt}
+        className={className}
+        onError={(e) => {
+          // Fallback para o logo padrão se a URL customizada falhar
+          const img = e.currentTarget
+          if (img.dataset.fallback !== 'true') {
+            img.dataset.fallback = 'true'
+            img.src = DEFAULT_LOGO
+          }
+        }}
+      />
+    )
+  }
 
   return (
-    <img
-      src={src}
-      alt={name || 'Dispara'}
-      className={className}
-      onError={(e) => {
-        // Fallback para o logo padrão se a URL customizada falhar
-        const img = e.currentTarget
-        if (img.dataset.fallback !== 'true') {
-          img.dataset.fallback = 'true'
-          img.src = DEFAULT_LOGO
-        }
-      }}
-    />
+    <span className="eia-logo-auto">
+      {/* eslint-disable-next-line @next/next/no-img-element -- SVG estático */}
+      <img className={cn('eia-logo-for-dark', className)} src={DEFAULT_LOGO} alt={alt} />
+      {/* eslint-disable-next-line @next/next/no-img-element -- SVG estático */}
+      <img className={cn('eia-logo-for-light', className)} src={DEFAULT_LOGO_LIGHT} alt={alt} />
+    </span>
   )
 })
+
+/**
+ * Símbolo do Dispara para a navegação compacta (56px não comportam o
+ * wordmark legível — guia "Uso do logo": símbolo na navegação compacta).
+ */
+function BrandMark({ logoUrl, name }: { logoUrl?: string; name?: string }) {
+  return (
+    // eslint-disable-next-line @next/next/no-img-element -- SVG estático
+    <img
+      src={isCustomLogo(logoUrl) ? logoUrl : DEFAULT_MARK}
+      alt={name || 'Dispara'}
+      width={32}
+      height={32}
+      className="h-8 w-8 rounded-eia-small object-contain"
+    />
+  )
+}
+
+/**
+ * Endosso Empreende.IA com o logo oficial (nunca recriado com texto). Troca
+ * por tema via .eia-logo-auto: eia-light.svg (wordmark branco) no escuro,
+ * eia-dark.svg no claro. 120px de largura = piso recomendado pelo DS.
+ */
+function EiaEndorsement() {
+  return (
+    <div className="flex min-w-0 flex-col gap-1.5">
+      <span className="text-[11px] leading-none text-eia-subtle">um produto</span>
+      <span className="eia-logo-auto">
+        {/* eslint-disable-next-line @next/next/no-img-element -- SVG oficial do DS */}
+        <img
+          className="eia-logo-for-dark h-auto w-[120px]"
+          src="/brand/eia-light.svg"
+          alt="Empreende.IA"
+          width={120}
+          height={26}
+        />
+        {/* eslint-disable-next-line @next/next/no-img-element -- SVG oficial do DS */}
+        <img
+          className="eia-logo-for-light h-auto w-[120px]"
+          src="/brand/eia-dark.svg"
+          alt="Empreende.IA"
+          width={120}
+          height={26}
+        />
+      </span>
+    </div>
+  )
+}
 
 // =============================================================================
 // INBOX BADGE (Isolado para evitar re-render do sidebar inteiro)
@@ -108,41 +208,20 @@ const InboxUnreadBadge = memo(function InboxUnreadBadge({
 
   const displayCount = count > 99 ? '99+' : String(count)
 
-  if (variant === 'compact') {
-    return (
-      <span
-        className="absolute -right-1 -top-1 rounded-full bg-primary-500 px-1 py-[1px] text-[7px] font-semibold text-white"
-        aria-label={`${count} mensagens não lidas`}
-      >
-        {displayCount}
-      </span>
-    )
-  }
-
   return (
-    <span
-      className="ml-auto rounded-full bg-primary-500/15 px-1.5 py-[1px] text-[10px] font-semibold tabular-nums text-primary-700 legacy-dark:text-primary-300"
-      aria-label={`${count} mensagens não lidas`}
+    <EiaBadge
+      tone="success"
+      size="sm"
+      className={cn(
+        'tabular-nums',
+        variant === 'compact' ? 'pointer-events-none absolute -right-2.5 -top-2' : 'ml-auto'
+      )}
     >
-      {displayCount}
-    </span>
+      <span aria-hidden="true">{displayCount}</span>
+      <span className="sr-only">{`${count} mensagens não lidas`}</span>
+    </EiaBadge>
   )
 })
-
-// =============================================================================
-// NAV BADGE estático (BETA / NOVO)
-// =============================================================================
-
-function StaticBadge({ label }: { label: string }) {
-  return (
-    <span
-      className="ml-auto rounded-md bg-primary-500/12 px-1.5 py-[2px] text-[9px] font-semibold uppercase tracking-wide text-primary-700 legacy-dark:text-primary-300"
-      aria-label={label}
-    >
-      {label}
-    </span>
-  )
-}
 
 // =============================================================================
 // COMPACT SIDEBAR (Icon-only)
@@ -172,108 +251,99 @@ const CompactSidebar = memo(function CompactSidebar({
 >) {
   return (
     <aside
-      className={`hidden lg:flex fixed lg:static inset-y-0 left-0 z-50 w-14 bg-[var(--ds-bg-elevated)] border-r border-[var(--ds-border-subtle)] ${isSidebarExpanded ? 'lg:hidden' : ''}`}
+      className={cn(
+        // lg:h-screen dá altura definida à coluna (a raiz do shell só tem
+        // min-h-screen): a navegação rola por dentro e o rodapé fica visível.
+        'hidden lg:flex fixed inset-y-0 left-0 z-50 w-14 lg:sticky lg:top-0 lg:h-screen',
+        'border-r border-eia-border-subtle bg-eia-surface',
+        isSidebarExpanded && 'lg:hidden'
+      )}
       aria-label="Menu de navegação compacto"
     >
-      <div className="flex h-full w-14 flex-col items-center py-3">
-        <div
-          className="flex h-9 w-9 items-center justify-center"
-          role="img"
-          aria-label={`Logo ${brandName || 'Dispara'}`}
-        >
-          <BrandLogo logoUrl={brandLogoUrl} name={brandName} className="h-8 object-contain" />
+      <div className="flex h-full w-14 flex-col items-center">
+        {/* Topo alinhado ao header (64px) */}
+        <div className="flex h-16 w-full shrink-0 items-center justify-center border-b border-eia-border-subtle">
+          <BrandMark logoUrl={brandLogoUrl} name={brandName} />
         </div>
-        <button
-          type="button"
-          className="mt-2 hidden lg:flex h-7 w-7 items-center justify-center rounded-lg text-[var(--ds-text-muted)] hover:text-[var(--ds-text-primary)] hover:bg-[var(--ds-bg-hover)] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500 focus-visible:outline-offset-2"
-          onClick={() => onToggleSidebar(true)}
-          title="Expandir menu"
-          aria-label="Expandir menu de navegação"
-        >
-          <ChevronRight size={14} aria-hidden="true" />
-        </button>
 
-        <nav className="mt-3 flex flex-1 flex-col items-center gap-1 border-t border-[var(--ds-border-subtle)] pt-3" aria-label="Menu principal">
+        <div className="flex shrink-0 justify-center pt-2">
+          <EiaTooltip content="Expandir menu" side="right">
+            <EiaIconButton
+              label="Expandir menu de navegação"
+              size="sm"
+              onClick={() => onToggleSidebar(true)}
+            >
+              <PanelLeftOpen size={18} />
+            </EiaIconButton>
+          </EiaTooltip>
+        </div>
+
+        <nav
+          className="no-scrollbar flex w-full flex-1 flex-col items-center gap-1 overflow-y-auto py-3"
+          aria-label="Menu principal"
+        >
           {navItems.map((item) => {
             const isDisabled = item.disabled
             const isActive = pathname === item.path
-            const baseClassName = cn(
-              'group relative flex h-9 w-9 items-center justify-center rounded-lg transition-colors duration-150',
-              isDisabled
-                ? 'opacity-40 cursor-not-allowed text-[var(--ds-text-muted)]'
-                : isActive
-                  ? 'bg-primary-500/12 text-primary-600 legacy-dark:text-primary-400'
-                  : 'text-[var(--ds-text-secondary)] hover:bg-[var(--ds-bg-hover)] hover:text-[var(--ds-text-primary)] focus-visible:ring-2 focus-visible:ring-primary-500/50'
+            const tooltip = item.badge ? `${item.label} · ${item.badge}` : item.label
+            const className = cn(
+              'group relative flex h-9 w-9 shrink-0 items-center justify-center rounded-eia-small',
+              'transition-colors duration-(--eia-motion-fast)',
+              FOCUS_RING,
+              navItemStateClass(isActive, isDisabled)
             )
 
-            // Inbox usa badge dinâmico, outros usam badge estático
-            const badge = item.path === '/inbox' ? (
-              <InboxUnreadBadge variant="compact" />
-            ) : null
-
+            // O nome acessível vem do texto (sr-only) e não de aria-label, para
+            // incluir a contagem de não lidas do badge do Inbox.
             const content = (
               <>
-                {/* Barra de acento do item ativo */}
-                {isActive && (
-                  <span
-                    className="absolute -left-[10px] h-5 w-[3px] rounded-full bg-primary-500"
-                    aria-hidden="true"
-                  />
-                )}
-                <item.icon size={17} aria-hidden="true" />
-                {badge}
+                {isActive && <ActiveIndicator className="-left-[10px]" />}
+                <item.icon size={18} aria-hidden="true" />
+                <span className="sr-only">{item.badge ? `${item.label} (${item.badge})` : item.label}</span>
+                {item.path === '/inbox' && <InboxUnreadBadge variant="compact" />}
               </>
             )
 
             if (isDisabled) {
               return (
-                <span
-                  key={item.path}
-                  className={baseClassName}
-                  title={item.badge ? `${item.label} (${item.badge})` : item.label}
-                  aria-label={item.badge ? `${item.label} - ${item.badge}` : item.label}
-                  aria-disabled="true"
-                >
-                  {content}
-                </span>
+                <EiaTooltip key={item.path} content={tooltip} side="right">
+                  <span className={className} aria-disabled="true">
+                    {content}
+                  </span>
+                </EiaTooltip>
               )
             }
 
             return (
-              <PrefetchLink
-                key={item.path}
-                href={item.path}
-                onMouseEnter={() => onPrefetchRoute(item.path)}
-                aria-current={isActive ? 'page' : undefined}
-                className={baseClassName}
-                title={item.label}
-                aria-label={item.label}
-              >
-                {content}
-              </PrefetchLink>
+              <EiaTooltip key={item.path} content={tooltip} side="right">
+                <PrefetchLink
+                  href={item.path}
+                  onMouseEnter={() => onPrefetchRoute(item.path)}
+                  aria-current={isActive ? 'page' : undefined}
+                  className={className}
+                >
+                  {content}
+                </PrefetchLink>
+              </EiaTooltip>
             )
           })}
         </nav>
 
-        <div className="flex flex-col items-center gap-1 border-t border-[var(--ds-border-subtle)] pt-2">
-          <ThemeToggle variant="compact" />
-          <button
-            onClick={onLogout}
-            disabled={isLoggingOut}
-            className="flex h-9 w-9 items-center justify-center rounded-lg text-[var(--ds-text-secondary)] transition-colors hover:bg-[var(--ds-bg-hover)] hover:text-[var(--ds-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-red-500 focus-visible:outline-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            title="Sair"
-            aria-label="Sair da conta"
-          >
-            {isLoggingOut ? (
-              <div
-                className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--ds-text-muted)] border-t-[var(--ds-text-primary)]"
-                role="status"
-                aria-label="Saindo..."
-              />
-            ) : (
-              <LogOut size={16} aria-hidden="true" />
-            )}
-          </button>
+        <div className="flex w-full shrink-0 flex-col items-center gap-1 border-t border-eia-border-subtle py-3">
+          <ThemeToggle variant="compact" tooltipSide="right" />
+          <EiaTooltip content="Sair da conta" side="right">
+            {/* focusableWhenDisabled: durante o loading o botão fica com
+                aria-disabled em vez de disabled nativo e não perde o foco. */}
+            <EiaIconButton
+              label={isLoggingOut ? 'Saindo…' : 'Sair da conta'}
+              size="sm"
+              loading={isLoggingOut}
+              focusableWhenDisabled
+              onClick={onLogout}
+            >
+              {isLoggingOut ? null : <LogOut size={18} />}
+            </EiaIconButton>
+          </EiaTooltip>
         </div>
       </div>
     </aside>
@@ -297,93 +367,115 @@ const ExpandedSidebar = memo(function ExpandedSidebar({
   onCloseMobileMenu,
   onLogout,
   onPrefetchRoute,
+  mobileCloseButtonRef,
 }: DashboardSidebarProps) {
+  const displayName = companyName || brandName || 'Dispara'
+
   return (
     <aside
+      id={MOBILE_NAV_ID}
       className={cn(
-        'fixed inset-y-0 left-0 z-50 w-56 bg-[var(--ds-bg-elevated)] border-r border-[var(--ds-border-subtle)] transform transition-transform duration-200 ease-in-out',
+        'fixed inset-y-0 left-0 z-50 w-56 border-r border-eia-border-subtle bg-eia-surface',
+        // Tailwind v4: translate-x-* usa a propriedade `translate`, não `transform`.
+        'duration-(--eia-motion-normal) ease-(--eia-motion-ease)',
+        // visibility: ao FECHAR transiciona junto com o deslocamento (fica
+        // visível até o fim e vira hidden) — a sidebar fora da tela não recebe
+        // foco de teclado nem leitor de tela. Ao ABRIR muda na hora (só o
+        // translate transiciona): com a transição, o 1º quadro ainda é hidden e
+        // o focus() que o shell faz ao abrir a gaveta falharia.
         // Mobile (< lg): show only when menu is open
-        isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full',
+        isMobileMenuOpen
+          ? 'visible translate-x-0 transition-[translate]'
+          : 'invisible -translate-x-full transition-[translate,visibility]',
         // Desktop (lg+): controlled by isSidebarExpanded, overrides mobile class
-        isSidebarExpanded ? 'lg:translate-x-0' : 'lg:-translate-x-full'
+        isSidebarExpanded
+          ? 'lg:visible lg:translate-x-0 lg:transition-[translate]'
+          : 'lg:invisible lg:-translate-x-full lg:transition-[translate,visibility]'
       )}
       aria-label="Menu de navegação expandido"
     >
       <div className="flex h-full flex-col">
-        {/* Cabeçalho: logo centralizado; controles absolutos à direita */}
-        <div className="relative flex h-14 items-center justify-center border-b border-[var(--ds-border-subtle)] px-10">
-          <div
-            className="flex min-w-0 items-center justify-center"
-            role="img"
-            aria-label={`Logo ${brandName || 'Dispara'}`}
-          >
-            <BrandLogo logoUrl={brandLogoUrl} name={brandName} className="h-7 max-w-[136px] object-contain" />
-          </div>
-          <button
-            type="button"
-            className="absolute right-3 top-1/2 hidden h-7 w-7 -translate-y-1/2 items-center justify-center rounded-lg text-[var(--ds-text-muted)] hover:text-[var(--ds-text-primary)] hover:bg-[var(--ds-bg-hover)] transition-colors lg:flex focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500 focus-visible:outline-offset-2"
-            onClick={() => onToggleSidebar(false)}
-            title="Recolher menu"
-            aria-label="Recolher menu de navegação"
-          >
-            <ChevronLeft size={14} aria-hidden="true" />
-          </button>
-          <button
-            className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-1 lg:hidden focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500 focus-visible:outline-offset-2"
-            onClick={onCloseMobileMenu}
-            aria-label="Fechar menu"
-          >
-            <X size={18} className="text-[var(--ds-text-secondary)]" aria-hidden="true" />
-          </button>
+        {/* Cabeçalho alinhado ao header (64px): wordmark + recolher/fechar.
+            .eia-button define display sem @layer — a visibilidade responsiva
+            fica num wrapper, não no className do EiaIconButton. */}
+        <div className="flex h-16 shrink-0 items-center justify-between gap-2 border-b border-eia-border-subtle pl-4 pr-3">
+          <BrandWordmark
+            logoUrl={brandLogoUrl}
+            name={brandName}
+            className="h-8 w-auto max-w-[136px] object-contain"
+          />
+          <span className="hidden lg:flex">
+            <EiaTooltip content="Recolher menu" side="right">
+              <EiaIconButton
+                label="Recolher menu de navegação"
+                size="sm"
+                onClick={() => onToggleSidebar(false)}
+              >
+                <PanelLeftClose size={18} />
+              </EiaIconButton>
+            </EiaTooltip>
+          </span>
+          <span className="flex lg:hidden">
+            <EiaIconButton
+              ref={mobileCloseButtonRef}
+              label="Fechar menu"
+              size="sm"
+              onClick={onCloseMobileMenu}
+            >
+              <X size={18} />
+            </EiaIconButton>
+          </span>
         </div>
 
-        <nav className="flex-1 overflow-y-auto no-scrollbar px-3 py-4" aria-label="Menu principal">
-          {/* Ação primária */}
-          <PrefetchLink
-            href="/campaigns/new"
-            className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-all hover:bg-primary-500 hover:shadow-[var(--ds-glow-brand-sm)] focus-visible:ring-2 focus-visible:ring-primary-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--ds-bg-elevated)]"
-            aria-label="Criar nova campanha"
-          >
-            <Plus size={15} aria-hidden="true" />
-            Nova campanha
-          </PrefetchLink>
+        <nav className="no-scrollbar flex-1 overflow-y-auto px-3 py-4" aria-label="Menu principal">
+          {/* Ação primária: link com a aparência do EiaButton (mantém o
+              prefetch do next/link). O wrapper flex + flex-1 estica o botão,
+              já que .eia-button fixa width: fit-content sem @layer. */}
+          <div className="flex">
+            <PrefetchLink
+              href="/campaigns/new"
+              onClick={onCloseMobileMenu}
+              className="eia-button flex-1"
+              data-variant="primary"
+              data-size="sm"
+            >
+              <span className="eia-button-icon" aria-hidden="true">
+                <Plus size={16} />
+              </span>
+              <span className="eia-button-label">Criar campanha</span>
+            </PrefetchLink>
+          </div>
 
-          {/* Navegação */}
-          <p className="mt-6 mb-1.5 px-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--ds-text-muted)]">
-            Menu
-          </p>
-          <div className="space-y-0.5">
+          <ul className="mt-5 flex flex-col gap-0.5" role="list">
             {navItems.map((item) => {
               const isDisabled = item.disabled
               const isActive = pathname === item.path
-              const baseClassName = cn(
-                'relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13.5px] transition-colors duration-150',
-                isDisabled
-                  ? 'opacity-40 cursor-not-allowed text-[var(--ds-text-muted)]'
-                  : isActive
-                    ? 'bg-primary-500/10 font-medium text-primary-700 legacy-dark:text-primary-300'
-                    : 'text-[var(--ds-text-secondary)] hover:bg-[var(--ds-bg-hover)] hover:text-[var(--ds-text-primary)] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-500/50'
+              const className = cn(
+                'group relative flex h-9 items-center gap-3 rounded-eia-small px-3 text-sm',
+                'transition-colors duration-(--eia-motion-fast)',
+                FOCUS_RING,
+                navItemStateClass(isActive, isDisabled)
               )
 
               // Inbox usa badge dinâmico, outros usam badge estático
-              const badge = item.path === '/inbox' ? (
-                <InboxUnreadBadge variant="expanded" />
-              ) : item.badge ? (
-                <StaticBadge label={item.badge} />
-              ) : null
+              const badge =
+                item.path === '/inbox' ? (
+                  <InboxUnreadBadge variant="expanded" />
+                ) : item.badge ? (
+                  <EiaBadge tone="neutral" size="sm" className="ml-auto">
+                    {item.badge}
+                  </EiaBadge>
+                ) : null
 
               const content = (
                 <>
-                  {/* Barra de acento do item ativo */}
-                  {isActive && (
-                    <span
-                      className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-r-full bg-primary-500"
-                      aria-hidden="true"
-                    />
-                  )}
+                  {isActive && <ActiveIndicator className="left-0" />}
                   <item.icon
-                    size={17}
-                    className={isActive ? '' : 'text-[var(--ds-text-muted)]'}
+                    size={18}
+                    className={cn(
+                      'shrink-0',
+                      isActive ? 'text-eia-text' : 'text-eia-subtle group-hover:text-eia-text'
+                    )}
                     aria-hidden="true"
                   />
                   <span className="truncate">{item.label}</span>
@@ -393,71 +485,65 @@ const ExpandedSidebar = memo(function ExpandedSidebar({
 
               if (isDisabled) {
                 return (
-                  <span key={item.path} className={baseClassName} aria-disabled="true">
-                    {content}
-                  </span>
+                  <li key={item.path}>
+                    <span className={className} aria-disabled="true">
+                      {content}
+                    </span>
+                  </li>
                 )
               }
 
               return (
-                <PrefetchLink
-                  key={item.path}
-                  href={item.path}
-                  onClick={onCloseMobileMenu}
-                  onMouseEnter={() => onPrefetchRoute(item.path)}
-                  aria-current={isActive ? 'page' : undefined}
-                  className={baseClassName}
-                >
-                  {content}
-                </PrefetchLink>
+                <li key={item.path}>
+                  <PrefetchLink
+                    href={item.path}
+                    onClick={onCloseMobileMenu}
+                    onMouseEnter={() => onPrefetchRoute(item.path)}
+                    aria-current={isActive ? 'page' : undefined}
+                    className={className}
+                  >
+                    {content}
+                  </PrefetchLink>
+                </li>
               )
             })}
-          </div>
+          </ul>
         </nav>
 
-        {/* Rodapé: tema + usuário */}
-        <div className="border-t border-[var(--ds-border-subtle)] px-3 py-3">
-          <ThemeToggle variant="segmented" className="mb-2" />
+        {/* Rodapé: tema + conta + endosso Empreende.IA */}
+        <div className="shrink-0 border-t border-eia-border-subtle px-3 pb-4 pt-3">
+          <ThemeToggle variant="segmented" />
 
-          <button
-            onClick={onLogout}
-            disabled={isLoggingOut}
-            className="flex w-full items-center gap-2.5 rounded-lg p-2 transition-colors hover:bg-[var(--ds-bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-red-500 focus-visible:outline-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            title="Sair da conta"
-            aria-label="Sair da conta"
-          >
-            <div
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary-500/12 text-sm font-semibold text-primary-700 legacy-dark:text-primary-300"
-              aria-hidden="true"
-            >
-              {(companyName || brandName || 'Dispara').charAt(0).toUpperCase()}
-            </div>
-            <div className="min-w-0 flex-1 text-left">
-              <p className="truncate text-[13px] font-medium text-[var(--ds-text-primary)]">
-                {companyName || brandName || 'Dispara'}
+          <div className="mt-3 flex items-center gap-2.5 pl-1">
+            <span className="shrink-0" aria-hidden="true">
+              <EiaAvatar name={displayName} initials={displayName.charAt(0).toUpperCase()} size="sm" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-[13px] font-(--eia-weight-semibold) text-eia-text">
+                {displayName}
               </p>
-              <p className="truncate text-[11px] text-[var(--ds-text-muted)]">Administrador</p>
+              <p className="truncate text-xs text-eia-subtle">Administrador</p>
             </div>
-            {isLoggingOut ? (
-              <div
-                className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--ds-text-muted)] border-t-[var(--ds-text-primary)]"
-                role="status"
-                aria-label="Saindo..."
-              />
-            ) : (
-              <LogOut
-                size={15}
-                className="text-[var(--ds-text-muted)] transition-colors"
-                aria-hidden="true"
-              />
-            )}
-          </button>
+            <EiaTooltip content="Sair da conta" side="top">
+              <EiaIconButton
+                label={isLoggingOut ? 'Saindo…' : 'Sair da conta'}
+                size="sm"
+                loading={isLoggingOut}
+                focusableWhenDisabled
+                onClick={onLogout}
+              >
+                {isLoggingOut ? null : <LogOut size={18} />}
+              </EiaIconButton>
+            </EiaTooltip>
+          </div>
 
-          <div
-            className="mt-1.5 text-center font-mono text-[10px] text-[var(--ds-text-disabled)]"
-            aria-label={`Versão ${process.env.NEXT_PUBLIC_APP_VERSION}`}
-          >
-            v{process.env.NEXT_PUBLIC_APP_VERSION}
+          <div className="mt-4 flex items-end justify-between gap-3 border-t border-eia-border-subtle pt-4">
+            <EiaEndorsement />
+            {APP_VERSION && (
+              <span className="shrink-0 font-mono text-[10px] leading-none text-eia-subtle">
+                v{APP_VERSION}
+              </span>
+            )}
           </div>
         </div>
       </div>

@@ -1,19 +1,18 @@
 'use client'
 
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef, type Ref } from 'react'
 import { cn } from '@/lib/utils'
 import { usePathname, useRouter } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
+    Bot,
     LayoutDashboard,
     MessageSquare,
     Users,
     Settings,
     Menu,
-    Bell,
     FileText,
     MessageCircle,
-    Sparkles,
     SquareKanban,
     Workflow,
     Headset,
@@ -28,11 +27,12 @@ import { settingsService } from '@/services/settingsService'
 import { saveMetaAppConfigWithFeedback } from '@/components/shared/save-meta-app-config'
 import { dashboardService } from '@/services/dashboardService'
 import { useUnreadCount } from '@/hooks/useUnreadCount'
-import { PrefetchLink } from '@/components/app/PrefetchLink'
 import { AccountAlertBanner } from '@/components/app/AccountAlertBanner'
 import { WebhookAlertBanner } from '@/components/shared/WebhookAlertBanner'
-import { DashboardSidebar, type NavItem } from '@/components/layout/DashboardSidebar'
+import { DashboardSidebar, MOBILE_NAV_ID, type NavItem } from '@/components/layout/DashboardSidebar'
 import { DevModeToggle } from '@/components/app/dev-mode-toggle'
+import { EiaIconButton } from '@/components/eia'
+import { EiaBreadcrumb } from '@/components/eia/extended'
 import { useDevMode } from '@/components/providers/DevModeProvider'
 import {
     OnboardingModal,
@@ -349,19 +349,64 @@ export function DashboardShell({
     // Sidebar callback - DEVE estar antes de qualquer early return
     const handleCloseMobileMenu = useCallback(() => setIsMobileMenuOpen(false), [])
 
+    // Gaveta de navegação mobile (ExpandedSidebar aberta pelo OpenMenuButton).
+    // Enquanto aberta: o foco entra no "Fechar menu" da gaveta, o conteúdo
+    // principal fica `inert` (o Tab não escapa para o que está sob o scrim),
+    // Escape fecha de qualquer ponto e, ao chegar no breakpoint lg (onde a
+    // gaveta deixa de ser mobile), ela fecha para não deixar o conteúdo inerte.
+    // Ao fechar, o foco volta ao botão de menu se estava na gaveta ou se perdeu.
+    // DEVE ficar antes do early return de needsSetup (ordem dos hooks).
+    const openMenuButtonRef = useRef<HTMLButtonElement>(null)
+    const mobileCloseButtonRef = useRef<HTMLButtonElement>(null)
+    const wasMobileMenuOpenRef = useRef(false)
+    useEffect(() => {
+        if (!isMobileMenuOpen) {
+            if (!wasMobileMenuOpenRef.current) return
+            wasMobileMenuOpenRef.current = false
+            const active = document.activeElement
+            const drawer = document.getElementById(MOBILE_NAV_ID)
+            if (!active || active === document.body || drawer?.contains(active)) {
+                openMenuButtonRef.current?.focus()
+            }
+            return
+        }
+
+        wasMobileMenuOpenRef.current = true
+        mobileCloseButtonRef.current?.focus()
+
+        const handleKeyDown = (event: KeyboardEvent) => {
+            // defaultPrevented: Escape já consumido por outra camada (popup aberto por cima).
+            if (event.key !== 'Escape' || event.defaultPrevented) return
+            event.preventDefault()
+            handleCloseMobileMenu()
+        }
+        // lg do Tailwind v4 (64rem): a partir dele a gaveta é a sidebar do desktop.
+        const desktopQuery = window.matchMedia('(min-width: 64rem)')
+        const handleBreakpoint = () => {
+            if (desktopQuery.matches) handleCloseMobileMenu()
+        }
+        document.addEventListener('keydown', handleKeyDown)
+        desktopQuery.addEventListener('change', handleBreakpoint)
+        return () => {
+            document.removeEventListener('keydown', handleKeyDown)
+            desktopQuery.removeEventListener('change', handleBreakpoint)
+        }
+    }, [isMobileMenuOpen, handleCloseMobileMenu])
+
     // Memoize navItems to prevent recreation on every render
     // T069: Include dynamic unread badge for inbox
     const navItems = useMemo(() => [
         { path: '/', label: 'Dashboard', icon: LayoutDashboard },
         { path: '/campaigns', label: 'Campanhas', icon: MessageSquare },
         { path: '/inbox', label: 'Inbox', icon: MessageCircle }, // Badge dinâmico renderizado no DashboardSidebar
-        { path: '/workflows', label: 'Workflow', icon: Workflow, badge: 'beta' },
+        { path: '/workflows', label: 'Workflow', icon: Workflow, badge: 'Beta' },
         { path: '/conversations', label: 'Conversas', icon: MessageCircle, hidden: true },
         { path: '/templates', label: 'Templates', icon: FileText },
         { path: '/contacts', label: 'Contatos', icon: Users },
-        { path: '/crm', label: 'CRM', icon: SquareKanban, badge: 'novo' },
-        { path: '/attendants', label: 'Atendentes', icon: Headset, badge: 'novo' },
-        { path: '/settings/ai', label: 'IA', icon: Sparkles },
+        { path: '/crm', label: 'CRM', icon: SquareKanban, badge: 'Novo' },
+        { path: '/attendants', label: 'Atendentes', icon: Headset, badge: 'Novo' },
+        // Bot (e não Sparkles): o DS V2 proíbe Sparkles como símbolo de IA
+        { path: '/settings/ai', label: 'IA', icon: Bot },
         { path: '/settings', label: 'Configurações', icon: Settings },
     ].filter(item => !item.hidden), [isDevMode])
 
@@ -389,6 +434,37 @@ export function DashboardShell({
         return 'App'
     }
 
+    // Props da sidebar, memoizadas para evitar re-render do DashboardSidebar.
+    // DEVE ficar antes do early return de needsSetup: quando o setup termina na
+    // sessão (needsSetup true → false), um hook a mais depois do return quebraria
+    // a ordem dos hooks ("Rendered more hooks than during the previous render").
+    const sidebarProps = useMemo(() => ({
+        pathname,
+        navItems: navItems as NavItem[],
+        isSidebarExpanded,
+        isMobileMenuOpen,
+        isLoggingOut,
+        companyName: companyName || null,
+        brandName: BRAND.name,
+        brandLogoUrl: BRAND.logoUrl,
+        onToggleSidebar: updateSidebarExpanded,
+        onCloseMobileMenu: handleCloseMobileMenu,
+        onLogout: handleLogout,
+        onPrefetchRoute: prefetchRoute,
+        mobileCloseButtonRef,
+    }), [
+        pathname,
+        navItems,
+        isSidebarExpanded,
+        isMobileMenuOpen,
+        isLoggingOut,
+        companyName,
+        updateSidebarExpanded,
+        handleCloseMobileMenu,
+        handleLogout,
+        prefetchRoute,
+    ])
+
     // Show onboarding overlay if setup is needed
     if (needsSetup) {
         return (
@@ -412,46 +488,21 @@ export function DashboardShell({
         : undefined
 
     const isBuilderRoute = pathname?.startsWith('/builder') ?? false
+    const pageTitle = getPageTitle(pathname || '/')
     const isInboxRoute = pathname?.startsWith('/inbox') ?? false
 
-    // Sidebar component props - memoized to prevent DashboardSidebar re-renders
-    const sidebarProps = useMemo(() => ({
-        pathname,
-        navItems: navItems as NavItem[],
-        isSidebarExpanded,
-        isMobileMenuOpen,
-        isLoggingOut,
-        companyName: companyName || null,
-        brandName: BRAND.name,
-        brandLogoUrl: BRAND.logoUrl,
-        onToggleSidebar: updateSidebarExpanded,
-        onCloseMobileMenu: handleCloseMobileMenu,
-        onLogout: handleLogout,
-        onPrefetchRoute: prefetchRoute,
-    }), [
-        pathname,
-        navItems,
-        isSidebarExpanded,
-        isMobileMenuOpen,
-        isLoggingOut,
-        companyName,
-        updateSidebarExpanded,
-        handleCloseMobileMenu,
-        handleLogout,
-        prefetchRoute,
-    ])
+    // Abre o menu mobile: a gaveta é a ExpandedSidebar, então garante o estado expandido.
+    const openMobileMenu = () => {
+        updateSidebarExpanded(true)
+        setIsMobileMenuOpen(true)
+    }
 
     if (isBuilderRoute) {
         return (
             <PageLayoutProvider>
                 <div
-                    className="min-h-screen bg-[var(--ds-bg-base)] text-[var(--ds-text-primary)] flex font-sans selection:bg-primary-500/30"
-                    style={{
-                        "--builder-sidebar-width": "56px",
-                        "--background": "oklch(0 0 0)",
-                        "--sidebar": "oklch(0 0 0)",
-                        "--border": "oklch(0.27 0 0)",
-                    } as React.CSSProperties}
+                    className={SHELL_ROOT_CLASS}
+                    style={{ "--builder-sidebar-width": "56px" } as React.CSSProperties}
                 >
                     <DashboardSidebar {...sidebarProps} />
                     {/* ExpandedSidebar é fixed (223px) e sobrepõe o conteúdo — o padding
@@ -459,7 +510,8 @@ export function DashboardShell({
                         escondido embaixo da sidebar (título/voltar cortados). */}
                     <div
                         className={cn(
-                            'flex-1 min-w-0 transition-[padding] duration-200',
+                            'flex-1 min-w-0',
+                            CONTENT_PADDING_TRANSITION,
                             isSidebarExpanded ? 'lg:pl-56' : 'lg:pl-14'
                         )}
                     >
@@ -474,45 +526,31 @@ export function DashboardShell({
     if (isInboxRoute) {
         return (
             <PageLayoutProvider>
-                <div className="min-h-screen bg-[var(--ds-bg-base)] text-[var(--ds-text-primary)] flex font-sans selection:bg-primary-500/30">
-                    {/* Mobile Overlay */}
-                    {isMobileMenuOpen && (
-                        <div
-                            className="fixed inset-0 bg-[var(--ds-bg-overlay)] backdrop-blur-sm z-40 lg:hidden"
-                            onClick={handleCloseMobileMenu}
-                            role="button"
-                            aria-label="Fechar menu"
-                            tabIndex={0}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Escape' || e.key === 'Enter') {
-                                    handleCloseMobileMenu()
-                                }
-                            }}
-                        />
-                    )}
+                <div className={SHELL_ROOT_CLASS}>
+                    {isMobileMenuOpen && <MobileNavScrim onClose={handleCloseMobileMenu} />}
 
                     <DashboardSidebar {...sidebarProps} />
 
                     {/* Main Content - no header on desktop, compact mobile header */}
                     {/* CompactSidebar is lg:static (in flow), ExpandedSidebar is fixed (needs padding) */}
-                    <div className={cn(
-                        "flex-1 flex flex-col min-w-0 h-screen overflow-hidden transition-[padding] duration-200",
-                        isSidebarExpanded && "lg:pl-56"
-                    )}>
-                        {/* Compact mobile header - glass morphism */}
-                        <header className="lg:hidden h-12 flex items-center justify-between px-4 ds-glass-header shrink-0">
-                            <div className="flex items-center">
-                                <button
-                                    className="p-2 text-[var(--ds-text-secondary)] -ml-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500 focus-visible:outline-offset-2 rounded-md"
-                                    onClick={() => {
-                                        updateSidebarExpanded(true)
-                                        setIsMobileMenuOpen(true)
-                                    }}
-                                    aria-label="Abrir menu de navegação"
-                                >
-                                    <Menu size={20} aria-hidden="true" />
-                                </button>
-                                <span className="ml-2 text-sm font-medium text-[var(--ds-text-secondary)]">Inbox</span>
+                    {/* inert com a gaveta mobile aberta: conteúdo sob o scrim fora do Tab */}
+                    <div
+                        inert={isMobileMenuOpen}
+                        className={cn(
+                            "flex-1 flex flex-col min-w-0 h-screen overflow-hidden",
+                            CONTENT_PADDING_TRANSITION,
+                            isSidebarExpanded && "lg:pl-56"
+                        )}
+                    >
+                        {/* Header mobile: superfície sólida (sem vidro sobre fundo chapado) */}
+                        <header className={cn(HEADER_CLASS, 'px-4 lg:hidden')}>
+                            <div className="flex min-w-0 items-center gap-2">
+                                <OpenMenuButton
+                                    ref={openMenuButtonRef}
+                                    expanded={isMobileMenuOpen}
+                                    onClick={openMobileMenu}
+                                />
+                                <span className="truncate text-sm font-(--eia-weight-semibold) text-eia-text">Inbox</span>
                             </div>
                             <div className="flex items-center gap-2">
                                 <DevModeToggle />
@@ -529,53 +567,44 @@ export function DashboardShell({
 
     return (
         <PageLayoutProvider>
-            <div className="min-h-screen bg-[var(--ds-bg-base)] text-[var(--ds-text-primary)] flex font-sans selection:bg-primary-500/30">
-            {/* Mobile Overlay */}
-            {isMobileMenuOpen && (
-                <div
-                    className="fixed inset-0 bg-[var(--ds-bg-overlay)] backdrop-blur-sm z-40 lg:hidden"
-                    onClick={handleCloseMobileMenu}
-                    role="button"
-                    aria-label="Fechar menu"
-                    tabIndex={0}
-                    onKeyDown={(e) => {
-                        if (e.key === 'Escape' || e.key === 'Enter') {
-                            handleCloseMobileMenu()
-                        }
-                    }}
-                />
-            )}
+            <div className={SHELL_ROOT_CLASS}>
+            {isMobileMenuOpen && <MobileNavScrim onClose={handleCloseMobileMenu} />}
 
             {/* Sidebar - extracted component with memoization */}
             <DashboardSidebar {...sidebarProps} />
 
-            {/* Main Content - padding only when expanded (ExpandedSidebar is fixed) */}
-            <div className={cn(
-                "flex-1 flex flex-col min-w-0 h-screen overflow-hidden transition-[padding] duration-200",
-                isSidebarExpanded && "lg:pl-56"
-            )}>
-                {/* Header — Glass morphism premium */}
-                <header className="h-20 flex items-center justify-between px-6 lg:px-10 shrink-0 ds-glass-header sticky top-0 z-30">
-                    <div className="flex items-center">
-                        <button
-                            className="lg:hidden p-2 text-[var(--ds-text-secondary)] mr-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500 focus-visible:outline-offset-2 rounded-md"
-                            onClick={() => {
-                                updateSidebarExpanded(true)
-                                setIsMobileMenuOpen(true)
-                            }}
-                            aria-label="Abrir menu de navegação"
-                        >
-                            <Menu size={24} aria-hidden="true" />
-                        </button>
+            {/* Main Content - padding only when expanded (ExpandedSidebar is fixed).
+                inert com a gaveta mobile aberta: conteúdo sob o scrim fora do Tab. */}
+            <div
+                inert={isMobileMenuOpen}
+                className={cn(
+                    "flex-1 flex flex-col min-w-0 h-screen overflow-hidden",
+                    CONTENT_PADDING_TRANSITION,
+                    isSidebarExpanded && "lg:pl-56"
+                )}
+            >
+                {/* Header: superfície sólida do canvas + borda inferior sutil (64px,
+                    alinhado ao topo da sidebar). Sem vidro: o fundo é chapado. */}
+                <header className={cn(HEADER_CLASS, 'sticky top-0 z-30 px-6 lg:px-10')}>
+                    <div className="flex min-w-0 items-center gap-3">
+                        <span className="flex lg:hidden">
+                            <OpenMenuButton
+                                ref={openMenuButtonRef}
+                                expanded={isMobileMenuOpen}
+                                onClick={openMobileMenu}
+                            />
+                        </span>
 
-                        <nav className="hidden md:flex items-center text-sm text-[var(--ds-text-muted)]" aria-label="Breadcrumb">
-                            <span className="hover:text-[var(--ds-text-primary)] cursor-pointer transition-colors">App</span>
-                            <span className="mx-2 text-[var(--ds-text-muted)]" aria-hidden="true">/</span>
-                            <span className="text-[var(--ds-text-secondary)]" aria-current="page">{getPageTitle(pathname || '/')}</span>
-                        </nav>
+                        {/* Mobile: só o título da página; md+: breadcrumb do DS */}
+                        <span className="truncate text-sm font-(--eia-weight-semibold) text-eia-text md:hidden">
+                            {pageTitle}
+                        </span>
+                        <div className="hidden min-w-0 md:block">
+                            <EiaBreadcrumb items={[{ label: BRAND.name }, { label: pageTitle }]} />
+                        </div>
                     </div>
 
-                    <div className="flex items-center gap-3">
+                    <div className="flex shrink-0 items-center gap-2">
                         <ChecklistMiniBadge isOnboardingCompletedInDb={isOnboardingCompletedInDb} />
 
                         {/* Tutoriais de Configuração */}
@@ -665,6 +694,62 @@ export function DashboardShell({
             </div>
         </div>
         </PageLayoutProvider>
+    )
+}
+
+/** Raiz do shell: canvas do DS (--eia-color-bg) e seleção no token do DS (--eia-color-selection). */
+const SHELL_ROOT_CLASS =
+    'flex min-h-screen bg-eia-bg font-sans text-eia-text selection:bg-[var(--eia-color-selection)]'
+
+/** O padding do conteúdo acompanha a sidebar com o mesmo movimento do DS. */
+const CONTENT_PADDING_TRANSITION =
+    'transition-[padding] duration-(--eia-motion-normal) ease-(--eia-motion-ease)'
+
+/** Header do shell: 64px, superfície sólida e borda inferior sutil. */
+const HEADER_CLASS =
+    'flex h-16 shrink-0 items-center justify-between gap-4 border-b border-eia-border-subtle bg-eia-bg'
+
+/**
+ * Botão de abrir o menu mobile. Quem chama controla a visibilidade num
+ * wrapper: .eia-button define display sem @layer e venceria lg:hidden.
+ * aria-expanded/aria-controls ligam o botão à gaveta (ExpandedSidebar); o ref
+ * recebe o foco de volta quando a gaveta fecha.
+ */
+function OpenMenuButton({
+    ref,
+    expanded,
+    onClick,
+}: {
+    ref?: Ref<HTMLButtonElement>
+    expanded: boolean
+    onClick: () => void
+}) {
+    return (
+        <EiaIconButton
+            ref={ref}
+            label="Abrir menu de navegação"
+            size="sm"
+            aria-expanded={expanded}
+            aria-controls={MOBILE_NAV_ID}
+            onClick={onClick}
+        >
+            <Menu size={20} />
+        </EiaIconButton>
+    )
+}
+
+/**
+ * Scrim do menu mobile: material de scrim do DS, sem blur sobre fundo chapado.
+ * Só para o clique/toque fora; fica fora da árvore de acessibilidade e do Tab
+ * (Escape e o botão "Fechar menu" da gaveta cobrem o teclado).
+ */
+function MobileNavScrim({ onClose }: { onClose: () => void }) {
+    return (
+        <div
+            aria-hidden="true"
+            className="fixed inset-0 z-40 bg-[var(--eia-material-scrim)] lg:hidden"
+            onClick={onClose}
+        />
     )
 }
 
