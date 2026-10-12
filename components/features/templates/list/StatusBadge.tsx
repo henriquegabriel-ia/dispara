@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { StatusBadge as DSStatusBadge } from '@/components/ui/status-badge';
+import { StatusBadge as DSStatusBadge } from '@/components/app/status-badge';
 import { TemplateStatus } from '../../../../types';
 
 export interface StatusBadgeProps {

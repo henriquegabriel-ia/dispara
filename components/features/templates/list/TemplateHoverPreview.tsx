@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { Template } from '../../../../types';
-import { TemplatePreviewCard } from '@/components/ui/TemplatePreviewCard';
+import { TemplatePreviewCard } from '@/components/app/TemplatePreviewCard';
 
 export interface TemplateHoverPreviewProps {
   template: Template | null;

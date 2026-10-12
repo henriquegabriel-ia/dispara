@@ -5,7 +5,7 @@ import { ArrowUpRight, FileText, Image, Phone, Video } from 'lucide-react'
 import type { TemplateButton, TemplateComponent } from '@/types'
 import { replaceTemplatePlaceholders, type TemplateParameterFormat } from '@/lib/whatsapp/placeholder'
 import { cn } from '@/lib/utils'
-import { Container } from '@/components/ui/container'
+import { Container } from '@/components/app/container'
 
 type PreviewButtonKind = 'url' | 'phone_number' | 'quick_reply' | 'copy_code' | 'other'
 

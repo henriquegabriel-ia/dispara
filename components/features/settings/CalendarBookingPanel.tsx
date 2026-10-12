@@ -13,8 +13,8 @@ import {
   CalendarStatusSection,
   CalendarWizardModal,
 } from './calendar';
-import { Container } from '@/components/ui/container';
-import { StatusBadge } from '@/components/ui/status-badge';
+import { Container } from '@/components/app/container';
+import { StatusBadge } from '@/components/app/status-badge';
 
 export interface CalendarBookingPanelProps extends UseCalendarBookingProps {
   // Additional props can be added here if needed

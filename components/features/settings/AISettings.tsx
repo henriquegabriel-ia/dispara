@@ -3,8 +3,8 @@ import { Bot, Save, Key, CheckCircle, ExternalLink, RefreshCw, ChevronDown } fro
 import { toast } from 'sonner';
 import { AI_PROVIDERS, type AIProvider, type AIProviderConfig } from '@/lib/ai/providers';
 import type { AiFallbackConfig, AiPromptsConfig, AiRoutesConfig } from '@/lib/ai/ai-center-defaults';
-import { Container } from '@/components/ui/container';
-import { StatusBadge } from '@/components/ui/status-badge';
+import { Container } from '@/components/app/container';
+import { StatusBadge } from '@/components/app/status-badge';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 
 interface ProviderStatus {

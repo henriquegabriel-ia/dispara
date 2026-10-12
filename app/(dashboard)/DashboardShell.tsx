@@ -28,11 +28,11 @@ import { settingsService } from '@/services/settingsService'
 import { saveMetaAppConfigWithFeedback } from '@/components/shared/save-meta-app-config'
 import { dashboardService } from '@/services/dashboardService'
 import { useUnreadCount } from '@/hooks/useUnreadCount'
-import { PrefetchLink } from '@/components/ui/PrefetchLink'
-import { AccountAlertBanner } from '@/components/ui/AccountAlertBanner'
+import { PrefetchLink } from '@/components/app/PrefetchLink'
+import { AccountAlertBanner } from '@/components/app/AccountAlertBanner'
 import { WebhookAlertBanner } from '@/components/shared/WebhookAlertBanner'
 import { DashboardSidebar, type NavItem } from '@/components/layout/DashboardSidebar'
-import { DevModeToggle } from '@/components/ui/dev-mode-toggle'
+import { DevModeToggle } from '@/components/app/dev-mode-toggle'
 import { useDevMode } from '@/components/providers/DevModeProvider'
 import {
     OnboardingModal,
@@ -50,7 +50,7 @@ import {
     useGuidedTour,
 } from '@/components/features/setup'
 import { useOnboardingStatus } from '@/hooks/useOnboardingStatus'
-import { useBrand } from '@/hooks/useBrand'
+import { BRAND } from '@/lib/branding'
 import { logoutAndRedirect } from '@/lib/logout-client'
 
 export function DashboardShell({
@@ -153,9 +153,6 @@ export function DashboardShell({
     })
 
     const companyName = authStatus?.company?.name || initialAuthStatus?.company?.name
-
-    // Whitelabel: nome/logo da marca do deploy (fallback 'Dispara' / /brand/logo.svg)
-    const { brand } = useBrand()
 
     // Logout handler: revoga a sessão, limpa o cache do service worker e navega com
     // reload completo (descarta Router Cache e React Query) — lib/logout-client.ts.
@@ -425,8 +422,8 @@ export function DashboardShell({
         isMobileMenuOpen,
         isLoggingOut,
         companyName: companyName || null,
-        brandName: brand.name,
-        brandLogoUrl: brand.logoUrl,
+        brandName: BRAND.name,
+        brandLogoUrl: BRAND.logoUrl,
         onToggleSidebar: updateSidebarExpanded,
         onCloseMobileMenu: handleCloseMobileMenu,
         onLogout: handleLogout,
@@ -438,8 +435,6 @@ export function DashboardShell({
         isMobileMenuOpen,
         isLoggingOut,
         companyName,
-        brand.name,
-        brand.logoUrl,
         updateSidebarExpanded,
         handleCloseMobileMenu,
         handleLogout,

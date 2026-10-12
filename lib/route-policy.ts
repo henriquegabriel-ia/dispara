@@ -9,7 +9,7 @@
  * - A primeira regra que casar vence; o que não casar cai no DEFAULT_API_POLICY.
  *
  * Políticas:
- * - public              → sem credencial (health, brand, login...).
+ * - public              → sem credencial (health, login...).
  * - public_route_auth   → chamador externo (Meta, Google, formulário público, webhook
  *                         de workflow); o proxy deixa passar e a ROTA verifica
  *                         assinatura/token próprio.
@@ -48,7 +48,6 @@ export const API_ROUTE_POLICIES: readonly RoutePolicyRule[] = [
   { pattern: '/api/auth/login', policy: 'public', methods: ['POST'], reason: 'Login do dashboard' },
   { pattern: '/api/auth/logout', policy: 'public', methods: ['POST'], reason: 'Logout precisa funcionar com sessão expirada' },
   { pattern: '/api/auth/status', policy: 'public', methods: ['GET'], reason: 'Login/debug-auth decidem entre login, wizard e dashboard' },
-  { pattern: '/api/brand', policy: 'public', methods: ['GET'], reason: 'Nome/logo/cor — já saem no HTML SSR e no manifest' },
   { pattern: '/api/health', policy: 'public', methods: ['GET'], reason: 'Detecta banco fora do ar (onboarding overlay); payload completo só para o dono' },
   { pattern: '/api/public/lead-forms/[slug]', policy: 'public', methods: ['GET'], reason: 'Formulário público /f/[slug] (embed)' },
 

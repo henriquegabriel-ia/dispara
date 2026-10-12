@@ -60,7 +60,6 @@ const EXPECTED_OPEN_ROUTES: Record<string, RoutePolicy> = {
   '/api/auth/login': 'public',
   '/api/auth/logout': 'public',
   '/api/auth/status': 'public',
-  '/api/brand': 'public',
   '/api/flows/endpoint': 'public_route_auth',
   '/api/health': 'public',
   '/api/integrations/google-calendar/webhook': 'public_route_auth',

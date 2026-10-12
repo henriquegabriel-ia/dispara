@@ -2,11 +2,11 @@
 
 import React from 'react'
 import { RefreshCw, AlertTriangle, ArrowLeft, Activity, TrendingUp, Timer, Hash } from 'lucide-react'
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from '@/components/ui/lazy-charts'
-import { PrefetchLink } from '@/components/ui/PrefetchLink'
-import { Page, PageActions, PageDescription, PageHeader, PageTitle } from '@/components/ui/page'
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from '@/components/app/lazy-charts'
+import { PrefetchLink } from '@/components/app/PrefetchLink'
+import { Page, PageActions, PageDescription, PageHeader, PageTitle } from '@/components/app/page'
 import type { SettingsPerformanceResponse } from '@/services/performanceService'
-import { Container } from '@/components/ui/container'
+import { Container } from '@/components/app/container'
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
 
 function clamp(n: number, min: number, max: number) {

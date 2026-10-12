@@ -2,7 +2,7 @@ import { Suspense } from 'react'
 import { getInboxInitialData } from './actions'
 import { InboxClientWrapper } from './InboxClientWrapper'
 import { InboxErrorFallback } from './InboxErrorFallback'
-import { ErrorBoundary } from '@/components/ui/ErrorBoundary'
+import { ErrorBoundary } from '@/components/app/ErrorBoundary'
 import { PageLayoutScope } from '@/components/providers/PageLayoutProvider'
 import { Loader2 } from 'lucide-react'
 

@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { FileText, Check } from 'lucide-react';
-import { Container } from '@/components/ui/container';
+import { Container } from '@/components/app/container';
 import { Template } from '../../../../types';
 import { TemplateTableRow } from './TemplateTableRow';
 import { TemplateCardList } from './TemplateCard';

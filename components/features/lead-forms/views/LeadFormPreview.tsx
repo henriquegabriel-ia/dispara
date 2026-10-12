@@ -4,8 +4,8 @@ import type { LeadFormField } from '@/types'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import { Container } from '@/components/ui/container'
-import { InternationalPhoneInput } from '@/components/ui/international-phone-input'
+import { Container } from '@/components/app/container'
+import { InternationalPhoneInput } from '@/components/app/international-phone-input'
 
 export interface LeadFormPreviewProps {
   title: string

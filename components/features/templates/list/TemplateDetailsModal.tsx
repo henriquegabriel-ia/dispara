@@ -5,7 +5,7 @@ import { X, Loader2, AlertTriangle, Trash2, RefreshCw, Copy } from 'lucide-react
 import { Template } from '../../../../types';
 import { StatusBadge } from './StatusBadge';
 import { TemplateDetails } from './types';
-import { WhatsAppPhonePreview } from '@/components/ui/WhatsAppPhonePreview';
+import { WhatsAppPhonePreview } from '@/components/app/WhatsAppPhonePreview';
 
 export interface TemplateDetailsModalProps {
   isOpen: boolean;

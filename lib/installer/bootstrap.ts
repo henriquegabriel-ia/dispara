@@ -14,10 +14,6 @@ type BootstrapInput = {
   serviceRoleKey: string;
   adminEmail: string;
   adminName?: string;
-  /** Whitelabel: URL do logo (opcional — vazio usa o default /brand/logo.svg) */
-  brandLogoUrl?: string;
-  /** Whitelabel: cor primária hex (opcional — default #10b981) */
-  brandPrimaryColor?: string;
 };
 
 type BootstrapResult =
@@ -66,8 +62,6 @@ export async function bootstrapInstance({
   serviceRoleKey,
   adminEmail,
   adminName,
-  brandLogoUrl,
-  brandPrimaryColor,
 }: BootstrapInput): Promise<BootstrapResult> {
   const admin = createClient(supabaseUrl, serviceRoleKey, {
     auth: { persistSession: false },
@@ -102,19 +96,10 @@ export async function bootstrapInstance({
   // Isso evita erro ao publicar Flows que usam endpoint dinâmico
   const flowKeys = generateKeyPair();
 
-  // Whitelabel: valida a cor (hex #rrggbb) antes de persistir
-  const normalizedBrandColor = /^#[0-9a-fA-F]{6}$/.test(brandPrimaryColor || '')
-    ? (brandPrimaryColor as string).toLowerCase()
-    : '#10b981';
-
   const initialSettings = [
     { key: 'admin_email', value: emailNorm },
     { key: 'admin_name', value: adminName?.trim() || '' },
     { key: 'company_name', value: companyName },
-    // Whitelabel: marca do deploy (nome = company name coletado no wizard)
-    { key: 'brand_name', value: companyName },
-    { key: 'brand_logo_url', value: brandLogoUrl?.trim() || '' },
-    { key: 'brand_primary_color', value: normalizedBrandColor },
     { key: 'installation_date', value: new Date().toISOString() },
     { key: 'version', value: '1.0.0' },
     // Flow Endpoint keys - geradas automaticamente para evitar erros de publicação

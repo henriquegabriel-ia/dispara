@@ -3,7 +3,7 @@
 import React from 'react';
 import { AlertTriangle, Trash2, Loader2 } from 'lucide-react';
 import { DeleteTarget } from './types';
-import { Container } from '@/components/ui/container';
+import { Container } from '@/components/app/container';
 
 export interface ContactDeleteModalProps {
   isOpen: boolean;

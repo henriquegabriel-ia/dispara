@@ -6,7 +6,7 @@ import { metaDiagnosticsService, type Simulate10033Response } from '@/services/m
 import { StatusBadge } from '../StatusBadge'
 import { Pill } from '../Pill'
 import { formatJsonMaybe } from '../utils'
-import { Container } from '@/components/ui/container'
+import { Container } from '@/components/app/container'
 
 export function Simulate10033Card() {
   const [isRunning, setIsRunning] = React.useState(false)

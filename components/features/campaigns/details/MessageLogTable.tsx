@@ -4,7 +4,7 @@ import React from 'react';
 import { Search, Filter, RefreshCw, Eye, Ban, AlertCircle, Pencil, Loader2 } from 'lucide-react';
 import { MessageStatus } from '@/types';
 import { humanizePrecheckReason } from '@/lib/precheck-humanizer';
-import { Container } from '@/components/ui/container';
+import { Container } from '@/components/app/container';
 import { MessageStatusBadge } from './MessageStatusBadge';
 import { MessageLogTableProps } from './types';
 

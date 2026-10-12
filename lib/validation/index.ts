@@ -8,4 +8,4 @@
 export * from './schemas';
 
 // Re-export do Form components
-export * from '../../components/ui/Form';
+export * from '../../components/app/Form';

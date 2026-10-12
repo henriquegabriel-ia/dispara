@@ -1,26 +1,21 @@
 /**
- * PWA Manifest dinâmico (whitelabel)
- *
- * Servido em /manifest.webmanifest — name/short_name e theme_color vêm da
- * configuração de marca do deploy (settings: brand_name / brand_primary_color).
+ * PWA Manifest — servido em /manifest.webmanifest (marca fixa: lib/branding.ts).
  */
 
 import type { MetadataRoute } from 'next'
-import { getBrandConfig } from '@/lib/branding'
+import { BRAND } from '@/lib/branding'
 
-export default async function manifest(): Promise<MetadataRoute.Manifest> {
-  const brand = await getBrandConfig()
-
+export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: brand.name,
-    short_name: brand.name,
+    name: BRAND.name,
+    short_name: BRAND.name,
     description: 'Disparos, automação e atendimento com IA no WhatsApp API Oficial',
     start_url: '/atendimento',
     scope: '/atendimento',
     display: 'standalone',
     orientation: 'portrait',
     background_color: '#030712',
-    theme_color: brand.primaryColor,
+    theme_color: BRAND.themeColor,
     icons: [
       {
         src: '/icons/icon-192.png',

@@ -4,8 +4,8 @@
  * Login Page
  *
  * Login por senha única (single-tenant, MASTER_PASSWORD).
- * Visual corporativo compartilhado com o install wizard (CorporateBackground)
- * e whitelabel-aware: logo, nome e cor primária vêm de /api/auth/status.
+ * Visual corporativo compartilhado com o install wizard (CorporateBackground);
+ * marca fixa em lib/branding.ts.
  */
 
 import { useState, useEffect, Suspense } from 'react'
@@ -13,6 +13,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { Lock, Eye, EyeOff, LogIn, AlertCircle, Info } from 'lucide-react'
 import { CorporateBackground } from '@/components/brand/CorporateBackground'
+import { BRAND } from '@/lib/branding'
 import { ensureSameOriginPath, sanitizeRedirectPath } from '@/lib/auth-redirect'
 
 /** Último filtro antes do router.push: o destino tem que ficar no mesmo origin. */
@@ -31,8 +32,6 @@ function LoginForm() {
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  // Whitelabel: brand vem no payload de /api/auth/status (sem request extra)
-  const [brand, setBrand] = useState<{ name: string; logoUrl: string; primaryColor: string } | null>(null)
   const [isLocalhost, setIsLocalhost] = useState(false)
   const [isConfigured, setIsConfigured] = useState(true)
 
@@ -50,10 +49,6 @@ function LoginForm() {
         return res.json()
       })
       .then(async (data) => {
-        if (data.brand?.name) {
-          setBrand(data.brand)
-        }
-
         if (!data.isConfigured) {
           setIsConfigured(false)
 
@@ -120,30 +115,14 @@ function LoginForm() {
         transition={{ duration: 0.5, ease: 'easeOut' }}
         className="text-center mb-8"
       >
-        {brand ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={brand.logoUrl}
-            alt={brand.name}
-            className="h-12 max-w-[220px] mx-auto mb-5 object-contain"
-            onError={(e) => {
-              // Fallback para o logo padrão se a URL customizada falhar
-              const img = e.currentTarget
-              if (img.dataset.fallback !== 'true') {
-                img.dataset.fallback = 'true'
-                img.src = '/brand/logo.svg'
-              }
-            }}
-          />
-        ) : (
-          <div className="h-12 mb-5" aria-hidden="true" />
-        )}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={BRAND.logoUrl}
+          alt=""
+          className="h-12 max-w-[220px] mx-auto mb-5 object-contain"
+        />
         <h1 className="text-2xl font-bold tracking-tight text-[var(--ds-text-primary)]">
-          {brand ? (
-            brand.name
-          ) : (
-            <span className="inline-block h-7 w-36 rounded-lg bg-[var(--ds-bg-elevated)] animate-pulse align-middle" aria-hidden="true" />
-          )}
+          {BRAND.name}
         </h1>
         <p className="text-sm text-[var(--ds-text-muted)] mt-1.5">Entre para continuar</p>
       </motion.div>
@@ -239,7 +218,7 @@ function LoginForm() {
         transition={{ delay: 0.3, duration: 0.4 }}
         className="text-center text-[var(--ds-text-muted)] text-xs mt-8"
       >
-        {brand ? `${brand.name} © ${new Date().getFullYear()}` : ' '}
+        {`${BRAND.name} © ${new Date().getFullYear()}`}
       </motion.p>
     </div>
   )

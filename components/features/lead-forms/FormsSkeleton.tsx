@@ -1,4 +1,4 @@
-import { Page, PageDescription, PageHeader, PageTitle, PageActions } from '@/components/ui/page'
+import { Page, PageDescription, PageHeader, PageTitle, PageActions } from '@/components/app/page'
 
 export function FormsSkeleton() {
   return (

@@ -2,7 +2,7 @@
 
 import React from 'react'
 import { Input } from '@/components/ui/input'
-import { Container } from '@/components/ui/container'
+import { Container } from '@/components/app/container'
 import {
   Select,
   SelectContent,

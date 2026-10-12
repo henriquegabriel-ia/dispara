@@ -5,11 +5,11 @@ import Link from 'next/link'
 import dynamic from 'next/dynamic'
 import { ArrowLeft, ExternalLink, Loader2, Save, UploadCloud, Wand2, LayoutTemplate, PenSquare, Check } from 'lucide-react'
 
-import { Page, PageActions, PageDescription, PageHeader, PageTitle } from '@/components/ui/page'
+import { Page, PageActions, PageDescription, PageHeader, PageTitle } from '@/components/app/page'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Checkbox } from '@/components/ui/checkbox'
-import { MetaFlowPreview } from '@/components/ui/MetaFlowPreview'
+import { MetaFlowPreview } from '@/components/app/MetaFlowPreview'
 
 // Dynamic imports para componentes pesados (~1700+ linhas cada)
 const UnifiedFlowEditor = dynamic(

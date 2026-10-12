@@ -6,7 +6,7 @@ import type { MetaDiagnosticsAction } from '@/services/metaDiagnosticsService'
 import type { MetaDiagnosticsCheck } from '../types'
 import { StatusBadge } from '../StatusBadge'
 import { isProblemStatus, bestApiAction, firstNextSteps, scrollToCheck, getFriendlyCopy } from '../utils'
-import { Container } from '@/components/ui/container'
+import { Container } from '@/components/app/container'
 
 export interface QuickStartCardProps {
   checks: MetaDiagnosticsCheck[]

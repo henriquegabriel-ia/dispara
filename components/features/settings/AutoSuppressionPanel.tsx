@@ -3,8 +3,8 @@
 import React, { useState, useEffect } from 'react';
 import { Shield, Save, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { SectionHeader } from '@/components/ui/section-header';
-import { StatusBadge } from '@/components/ui/status-badge';
+import { SectionHeader } from '@/components/app/section-header';
+import { StatusBadge } from '@/components/app/status-badge';
 
 interface AutoSuppressionConfig {
   enabled: boolean;

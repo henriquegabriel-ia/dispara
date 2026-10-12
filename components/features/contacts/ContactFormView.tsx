@@ -16,7 +16,7 @@ import {
   Input, 
   SubmitButton,
   FormProvider,
-} from '@/components/ui/Form';
+} from '@/components/app/Form';
 import { ContactForm } from '@/lib/validation/schemas';
 
 interface ContactFormViewProps {

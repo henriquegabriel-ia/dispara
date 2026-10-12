@@ -9,7 +9,7 @@ import {
 } from '../../../../hooks/settings/useCalendarBooking';
 import type { BookingConfigSectionProps } from './types';
 import type { TimeSlot } from '../../../../types';
-import { Container } from '@/components/ui/container';
+import { Container } from '@/components/app/container';
 
 export function BookingConfigSection({
   calendarBookingLoading,

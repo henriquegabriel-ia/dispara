@@ -1,7 +1,7 @@
 'use client'
 
 import React from 'react'
-import { Container } from '@/components/ui/container'
+import { Container } from '@/components/app/container'
 import { Spec } from './types'
 import { LimitedTimeOfferPanel } from './panels/LimitedTimeOfferPanel'
 import { AuthenticationPanel } from './panels/AuthenticationPanel'

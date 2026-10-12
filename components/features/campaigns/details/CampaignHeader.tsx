@@ -2,8 +2,8 @@
 
 import React from 'react';
 import { ChevronLeft, Calendar, Loader2, Play, Pause, Ban, RefreshCw, Download } from 'lucide-react';
-import { PrefetchLink } from '@/components/ui/PrefetchLink';
-import { PageHeader, PageTitle } from '@/components/ui/page';
+import { PrefetchLink } from '@/components/app/PrefetchLink';
+import { PageHeader, PageTitle } from '@/components/app/page';
 import { CampaignStatus } from '@/types';
 import { CampaignHeaderProps } from './types';
 

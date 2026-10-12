@@ -1,8 +1,8 @@
 'use client';
 
 import React from 'react';
-import { Container } from '@/components/ui/container';
-import { StatusBadge } from '@/components/ui/status-badge';
+import { Container } from '@/components/app/container';
+import { StatusBadge } from '@/components/app/status-badge';
 import { CampaignTelemetryPanelProps } from './types';
 
 export const CampaignTelemetryPanel: React.FC<CampaignTelemetryPanelProps> = ({

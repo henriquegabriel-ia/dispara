@@ -2,7 +2,7 @@
 
 import React from 'react'
 import { Loader2 } from 'lucide-react'
-import { Container } from '@/components/ui/container'
+import { Container } from '@/components/app/container'
 
 interface StepNavigationProps {
   step: number

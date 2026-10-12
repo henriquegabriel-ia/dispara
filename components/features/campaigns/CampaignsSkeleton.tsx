@@ -1,4 +1,4 @@
-import { Page, PageDescription, PageHeader, PageTitle } from '@/components/ui/page'
+import { Page, PageDescription, PageHeader, PageTitle } from '@/components/app/page'
 
 export function CampaignsSkeleton() {
   return (

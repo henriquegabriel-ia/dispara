@@ -46,9 +46,6 @@ const ProvisionSchema = z.object({
     name: z.string().min(2),
     email: z.string().email(),
     password: z.string().min(8),
-    // Whitelabel (opcional)
-    brandLogoUrl: z.string().trim().url().optional().or(z.literal('')).optional(),
-    brandPrimaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
   }),
   vercel: z.object({
     token: z.string().min(24),
@@ -625,8 +622,6 @@ export async function POST(req: Request) {
         serviceRoleKey,
         adminEmail: identity.email,
         adminName: identity.name,
-        brandLogoUrl: identity.brandLogoUrl,
-        brandPrimaryColor: identity.brandPrimaryColor,
       });
       console.log('[provision] ✅ Step 10/12: Bootstrap Admin - COMPLETO');
       stepIndex++;

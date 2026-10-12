@@ -4,8 +4,8 @@ import React, { useState } from 'react';
 import { Webhook, RefreshCw, ExternalLink, Copy, CheckCircle2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { PhoneNumber } from '../../../hooks/useSettings';
-import { Container } from '@/components/ui/container';
-import { SectionHeader } from '@/components/ui/section-header';
+import { Container } from '@/components/app/container';
+import { SectionHeader } from '@/components/app/section-header';
 import { useDevMode } from '@/components/providers/DevModeProvider';
 
 import {

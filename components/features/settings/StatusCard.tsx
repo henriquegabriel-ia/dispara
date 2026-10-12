@@ -3,8 +3,8 @@
 import React, { forwardRef } from 'react';
 import { Wifi, AlertTriangle, RefreshCw, AlertCircle, Shield, Edit2 } from 'lucide-react';
 import { AccountLimits } from '../../../lib/meta-limits';
-import { Container } from '@/components/ui/container';
-import { StatusBadge } from '@/components/ui/status-badge';
+import { Container } from '@/components/app/container';
+import { StatusBadge } from '@/components/app/status-badge';
 
 export interface StatusCardProps {
   settings: {

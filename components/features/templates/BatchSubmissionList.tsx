@@ -1,6 +1,6 @@
 import React from 'react';
 import { BatchSubmission } from '../../../types';
-import { Container } from '@/components/ui/container';
+import { Container } from '@/components/app/container';
 import { ChevronRight, Trash2, Clock, CheckCircle, AlertTriangle, XCircle, Loader2 } from 'lucide-react';
 
 interface BatchSubmissionListProps {

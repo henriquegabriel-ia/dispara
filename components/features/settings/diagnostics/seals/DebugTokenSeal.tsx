@@ -4,7 +4,7 @@ import Link from 'next/link'
 import type { MetaDiagnosticsResponse } from '@/services/metaDiagnosticsService'
 import type { MetaDiagnosticsCheckStatus } from '../types'
 import { StatusBadge } from '../StatusBadge'
-import { Container } from '@/components/ui/container'
+import { Container } from '@/components/app/container'
 
 export interface DebugTokenSealProps {
   data?: MetaDiagnosticsResponse

@@ -8,7 +8,7 @@ import { useTemplateProjectMutations } from '@/hooks/useTemplateProjects';
 import { toast } from 'sonner';
 import { GeneratedTemplate } from '@/lib/ai/services/template-agent';
 import { templateService } from '@/lib/whatsapp/template.service';
-import { Page, PageHeader } from '@/components/ui/page';
+import { Page, PageHeader } from '@/components/app/page';
 
 // Tipos
 type AIStrategy = 'marketing' | 'utility' | 'bypass';

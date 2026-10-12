@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import { InternationalPhoneInput } from '@/components/ui/international-phone-input'
+import { InternationalPhoneInput } from '@/components/app/international-phone-input'
 import { CircleSlash } from 'lucide-react'
 
 type PublicLeadForm = {

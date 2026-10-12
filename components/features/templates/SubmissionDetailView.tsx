@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 import { BatchSubmission, GeneratedTemplateWithStatus } from '../../../types';
-import { Container } from '@/components/ui/container';
+import { Container } from '@/components/app/container';
 import {
     ArrowLeft, RefreshCw, Trash2, CheckCircle, AlertTriangle,
     XCircle, Filter, ChevronDown, ChevronRight, Zap, Eye, Copy,
     CheckSquare, Square
 } from 'lucide-react';
-import { WhatsAppPhonePreview } from '@/components/ui/WhatsAppPhonePreview';
+import { WhatsAppPhonePreview } from '@/components/app/WhatsAppPhonePreview';
 
 
 interface SubmissionDetailViewProps {

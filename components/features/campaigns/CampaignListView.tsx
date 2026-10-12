@@ -4,9 +4,9 @@ import React from 'react';
 import { Search, RefreshCw, Copy, Trash2, Calendar, Play, Pause, Loader2 } from 'lucide-react';
 import { Campaign, CampaignStatus } from '../../../types'
 import { formatDateFull, formatDateTimeFull } from '@/lib/date-formatter';
-import { Page, PageDescription, PageHeader, PageTitle } from '@/components/ui/page';
-import { Container } from '@/components/ui/container';
-import { StatusBadge as DsStatusBadge } from '@/components/ui/status-badge';
+import { Page, PageDescription, PageHeader, PageTitle } from '@/components/app/page';
+import { Container } from '@/components/app/container';
+import { StatusBadge as DsStatusBadge } from '@/components/app/status-badge';
 import { Progress } from '@/components/ui/progress';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Button } from '@/components/ui/button';

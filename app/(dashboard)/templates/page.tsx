@@ -8,7 +8,7 @@ import { TemplateListView } from '@/components/features/templates/TemplateListVi
 import { useTemplateProjectsQuery, useTemplateProjectMutations } from '@/hooks/useTemplateProjects';
 import { Loader2, Plus, Folder, Search, RefreshCw, CheckCircle, AlertTriangle, Trash2, Pencil, LayoutGrid, Workflow, FileText, ClipboardList, Check, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Page, PageActions, PageDescription, PageHeader, PageTitle } from '@/components/ui/page';
+import { Page, PageActions, PageDescription, PageHeader, PageTitle } from '@/components/app/page';
 import { Button } from '@/components/ui/button';
 import { Megaphone, Wrench, VenetianMask } from 'lucide-react';
 import type { AIStrategy } from '@/types';

@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import { UserCheck, X, Smartphone } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatPhoneNumberDisplay } from '../../../lib/phone-formatter';
-import { SectionHeader } from '@/components/ui/section-header';
+import { SectionHeader } from '@/components/app/section-header';
 
 export interface TestContactPanelProps {
   testContact?: { name?: string; phone: string } | null;

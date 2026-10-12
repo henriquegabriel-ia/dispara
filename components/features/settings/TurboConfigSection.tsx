@@ -10,8 +10,8 @@ import {
   type TurboDraft,
   type TurboPlan,
 } from './turbo';
-import { Container } from '@/components/ui/container';
-import { SectionHeader } from '@/components/ui/section-header';
+import { Container } from '@/components/app/container';
+import { SectionHeader } from '@/components/app/section-header';
 
 // Types
 interface WhatsAppThrottleConfig {

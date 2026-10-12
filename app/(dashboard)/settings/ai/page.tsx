@@ -22,7 +22,7 @@ import {
 // import { AIGatewayPanel } from '@/components/features/settings/AIGatewayPanel' // DESABILITADO (bug #11280)
 import { HeliconePanel } from '@/components/features/settings/HeliconePanel'
 import { Mem0Panel } from '@/components/features/settings/Mem0Panel'
-import { Page, PageActions, PageDescription, PageHeader, PageTitle } from '@/components/ui/page'
+import { Page, PageActions, PageDescription, PageHeader, PageTitle } from '@/components/app/page'
 import type { AIProvider } from '@/lib/ai/providers'
 import type {
   AiPromptsConfig,

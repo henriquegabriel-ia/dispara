@@ -1,8 +1,8 @@
 'use client'
 
 import React, { forwardRef, useState, useCallback, useEffect } from 'react'
-import { Container } from '@/components/ui/container'
-import { SectionHeader } from '@/components/ui/section-header'
+import { Container } from '@/components/app/container'
+import { SectionHeader } from '@/components/app/section-header'
 import { WhatsAppCredentialsForm, type WhatsAppCredentials } from '@/components/shared/WhatsAppCredentialsForm'
 import { saveMetaAppConfigWithFeedback } from '@/components/shared/save-meta-app-config'
 import type { AppSettings } from '../../../types'
