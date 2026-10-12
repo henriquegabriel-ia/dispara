@@ -1,7 +1,7 @@
 'use client'
 
 import { Code, ExternalLink } from 'lucide-react'
-import { SectionHeader } from '@/components/ui/section-header'
+import { SectionHeader } from '@/components/app/section-header'
 import { Switch } from '@/components/ui/switch'
 import { Button } from '@/components/ui/button'
 import { useDevMode } from '@/components/providers/DevModeProvider'
@@ -39,12 +39,6 @@ export function DevModePanel() {
               Ferramentas de Desenvolvimento
             </p>
             <div className="flex flex-wrap gap-2">
-              <Link href="/design-system">
-                <Button variant="outline" size="sm" className="gap-2">
-                  <ExternalLink size={14} />
-                  Design System
-                </Button>
-              </Link>
               <Link href="/settings/meta-diagnostics">
                 <Button variant="outline" size="sm" className="gap-2">
                   <ExternalLink size={14} />
