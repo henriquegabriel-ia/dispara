@@ -9,6 +9,10 @@ import {
 import { validateWorkflowSchema } from "@/lib/shared/workflow-schema";
 import { validateTree } from "@/lib/builder/flow/tree-validate";
 import type { Flow } from "@/lib/builder/flow/types";
+import {
+  findWorkflowGraphIssues,
+  workflowGraphIssuesBody,
+} from "@/lib/builder/workflow-graph-guard";
 
 export async function POST(request: Request) {
   const supabase = getSupabaseAdmin();
@@ -63,6 +67,14 @@ export async function POST(request: Request) {
       { error: "Invalid workflow", details: validation.errors },
       { status: 400 }
     );
+  }
+  // Mesma revalidação do PATCH (condições + actionTypes): o grafo cru vai
+  // direto para o executor.
+  const graphIssues = findWorkflowGraphIssues(normalized.nodes);
+  if (graphIssues.length > 0) {
+    return NextResponse.json(workflowGraphIssuesBody(graphIssues), {
+      status: 400,
+    });
   }
   const companyId = await getCompanyId(supabase);
   try {

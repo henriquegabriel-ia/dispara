@@ -104,35 +104,41 @@ ThemeProvider (next-themes, dark default)
 
 ### Authentication
 
-Single-tenant: no user accounts. Two auth mechanisms:
+Single-tenant: no user accounts. **`proxy.ts` (Next 16 proxy) is the auth barrier for every page and `/api/*` route.** It resolves WHO is calling (the *principal*) once and forwards it to handlers via `x-dispara-*` headers (always stripping client-sent ones):
 
-- **Dashboard login**: `MASTER_PASSWORD` env var (bcrypt-hashed comparison)
-- **API routes**: `Authorization: Bearer <key>` or `X-API-Key: <key>` header
-  - `DISPARA_API_KEY` — general API access
-  - `DISPARA_ADMIN_KEY` — admin endpoints (`/api/database/*`, `/api/vercel/*`)
-  - Public (no auth): `/api/webhook`, `/api/health`, `/api/flows`
+| Principal | Credential |
+|---|---|
+| `session` | `dispara_session` cookie, validated against `settings.session_tokens` (signed `s2.` token, only `sha256` stored; cache 15s) — `lib/user-auth.ts` |
+| `api_key` / `admin_key` | `Authorization: Bearer` or `X-API-Key` with `DISPARA_API_KEY` / `DISPARA_ADMIN_KEY` |
+| `cron` | `Bearer CRON_SECRET` (or `DISPARA_ADMIN_KEY`) — only on `cron` / `session_or_cron` routes |
+| `attendant` | `dispara_attendant` httpOnly cookie (set by `/api/attendants/validate`) — only on `attendant_or_session` routes |
+| `public` | no credential |
 
-No middleware.ts — auth enforced per-route via `verifyApiKey()` from `lib/auth.ts`.
+- **Per-route policy**: `lib/route-policy.ts` (`API_ROUTE_POLICIES`, exact segment match with `[param]`). Anything not listed is `session` (valid session or API key). Adding a public route requires a `reason` and updating the snapshot in `lib/route-policy.test.ts` (intentional tripwire).
+- **In handlers**: use `requirePrincipal(request, kinds)` / `requireAttendantPermission(request, perm)` from `lib/principal.ts`; in Server Actions/RSC loaders use `lib/server-principal.ts`. Never trust `x-dispara-*` headers elsewhere.
+- **External callbacks verify themselves**: Meta webhook/Flows → `lib/meta-webhook-signature.ts` (App Secret from env or settings; `report_only` until the first valid signature, then enforced); Google Calendar push → channel token.
+- Supabase down → proxy answers **503** (not 401) for owner/attendant credentials it cannot verify.
 
 ### Supabase Client Types
 
-Three client patterns — use the right one for the context:
+The app does NOT use Supabase Auth: all data access is server-side with the service role, and authorization is the proxy's job. The `anon`/`authenticated` roles have no table/function access (migration `20261011000000_security_hardening.sql`).
 
 ```typescript
-// API Routes (server-side, bypasses RLS)
+// API Routes (server-side, service role — the proxy already authorized the caller)
 import { getSupabaseAdmin } from '@/lib/supabase'
 const supabase = getSupabaseAdmin()
 
-// Client components (browser, respects RLS)
-import { getSupabaseBrowser } from '@/lib/supabase'
-const supabase = getSupabaseBrowser()
-
-// Server Components (cookie-aware, @supabase/ssr)
+// Server Components / Server Actions (server-only, service role) — check
+// hasOwnerPrincipal() from lib/server-principal.ts before reading data
 import { createClient } from '@/lib/supabase-server'
 const supabase = await createClient()
+
+// Browser: ONLY for Realtime broadcast (channel 'dispara-db', no PII, public).
+// Never .from()/.rpc() from the browser — fetch the authenticated API instead.
+import { getSupabaseBrowser } from '@/lib/supabase'
 ```
 
-Both return `null` when env vars are missing (allows install wizard to run unconfigured).
+They return `null` when env vars are missing (allows install wizard to run unconfigured). Realtime events are only invalidation *signals* (`lib/realtime-db-change.ts`); never write payload values into the React Query cache.
 
 ### Database Layer (No ORM)
 
@@ -270,7 +276,7 @@ Env var aliases accepted: `SUPABASE_SECRET_KEY` / `SUPABASE_SERVICE_ROLE_KEY`, `
 ## Styling
 
 - Tailwind CSS v4 with shadcn/ui (new-york style)
-- **Dark-only**: `dark` class fixed on `<html>` (app/layout.tsx); no light-mode toggle
+- **Themes**: dark default plus a light theme with toggle (next-themes)
 - Primary brand color: **emerald** — `primary-400/500/600` (emerald/green, `#10b981`)
 - Backgrounds: `zinc-800/900/950` (base `#030712`)
 - Logo: text wordmark at `public/brand/logo.svg` ("dispara" white + emerald dot)

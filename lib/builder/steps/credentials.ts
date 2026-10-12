@@ -14,7 +14,6 @@ export type EnvVarConfig = {
   SLACK_API_KEY?: string;
   OPENAI_API_KEY?: string;
   AI_GATEWAY_API_KEY?: string;
-  DATABASE_URL?: string;
   FIRECRAWL_API_KEY?: string;
 };
 
@@ -38,7 +37,6 @@ export function getCredentials(
     SLACK_API_KEY: process.env.SLACK_API_KEY,
     OPENAI_API_KEY: process.env.OPENAI_API_KEY,
     AI_GATEWAY_API_KEY: process.env.AI_GATEWAY_API_KEY,
-    DATABASE_URL: process.env.DATABASE_URL,
     FIRECRAWL_API_KEY: process.env.FIRECRAWL_API_KEY,
   };
 }
@@ -61,8 +59,6 @@ export function enrichStepInput(
       enrichSlackCredentials(enrichedInput, credentials),
     "Generate Text": () => enrichAICredentials(enrichedInput, credentials),
     "Generate Image": () => enrichAICredentials(enrichedInput, credentials),
-    "Database Query": () =>
-      enrichDatabaseCredentials(enrichedInput, credentials),
     Scrape: () => enrichFirecrawlCredentials(enrichedInput, credentials),
     Search: () => enrichFirecrawlCredentials(enrichedInput, credentials),
   };
@@ -114,15 +110,6 @@ function enrichAICredentials(
 ): void {
   if (credentials.AI_GATEWAY_API_KEY) {
     input.apiKey = credentials.AI_GATEWAY_API_KEY;
-  }
-}
-
-function enrichDatabaseCredentials(
-  input: Record<string, unknown>,
-  credentials: EnvVarConfig
-): void {
-  if (credentials.DATABASE_URL) {
-    input.databaseUrl = credentials.DATABASE_URL;
   }
 }
 

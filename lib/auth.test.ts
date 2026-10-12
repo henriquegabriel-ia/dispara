@@ -3,13 +3,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
   verifyApiKey,
   verifyAdminAccess,
-  isAdminEndpoint,
-  isPublicEndpoint,
   unauthorizedResponse,
   forbiddenResponse,
   generateApiKey,
-  ADMIN_ENDPOINTS,
-  PUBLIC_ENDPOINTS,
 } from './auth'
 
 // Helper: cria um NextRequest fake com headers
@@ -102,6 +98,13 @@ describe('auth', () => {
       expect(result.error).toContain('Invalid API key')
     })
 
+    it('deve rejeitar prefixo/extensão da chave (comparação exata em tempo constante)', async () => {
+      for (const key of ['test-api-key-12', 'test-api-key-1234', 'TEST-API-KEY-123', ' test-api-key-123']) {
+        const result = await verifyApiKey(createFakeRequest({ 'x-api-key': key }))
+        expect(result.valid, key).toBe(false)
+      }
+    })
+
     it('deve rejeitar Authorization sem prefixo Bearer', async () => {
       const req = createFakeRequest({
         authorization: 'test-api-key-123',
@@ -186,59 +189,6 @@ describe('auth', () => {
   })
 
   // ============================================================
-  // isAdminEndpoint
-  // ============================================================
-  describe('isAdminEndpoint', () => {
-    it('deve identificar endpoints admin conhecidos', () => {
-      expect(isAdminEndpoint('/api/database/init')).toBe(true)
-      expect(isAdminEndpoint('/api/database/cleanup')).toBe(true)
-      expect(isAdminEndpoint('/api/database/migrate')).toBe(true)
-      expect(isAdminEndpoint('/api/database/fix-schema')).toBe(true)
-      expect(isAdminEndpoint('/api/vercel/redeploy')).toBe(true)
-      expect(isAdminEndpoint('/api/vercel/info')).toBe(true)
-    })
-
-    it('deve rejeitar endpoints que nao sao admin', () => {
-      expect(isAdminEndpoint('/api/campaigns')).toBe(false)
-      expect(isAdminEndpoint('/api/contacts')).toBe(false)
-      expect(isAdminEndpoint('/api/webhook')).toBe(false)
-      expect(isAdminEndpoint('/api/health')).toBe(false)
-    })
-
-    it('deve reconhecer sub-paths de endpoints admin', () => {
-      // startsWith match
-      expect(isAdminEndpoint('/api/database/init/extra')).toBe(true)
-      expect(isAdminEndpoint('/api/vercel/redeploy/force')).toBe(true)
-    })
-  })
-
-  // ============================================================
-  // isPublicEndpoint
-  // ============================================================
-  describe('isPublicEndpoint', () => {
-    it('deve identificar endpoints publicos conhecidos', () => {
-      expect(isPublicEndpoint('/api/webhook')).toBe(true)
-      expect(isPublicEndpoint('/api/health')).toBe(true)
-      expect(isPublicEndpoint('/api/system')).toBe(true)
-      expect(isPublicEndpoint('/api/flows')).toBe(true)
-      expect(isPublicEndpoint('/api/flow-engine')).toBe(true)
-      expect(isPublicEndpoint('/api/campaign/dispatch')).toBe(true)
-    })
-
-    it('deve rejeitar endpoints protegidos', () => {
-      expect(isPublicEndpoint('/api/campaigns')).toBe(false)
-      expect(isPublicEndpoint('/api/contacts')).toBe(false)
-      expect(isPublicEndpoint('/api/templates')).toBe(false)
-      expect(isPublicEndpoint('/api/settings/credentials')).toBe(false)
-    })
-
-    it('deve reconhecer sub-paths de endpoints publicos', () => {
-      expect(isPublicEndpoint('/api/webhook/validate')).toBe(true)
-      expect(isPublicEndpoint('/api/flows/send')).toBe(true)
-    })
-  })
-
-  // ============================================================
   // unauthorizedResponse
   // ============================================================
   describe('unauthorizedResponse', () => {
@@ -293,28 +243,6 @@ describe('auth', () => {
       const key = generateApiKey()
       // dsp_ (4) + 32 chars = 36 total
       expect(key.length).toBe(36)
-    })
-  })
-
-  // ============================================================
-  // Constantes
-  // ============================================================
-  describe('constantes', () => {
-    it('ADMIN_ENDPOINTS deve conter pelo menos os endpoints documentados', () => {
-      expect(ADMIN_ENDPOINTS).toContain('/api/database/init')
-      expect(ADMIN_ENDPOINTS).toContain('/api/vercel/redeploy')
-      expect(ADMIN_ENDPOINTS.length).toBeGreaterThanOrEqual(4)
-    })
-
-    it('PUBLIC_ENDPOINTS deve conter pelo menos os endpoints documentados', () => {
-      expect(PUBLIC_ENDPOINTS).toContain('/api/webhook')
-      expect(PUBLIC_ENDPOINTS).toContain('/api/health')
-      expect(PUBLIC_ENDPOINTS.length).toBeGreaterThanOrEqual(4)
-    })
-
-    it('nao deve haver sobreposicao entre ADMIN e PUBLIC endpoints', () => {
-      const overlap = ADMIN_ENDPOINTS.filter((ep) => PUBLIC_ENDPOINTS.includes(ep))
-      expect(overlap).toHaveLength(0)
     })
   })
 })

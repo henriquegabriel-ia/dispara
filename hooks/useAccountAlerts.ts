@@ -1,7 +1,8 @@
 import { useEffect, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { AccountAlert } from '@/app/api/account/alerts/route'
-import { getSupabaseBrowser } from '@/lib/supabase'
+import { subscribeToDbChanges } from '@/lib/supabase-realtime'
+import { createRealtimeInvalidator } from '@/lib/realtime-invalidation'
 
 interface AlertsResponse {
   alerts: AccountAlert[]
@@ -38,75 +39,21 @@ export function useAccountAlerts() {
   const queryClient = useQueryClient()
 
   // Realtime: mantém o banner/alertas em sincronia sem depender apenas de polling.
+  // O broadcast `dispara-db` traz só id/type/code/dismissed (sem message/details) e o
+  // canal é público, então o evento só dispara um refetch pela API autenticada —
+  // com limite de taxa (debounce + maxWait, sem cancelar o fetch em curso): um flood
+  // de eventos forjados não vira um GET /api/account/alerts por evento.
   useEffect(() => {
-    const supabaseClient = getSupabaseBrowser()
-    if (!supabaseClient) return
-
-    const mapRowToAlert = (row: any): AccountAlert => {
-      const details = row?.details
-      return {
-        id: row?.id,
-        type: row?.type,
-        code: row?.code ?? null,
-        message: row?.message,
-        details:
-          details == null
-            ? null
-            : (typeof details === 'string' ? details : JSON.stringify(details)),
-        dismissed: !!row?.dismissed,
-        created_at: row?.created_at,
-      }
-    }
-
-    const channel = supabaseClient
-      .channel('account-alerts-realtime')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'account_alerts' },
-        (payload: any) => {
-          const eventType = payload?.eventType ?? payload?.type
-          const newRow = payload?.new ?? null
-          const oldRow = payload?.old ?? null
-
-          queryClient.setQueryData<AlertsResponse>(['account-alerts'], (current) => {
-            const existing = current?.alerts || []
-
-            // DELETE (raro no nosso caso; normalmente é UPDATE dismissed=true)
-            if (eventType === 'DELETE') {
-              const id = oldRow?.id
-              if (!id) return current
-              return { ...(current || {}), alerts: existing.filter((a) => a.id !== id) }
-            }
-
-            if (eventType === 'INSERT' || eventType === 'UPDATE') {
-              if (!newRow?.id) return current
-
-              // Se foi dispensado, some da lista
-              if (newRow.dismissed) {
-                return { ...(current || {}), alerts: existing.filter((a) => a.id !== newRow.id) }
-              }
-
-              const incoming = mapRowToAlert(newRow)
-              const idx = existing.findIndex((a) => a.id === incoming.id)
-              if (idx >= 0) {
-                const next = [...existing]
-                next[idx] = incoming
-                return { ...(current || {}), alerts: next }
-              }
-
-              // Mantém o comportamento do GET: mais recente primeiro, limite 10
-              return { ...(current || {}), alerts: [incoming, ...existing].slice(0, 10) }
-            }
-
-            return current
-          })
-        }
-      )
-      .subscribe()
-
+    const invalidator = createRealtimeInvalidator(queryClient)
+    const unsubscribe = subscribeToDbChanges(
+      () => {
+        invalidator.invalidate(['account-alerts'])
+      },
+      { table: 'account_alerts' }
+    )
     return () => {
-      void channel.unsubscribe()
-      supabaseClient.removeChannel(channel)
+      unsubscribe()
+      invalidator.cancel()
     }
   }, [queryClient])
 

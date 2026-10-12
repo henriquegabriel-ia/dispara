@@ -18,6 +18,10 @@ import type { WorkflowVisibility } from "@/lib/builder/api-client";
 import { validateTree } from "@/lib/builder/flow/tree-validate";
 import type { Flow } from "@/lib/builder/flow/types";
 import { parseWorkflowSettings } from "@/lib/builder/workflow-settings";
+import {
+  findWorkflowGraphIssues,
+  workflowGraphIssuesBody,
+} from "@/lib/builder/workflow-graph-guard";
 
 type RouteParams = {
   params: Promise<{ workflowId: string }>;
@@ -54,6 +58,14 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       { error: "Invalid workflow", details: validation.errors },
       { status: 400 }
     );
+  }
+  // O grafo cru vai direto para o executor: revalida no servidor TODAS as
+  // expressões de Condition e os actionTypes (não confia no compile do cliente).
+  const graphIssues = findWorkflowGraphIssues(normalized.nodes);
+  if (graphIssues.length > 0) {
+    return NextResponse.json(workflowGraphIssuesBody(graphIssues), {
+      status: 400,
+    });
   }
   // Árvore canônica do builder novo: valida estrutura leve antes de persistir.
   let tree: unknown;

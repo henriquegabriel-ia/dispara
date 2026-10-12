@@ -1,6 +1,17 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
+import { clearAttendantAuthCache } from '@/lib/attendant-auth';
+import { OWNER_KINDS, requirePrincipal } from '@/lib/principal';
 import type { AttendantToken, UpdateAttendantTokenDTO } from '@/types';
+
+// CRUD de tokens de atendente: só o dono (política default 'session' no proxy;
+// a checagem aqui é defesa em profundidade).
+//
+// Revogação: PATCH/DELETE chamam clearAttendantAuthCache(), mas isso só limpa a
+// cópia do cache que vive no bundle das ROTAS (ex.: /api/attendants/validate).
+// O proxy roda em outro bundle/função, com o próprio cache: lá o principal antigo
+// (permissões, ativo) ainda pode valer por até CACHE_TTL_MS de lib/attendant-auth.ts
+// (5s), por instância. Desativar também apaga as push subscriptions do token.
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -11,6 +22,9 @@ interface RouteParams {
 // =============================================================================
 
 export async function GET(request: Request, { params }: RouteParams) {
+  const denied = requirePrincipal(request, OWNER_KINDS);
+  if (denied) return denied;
+
   try {
     const { id } = await params;
 
@@ -42,6 +56,9 @@ export async function GET(request: Request, { params }: RouteParams) {
 // =============================================================================
 
 export async function PATCH(request: Request, { params }: RouteParams) {
+  const denied = requirePrincipal(request, OWNER_KINDS);
+  if (denied) return denied;
+
   try {
     const { id } = await params;
     const body: UpdateAttendantTokenDTO = await request.json();
@@ -85,6 +102,10 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       .select()
       .single();
 
+    // Permissões/ativo/expiração mudaram: não servir o principal antigo do cache
+    // deste bundle (o cache do proxy expira sozinho em até CACHE_TTL_MS)
+    clearAttendantAuthCache();
+
     if (error) {
       console.error('[API] Erro ao atualizar token:', error);
       return NextResponse.json(
@@ -98,6 +119,18 @@ export async function PATCH(request: Request, { params }: RouteParams) {
         { error: 'Token não encontrado' },
         { status: 404 }
       );
+    }
+
+    // Desativado: o aparelho do atendente para de receber push (nome do contato e
+    // prévia da mensagem). O envio também ignora tokens inativos/expirados.
+    if (updateData.is_active === false) {
+      const { error: pushError } = await supabase
+        .from('push_subscriptions')
+        .delete()
+        .eq('attendant_token_id', id);
+      if (pushError) {
+        console.error('[API] Erro ao remover push do atendente desativado:', pushError);
+      }
     }
 
     return NextResponse.json(data as AttendantToken);
@@ -115,6 +148,9 @@ export async function PATCH(request: Request, { params }: RouteParams) {
 // =============================================================================
 
 export async function DELETE(request: Request, { params }: RouteParams) {
+  const denied = requirePrincipal(request, OWNER_KINDS);
+  if (denied) return denied;
+
   try {
     const { id } = await params;
 
@@ -122,6 +158,10 @@ export async function DELETE(request: Request, { params }: RouteParams) {
       .from('attendant_tokens')
       .delete()
       .eq('id', id);
+
+    // Token removido: as rotas deste bundle param de aceitá-lo já; o proxy, em até
+    // CACHE_TTL_MS. As push subscriptions do token caem em cascata (FK ON DELETE CASCADE).
+    clearAttendantAuthCache();
 
     if (error) {
       console.error('[API] Erro ao deletar token:', error);

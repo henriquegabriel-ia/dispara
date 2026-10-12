@@ -47,7 +47,16 @@ export function FlowEndpointPanel({ devBaseUrl }: FlowEndpointPanelProps) {
       const res = await fetch('/api/flows/endpoint/keys', { method: 'POST' });
       const data = await res.json();
       if (data.success) {
-        toast.success('Chaves geradas com sucesso!');
+        // Chave salva localmente mas não registrada na Meta = Flows com endpoint
+        // continuam recebendo 421 até sincronizar: não é sucesso.
+        if (data.metaSync && data.metaSync.success === false) {
+          toast.warning(
+            `Chaves geradas, mas a sincronização com a Meta falhou${data.metaSync.error ? `: ${data.metaSync.error}` : ''}. ` +
+              'Use "Re-sincronizar chave dos Flows" no Diagnóstico da Meta ou gere novamente.'
+          );
+        } else {
+          toast.success('Chaves geradas com sucesso!');
+        }
         await fetchStatus();
       } else {
         toast.error(data.error || 'Erro ao gerar');

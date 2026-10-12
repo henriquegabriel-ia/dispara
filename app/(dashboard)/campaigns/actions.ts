@@ -2,6 +2,7 @@
 
 import { cache } from 'react'
 import { createClient } from '@/lib/supabase-server'
+import { hasOwnerPrincipal } from '@/lib/server-principal'
 import type { Campaign, CampaignFolder, CampaignTag } from '@/types'
 import type { CampaignListResult } from '@/services/campaignService'
 
@@ -11,11 +12,16 @@ const PAGE_SIZE = 20
  * Busca dados iniciais de campanhas no servidor (RSC).
  * Retorna primeira página com folders e tags para filtros.
  * Usa cache() para deduplicação per-request.
+ * Sem principal de dono devolve null (o client busca pelas APIs).
  */
-export const getCampaignsInitialData = cache(async (): Promise<CampaignListResult & {
+export const getCampaignsInitialData = cache(async (): Promise<(CampaignListResult & {
   folders: CampaignFolder[]
   tags: CampaignTag[]
-}> => {
+}) | null> => {
+  // Defesa em profundidade: sem principal de dono (ex.: modo degradado com banco
+  // fora), não consulta o banco — a página renderiza só o shell.
+  if (!(await hasOwnerPrincipal())) return null
+
   const supabase = await createClient()
 
   // Buscar campanhas (com folder e tags), folders e tags em PARALELO

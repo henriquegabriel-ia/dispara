@@ -20,9 +20,11 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { useTemplatesWithButtons } from '@/hooks/useTemplatesWithButtons'
 import { useAttendant } from '@/components/attendant/AttendantProvider'
+import { AttendantReconnectingBanner, AttendantReconnectingPage } from '@/components/attendant/AttendantReconnecting'
 import {
   useAttendantConversations,
   formatRelativeTime,
+  isAttendantAuthError,
   type AttendantConversation,
 } from '@/hooks/useAttendantConversations'
 
@@ -352,13 +354,13 @@ function LoadingPage() {
 
 export default function AtendimentoPage() {
   const router = useRouter()
-  const { isReady, isValidating, isAuthenticated, error, attendant, token } = useAttendant()
+  const { isReady, isValidating, isAuthenticated, isReconnecting, error, attendant, logout, retryNow } = useAttendant()
   const [activeTab, setActiveTab] = useState<FilterTab>('all')
   const [searchQuery, setSearchQuery] = useState('')
   const [buttonFilter, setButtonFilter] = useState<string | null>(null)
   const [templateFilter, setTemplateFilter] = useState<string | null>(null)
 
-  const { templates: templatesWithButtons } = useTemplatesWithButtons()
+  const { templates: templatesWithButtons } = useTemplatesWithButtons({ enabled: isAuthenticated })
   const activeTemplateMeta = useMemo(
     () => templatesWithButtons.find((t) => t.name === templateFilter),
     [templatesWithButtons, templateFilter]
@@ -377,12 +379,15 @@ export default function AtendimentoPage() {
     counts: apiCounts,
     isLoading,
     isRefetching,
+    error: conversationsError,
+    isReconnecting: conversationsReconnecting,
     refetch,
   } = useAttendantConversations({
     status: 'open',
     search: searchQuery || undefined,
     buttonPayload: buttonFilter || undefined,
     templateName: templateFilter || undefined,
+    enabled: isAuthenticated,
   })
 
   // Filtrar conversas por tab
@@ -422,9 +427,28 @@ export default function AtendimentoPage() {
     return <LoadingPage />
   }
 
+  // Banco/rede oscilando ao restaurar a sessão: não é "Acesso Negado" (o cookie
+  // continua válido) — tenta de novo com backoff
+  if (isReconnecting && !isAuthenticated) {
+    return <AttendantReconnectingPage onRetry={retryNow} />
+  }
+
   // Error state
   if (!isAuthenticated || error) {
     return <ErrorPage error={error || 'Token inválido'} />
+  }
+
+  // Sessão caiu no servidor (token revogado/expirado) ou sem permissão de visualizar
+  if (isAttendantAuthError(conversationsError)) {
+    return (
+      <ErrorPage
+        error={
+          conversationsError.status === 403
+            ? 'Você não tem permissão para visualizar conversas'
+            : 'Sua sessão expirou ou o acesso foi revogado'
+        }
+      />
+    )
   }
 
   return (
@@ -473,9 +497,11 @@ export default function AtendimentoPage() {
             {/* Logout button */}
             <button
               type="button"
-              onClick={() => {
+              onClick={async () => {
                 if (confirm('Deseja sair?')) {
-                  window.location.href = '/atendimento'
+                  // Apaga o cookie de sessão; recarrega para limpar o cache das consultas
+                  await logout()
+                  window.location.replace('/atendimento')
                 }
               }}
               className="p-2 rounded-md transition-colors"
@@ -514,6 +540,9 @@ export default function AtendimentoPage() {
           />
         </div>
       </header>
+
+      {/* 503/5xx/rede no polling: a lista atual fica na tela e o polling continua */}
+      {conversationsReconnecting && <AttendantReconnectingBanner />}
 
       {/* Filter tabs */}
       <FilterTabs activeTab={activeTab} onTabChange={setActiveTab} counts={counts} />
@@ -660,7 +689,7 @@ export default function AtendimentoPage() {
             <ConversationItem
               key={conversation.id}
               conversation={conversation}
-              onClick={() => router.push(`/atendimento/conversa/${conversation.id}${token ? `?token=${token}` : ''}`)}
+              onClick={() => router.push(`/atendimento/conversa/${conversation.id}`)}
             />
           ))
         )}

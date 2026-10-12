@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { timingSafeEqualString } from '@/lib/safe-compare'
 
 /**
  * Autenticação das chamadas de cron.
@@ -8,46 +9,36 @@ import { NextRequest, NextResponse } from 'next/server'
  * Supabase (via pg_net), que lê o `cron_secret` do Supabase Vault e o envia no header.
  *
  * Aceita, nesta ordem:
- *  - header `x-vercel-cron`            → Vercel Cron nativo (caso o deploy também use)
  *  - Authorization: Bearer <CRON_SECRET>      → pg_cron / auto-reinvocação
- *  - Authorization: Bearer <DISPARA_ADMIN_KEY> → disparo manual do admin
+ *  - Authorization: Bearer <DISPARA_ADMIN_KEY> → disparo manual do admin (e fallback
+ *    do reinvokeSelf quando CRON_SECRET não existe)
+ *
+ * NÃO aceita o header `x-vercel-cron`: o vercel.json não define crons e o header é
+ * forjável por qualquer cliente (principalmente em self-host/Docker).
  *
  * Fail-closed: sem header válido, nega. Comparação em tempo constante pra não vazar
- * o segredo por timing.
+ * o segredo por timing. É defesa em profundidade: o proxy.ts já exige o principal
+ * `cron` nas rotas com política `cron` (lib/route-policy.ts).
  */
 
 export interface CronAuthResult {
   valid: boolean
-  source?: 'vercel_cron' | 'cron_secret' | 'admin_key'
+  source?: 'cron_secret' | 'admin_key'
   error?: string
 }
 
-/** Comparação de strings em tempo constante (evita timing-attack no segredo). */
-function safeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false
-  let diff = 0
-  for (let i = 0; i < a.length; i++) {
-    diff |= a.charCodeAt(i) ^ b.charCodeAt(i)
-  }
-  return diff === 0
-}
-
-export function verifyCronRequest(request: NextRequest): CronAuthResult {
-  // Vercel Cron injeta este header automaticamente em jobs nativos.
-  if (request.headers.get('x-vercel-cron')) {
-    return { valid: true, source: 'vercel_cron' }
-  }
-
+export function verifyCronRequest(request: Pick<NextRequest, 'headers'>): CronAuthResult {
   const authHeader = request.headers.get('authorization')
   const bearer = authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : null
 
   if (bearer) {
-    const cronSecret = process.env.CRON_SECRET
-    if (cronSecret && safeEqual(bearer, cronSecret)) {
+    // Avalia as duas comparações sempre (sem curto-circuito).
+    const isCronSecret = timingSafeEqualString(bearer, process.env.CRON_SECRET)
+    const isAdminKey = timingSafeEqualString(bearer, process.env.DISPARA_ADMIN_KEY)
+    if (isCronSecret) {
       return { valid: true, source: 'cron_secret' }
     }
-    const adminKey = process.env.DISPARA_ADMIN_KEY
-    if (adminKey && safeEqual(bearer, adminKey)) {
+    if (isAdminKey) {
       return { valid: true, source: 'admin_key' }
     }
   }

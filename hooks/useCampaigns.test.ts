@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHookWithProviders, waitFor, act } from '@/tests/helpers/hook-test-utils'
 import { buildCampaign } from '@/tests/helpers/factories'
 
@@ -37,7 +37,14 @@ vi.mock('@/services/campaignService', () => ({
   },
 }))
 
-import { useCampaignsQuery, useCampaignMutations, useCampaignsController } from './useCampaigns'
+import {
+  CAMPAIGNS_LIVE_REFETCH_MS,
+  getCampaignsListRefetchInterval,
+  useCampaignsQuery,
+  useCampaignMutations,
+  useCampaignsController,
+} from './useCampaigns'
+import { CampaignStatus } from '@/types'
 
 // =============================================================================
 // FIXTURES
@@ -122,6 +129,77 @@ describe('useCampaignsQuery', () => {
         tagIds: ['tag-1'],
       })
     )
+  })
+
+  describe('convergência dos contadores (realtime de campaigns é throttled)', () => {
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('com campanha Enviando, a lista refaz o fetch sozinha (o último update da janela não vira evento)', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+      mockList.mockResolvedValue({
+        data: [buildCampaign({ status: CampaignStatus.SENDING, delivered: 10 })],
+        total: 1,
+      })
+      const params = { page: 1, search: '', status: 'All' }
+      renderHookWithProviders(() => useCampaignsQuery(params))
+      await waitFor(() => expect(mockList).toHaveBeenCalledTimes(1))
+
+      // Nenhum evento realtime chega: só o polling atualiza os contadores
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(CAMPAIGNS_LIVE_REFETCH_MS + 100)
+      })
+      expect(mockList).toHaveBeenCalledTimes(2)
+    })
+
+    it('sem campanha ativa nem recente, não faz polling', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+      mockList.mockResolvedValue({
+        data: [buildCampaign({ status: CampaignStatus.COMPLETED, completedAt: '2020-01-01T00:00:00Z' })],
+        total: 1,
+      })
+      const params = { page: 1, search: '', status: 'All' }
+      renderHookWithProviders(() => useCampaignsQuery(params))
+      await waitFor(() => expect(mockList).toHaveBeenCalledTimes(1))
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(CAMPAIGNS_LIVE_REFETCH_MS * 3)
+      })
+      expect(mockList).toHaveBeenCalledTimes(1)
+    })
+
+    it('getCampaignsListRefetchInterval: Enviando ou envio/conclusão nas últimas 24h', () => {
+      const now = Date.parse('2026-10-11T12:00:00Z')
+      const hoursAgo = (h: number) => new Date(now - h * 3600_000).toISOString()
+
+      expect(getCampaignsListRefetchInterval(undefined, now)).toBe(false)
+      expect(getCampaignsListRefetchInterval({ data: [], total: 0, limit: 20, offset: 0 }, now)).toBe(false)
+      expect(
+        getCampaignsListRefetchInterval([buildCampaign({ status: CampaignStatus.SENDING })], now)
+      ).toBe(CAMPAIGNS_LIVE_REFETCH_MS)
+      // Concluída há 2h: delivered/read ainda chegando
+      expect(
+        getCampaignsListRefetchInterval(
+          [buildCampaign({ status: CampaignStatus.COMPLETED, completedAt: hoursAgo(2) })],
+          now
+        )
+      ).toBe(CAMPAIGNS_LIVE_REFETCH_MS)
+      // Pausada/cancelada com envio recente
+      expect(
+        getCampaignsListRefetchInterval([buildCampaign({ status: CampaignStatus.PAUSED, lastSentAt: hoursAgo(1) })], now)
+      ).toBe(CAMPAIGNS_LIVE_REFETCH_MS)
+      // Tudo antigo ou rascunho
+      expect(
+        getCampaignsListRefetchInterval(
+          [
+            buildCampaign({ status: CampaignStatus.COMPLETED, completedAt: hoursAgo(30), lastSentAt: hoursAgo(31) }),
+            buildCampaign({ status: CampaignStatus.DRAFT }),
+          ],
+          now
+        )
+      ).toBe(false)
+    })
   })
 })
 

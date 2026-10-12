@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase-server'
+import { hasOwnerPrincipal } from '@/lib/server-principal'
 import type { LeadForm } from '@/types'
 
 export interface FormsInitialData {
@@ -11,8 +12,13 @@ export interface FormsInitialData {
 
 /**
  * Busca dados iniciais de formulários no servidor (RSC).
+ * Sem principal de dono devolve null (o client busca pelas APIs).
  */
-export async function getFormsInitialData(): Promise<FormsInitialData> {
+export async function getFormsInitialData(): Promise<FormsInitialData | null> {
+  // Defesa em profundidade: sem principal de dono (ex.: modo degradado com banco
+  // fora), não consulta o banco — a página renderiza só o shell.
+  if (!(await hasOwnerPrincipal())) return null
+
   const supabase = await createClient()
 
   // Buscar formulários e tags em paralelo

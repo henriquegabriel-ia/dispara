@@ -1,13 +1,18 @@
 import { randomBytes } from 'crypto'
 
 /**
- * Authentication & Authorization Middleware
+ * Authentication & Authorization helpers
  *
- * Provides API key authentication for all API routes
- * Protects against unauthorized access
+ * Verificação de API key (DISPARA_API_KEY / DISPARA_ADMIN_KEY) e respostas 401/403.
+ *
+ * A política de QUEM pode chamar cada rota NÃO mora mais aqui: ela é a tabela
+ * de lib/route-policy.ts, aplicada pelo proxy.ts (casamento exato por segmento).
+ * As antigas listas PUBLIC_ENDPOINTS/ADMIN_ENDPOINTS casavam por prefixo
+ * (`startsWith`) e expunham rotas inteiras por engano.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { timingSafeEqualString } from '@/lib/safe-compare'
 
 // ============================================================================
 // Types
@@ -20,46 +25,18 @@ export interface AuthResult {
 }
 
 // ============================================================================
-// Constants
-// ============================================================================
-
-// Admin endpoints that require special protection
-export const ADMIN_ENDPOINTS = [
-  '/api/database/init',
-  '/api/database/cleanup',
-  '/api/database/migrate',
-  '/api/database/fix-schema',
-  '/api/vercel/redeploy',
-  '/api/vercel/info',
-]
-
-// Public endpoints that don't require authentication
-export const PUBLIC_ENDPOINTS = [
-  '/api/webhook',        // Meta webhook verification
-  '/api/health',         // Health check
-  '/api/brand',          // Whitelabel branding (name/logo/color - public info only)
-  '/api/system',         // System status (public info only)
-  '/api/flows',          // Workflow management (internal dashboard)
-  '/api/flow-engine',    // Workflow execution engine (internal)
-  '/api/campaign/dispatch', // QStash dispatch webhook (signature verified)
-  '/api/attendants/validate', // Attendant token validation (public access)
-  '/api/attendant',      // Attendant conversations (token-based auth)
-  '/api/inbox/conversations', // Inbox conversations (used by attendant view)
-  '/api/inbox/chat',     // Inbox chat/reply (used by attendant view)
-  '/api/mem0',           // AI memory (used by attendant view)
-]
-
-// ============================================================================
 // API Key Verification
 // ============================================================================
 
 /**
  * Verify API key from request headers
- * 
+ *
  * Expects header: Authorization: Bearer <api_key>
  * Or: X-API-Key: <api_key>
+ *
+ * Comparação em tempo constante (lib/safe-compare.ts).
  */
-export async function verifyApiKey(request: NextRequest): Promise<AuthResult> {
+export async function verifyApiKey(request: Pick<NextRequest, 'headers'>): Promise<AuthResult> {
   // Extract API key from headers
   const authHeader = request.headers.get('authorization')
   const apiKeyHeader = request.headers.get('x-api-key')
@@ -83,11 +60,16 @@ export async function verifyApiKey(request: NextRequest): Promise<AuthResult> {
   const envApiKey = process.env.DISPARA_API_KEY
   const envAdminKey = process.env.DISPARA_ADMIN_KEY
 
-  if (envAdminKey && apiKey === envAdminKey) {
+  // Compara com as duas chaves sempre (sem curto-circuito) para não vazar por timing
+  // qual delas está configurada.
+  const isAdmin = timingSafeEqualString(apiKey, envAdminKey)
+  const isApi = timingSafeEqualString(apiKey, envApiKey)
+
+  if (isAdmin) {
     return { valid: true, keyType: 'admin' }
   }
 
-  if (envApiKey && apiKey === envApiKey) {
+  if (isApi) {
     return { valid: true, keyType: 'api' }
   }
 
@@ -98,24 +80,10 @@ export async function verifyApiKey(request: NextRequest): Promise<AuthResult> {
 }
 
 /**
- * Check if request is for an admin endpoint
- */
-export function isAdminEndpoint(pathname: string): boolean {
-  return ADMIN_ENDPOINTS.some(endpoint => pathname.startsWith(endpoint))
-}
-
-/**
- * Check if request is for a public endpoint
- */
-export function isPublicEndpoint(pathname: string): boolean {
-  return PUBLIC_ENDPOINTS.some(endpoint => pathname.startsWith(endpoint))
-}
-
-/**
  * Verify admin access
  * Returns true if request has admin-level API key
  */
-export async function verifyAdminAccess(request: NextRequest): Promise<AuthResult> {
+export async function verifyAdminAccess(request: Pick<NextRequest, 'headers'>): Promise<AuthResult> {
   const authResult = await verifyApiKey(request)
 
   if (!authResult.valid) {

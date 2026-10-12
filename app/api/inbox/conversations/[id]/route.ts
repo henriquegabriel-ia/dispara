@@ -5,6 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getConversation, patchConversation, deleteConversation } from '@/lib/inbox/inbox-service'
+import { OWNER_KINDS, requireAttendantPermission, requirePrincipal } from '@/lib/principal'
 
 const patchSchema = z.object({
   status: z.enum(['open', 'closed']).optional(),
@@ -22,6 +23,10 @@ export async function GET(
   request: NextRequest,
   { params }: RouteParams
 ) {
+  // Dono ou atendente com canView (PWA /atendimento)
+  const denied = requireAttendantPermission(request, 'canView')
+  if (denied) return denied
+
   try {
     const { id } = await params
 
@@ -48,6 +53,10 @@ export async function PATCH(
   request: NextRequest,
   { params }: RouteParams
 ) {
+  // Alterar status/modo/labels/agente: só o dono (atendente usa takeover/return-to-bot)
+  const denied = requirePrincipal(request, OWNER_KINDS)
+  if (denied) return denied
+
   try {
     const { id } = await params
     const body = await request.json()
@@ -77,6 +86,10 @@ export async function DELETE(
   request: NextRequest,
   { params }: RouteParams
 ) {
+  // Apagar conversa: só o dono
+  const denied = requirePrincipal(request, OWNER_KINDS)
+  if (denied) return denied
+
   try {
     const { id } = await params
 

@@ -2,6 +2,7 @@
 
 import { cache } from 'react'
 import { getSupabaseAdmin } from '@/lib/supabase'
+import { hasOwnerPrincipal } from '@/lib/server-principal'
 import { ContactStatus } from '@/types'
 import type { Contact, CustomFieldDefinition } from '@/types'
 
@@ -44,8 +45,13 @@ const normalizePhone = (phone: string) => {
 /**
  * Busca dados iniciais de contatos no servidor (RSC).
  * Usa cache() para deduplicação per-request.
+ * Sem principal de dono devolve null (o client busca pelas APIs).
  */
-export const getContactsInitialData = cache(async (): Promise<ContactsInitialData> => {
+export const getContactsInitialData = cache(async (): Promise<ContactsInitialData | null> => {
+  // Defesa em profundidade: sem principal de dono (ex.: modo degradado com banco
+  // fora), não consulta o banco — a página renderiza só o shell.
+  if (!(await hasOwnerPrincipal())) return null
+
   const supabase = getSupabaseAdmin()
   if (!supabase) {
     throw new Error('Supabase não configurado')

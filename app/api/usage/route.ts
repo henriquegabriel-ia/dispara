@@ -279,7 +279,8 @@ export async function GET() {
     },
     {
       headers: {
-        'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=120',
+        // Dados operacionais do dono: nunca em cache compartilhado (CDN).
+        'Cache-Control': 'private, no-store',
       },
     }
   )

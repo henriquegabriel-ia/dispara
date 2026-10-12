@@ -11,7 +11,7 @@
  */
 
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { useParams, useRouter, useSearchParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft,
@@ -27,6 +27,15 @@ import {
   Sparkles,
 } from 'lucide-react'
 import { useAttendant } from '@/components/attendant/AttendantProvider'
+import { AttendantReconnectingBanner, AttendantReconnectingPage } from '@/components/attendant/AttendantReconnecting'
+import {
+  AttendantApiError,
+  attendantPollingInterval,
+  isAttendantAuthError,
+  isAttendantTransientError,
+  shouldRetryAttendantQuery,
+  useStickyQueryError,
+} from '@/hooks/useAttendantConversations'
 import { toast } from 'sonner'
 
 // =============================================================================
@@ -71,13 +80,13 @@ type ConversationStatus = 'ai_active' | 'human_active' | 'handoff_requested'
 
 async function fetchConversation(id: string): Promise<Conversation> {
   const res = await fetch(`/api/inbox/conversations/${id}`)
-  if (!res.ok) throw new Error('Conversa não encontrada')
+  if (!res.ok) throw new AttendantApiError('Conversa não encontrada', res.status)
   return res.json()
 }
 
 async function fetchMessages(id: string, limit = 50): Promise<{ messages: Message[]; hasMore: boolean }> {
   const res = await fetch(`/api/inbox/conversations/${id}/messages?limit=${limit}`)
-  if (!res.ok) throw new Error('Erro ao buscar mensagens')
+  if (!res.ok) throw new AttendantApiError('Erro ao buscar mensagens', res.status)
   return res.json()
 }
 
@@ -440,29 +449,60 @@ function DisabledInputNotice({ message }: { message: string }) {
 export default function ConversaPage() {
   const params = useParams()
   const router = useRouter()
-  const searchParams = useSearchParams()
   const queryClient = useQueryClient()
-  const { isAuthenticated, canReply, canHandoff } = useAttendant()
+  const {
+    isReady,
+    isValidating,
+    isAuthenticated,
+    isReconnecting,
+    error: authError,
+    canReply,
+    canHandoff,
+    retryNow,
+  } = useAttendant()
 
   const conversationId = params.id as string
-  const token = searchParams.get('token')
   const [newMessage, setNewMessage] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   // Queries
-  const { data: conversation, isLoading: convLoading, error: convError } = useQuery({
+  const {
+    data: conversation,
+    isLoading: convLoading,
+    isSuccess: convSuccess,
+    error: convQueryError,
+    refetch: refetchConversation,
+  } = useQuery({
     queryKey: ['conversation', conversationId],
     queryFn: () => fetchConversation(conversationId),
+    // Só busca com a sessão de atendente validada (cookie); para o polling só em
+    // 401/403 — 503/5xx/rede seguem tentando
     enabled: isAuthenticated,
-    refetchInterval: 5000,
+    refetchInterval: (q) => attendantPollingInterval(q.state.error, 5000),
+    retry: shouldRetryAttendantQuery,
   })
 
-  const { data: messagesData, isLoading: msgsLoading } = useQuery({
+  const {
+    data: messagesData,
+    isLoading: msgsLoading,
+    isSuccess: msgsSuccess,
+    error: msgsQueryError,
+  } = useQuery({
     queryKey: ['messages', conversationId],
     queryFn: () => fetchMessages(conversationId, 100),
     enabled: isAuthenticated,
-    refetchInterval: 3000,
+    refetchInterval: (q) => attendantPollingInterval(q.state.error, 3000),
+    retry: shouldRetryAttendantQuery,
   })
+
+  // Sem dados em cache, o react-query zera o erro a cada nova rodada do polling; o
+  // último erro fica até a próxima resposta boa (senão a tela alternava spinner ↔
+  // "reconectando" a cada tick)
+  const convError = useStickyQueryError(convQueryError, convSuccess)
+  const msgsError = useStickyQueryError(msgsQueryError, msgsSuccess)
+
+  const convTransient = isAttendantTransientError(convError)
+  const connectionUnstable = convTransient || isAttendantTransientError(msgsError)
 
   const messages = messagesData?.messages ?? []
   const status = conversation ? mapConversationStatus(conversation) : 'ai_active'
@@ -506,25 +546,62 @@ export default function ConversaPage() {
   }, [newMessage, sendMutation])
 
   const handleBack = () => {
-    const backUrl = token ? `/atendimento?token=${token}` : '/atendimento'
-    router.push(backUrl)
+    // A sessão segue pelo cookie httpOnly — o token não trafega mais na URL
+    router.push('/atendimento')
   }
 
-  // Loading
-  if (convLoading || msgsLoading) {
+  const loadingSpinner = (
+    <div className="min-h-screen flex items-center justify-center bg-[var(--geist-background)]">
+      <Loader2 className="w-8 h-8 animate-spin text-[var(--geist-foreground-tertiary)]" />
+    </div>
+  )
+
+  // Validando a sessão (as queries só rodam autenticadas)
+  if (!isReady || isValidating) {
+    return loadingSpinner
+  }
+
+  // Banco/rede oscilando ao restaurar a sessão: o cookie continua válido — reconectando
+  if (isReconnecting && !isAuthenticated) {
+    return <AttendantReconnectingPage onRetry={retryNow} />
+  }
+
+  // Sem sessão de atendente (link sem token e sem cookie, token revogado/expirado)
+  if (!isAuthenticated) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[var(--geist-background)]">
-        <Loader2 className="w-8 h-8 animate-spin text-[var(--geist-foreground-tertiary)]" />
+      <div className="min-h-screen flex flex-col items-center justify-center px-4 text-center bg-[var(--geist-background)]">
+        <AlertCircle className="w-12 h-12 text-[var(--geist-error)] mb-4" />
+        <h2 className="text-lg font-semibold mb-2">Acesso Negado</h2>
+        <p className="text-sm text-[var(--geist-foreground-secondary)] max-w-sm">
+          {authError || 'Sessão de atendente não encontrada'}
+        </p>
       </div>
     )
   }
 
-  // Error
-  if (convError || !conversation) {
+  // 503/5xx/rede antes de a conversa carregar: não é "não encontrada"; o polling segue.
+  // Vem antes do spinner: sem dados, cada nova rodada volta a "carregando".
+  if (!conversation && convTransient) {
+    return <AttendantReconnectingPage onRetry={() => void refetchConversation()} />
+  }
+
+  // Primeira carga (um erro já conhecido não volta para o spinner a cada nova rodada)
+  if ((convLoading && !convError) || (msgsLoading && !msgsError)) {
+    return loadingSpinner
+  }
+
+  // Error (falha transitória com a conversa já carregada só mostra a faixa abaixo)
+  if ((convError && !convTransient) || !conversation) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center px-4 bg-[var(--geist-background)]">
         <AlertCircle className="w-12 h-12 text-[var(--geist-error)] mb-4" />
-        <h2 className="text-lg font-semibold mb-2">Conversa não encontrada</h2>
+        <h2 className="text-lg font-semibold mb-2">
+          {isAttendantAuthError(convError)
+            ? convError.status === 403
+              ? 'Sem permissão para visualizar esta conversa'
+              : 'Sua sessão expirou ou o acesso foi revogado'
+            : 'Conversa não encontrada'}
+        </h2>
         <button
           onClick={handleBack}
           className="text-[var(--geist-success)] text-sm hover:underline"
@@ -543,6 +620,8 @@ export default function ConversaPage() {
         conversation={conversation}
         onBack={handleBack}
       />
+
+      {connectionUnstable && <AttendantReconnectingBanner />}
 
       <StatusBar
         status={status}

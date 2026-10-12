@@ -4,7 +4,16 @@ import { normalizeSubscribedFields, type MetaSubscribedApp } from '@/lib/meta-we
 import { getVerifyToken } from '@/lib/verify-token'
 import { supabase } from '@/lib/supabase'
 import { getMetaAppCredentials } from '@/lib/meta-app-credentials'
+import { getMetaSignatureStatus, type MetaSignatureStatus } from '@/lib/meta-webhook-signature'
 import { fetchWithTimeout, safeJson } from '@/lib/server-http'
+import {
+	FLOW_KEYS_ALERT_ID_PREFIX,
+	FLOW_KEYS_RECOMMENDED_ACTION,
+	type FlowPublicKeyInspection,
+	getFlowDecryptFailureSummary,
+	inspectFlowPublicKey,
+} from '@/lib/whatsapp/flow-endpoint-keys'
+import { listRecentMetaIntegrationAlerts } from '@/lib/meta-integration-alerts'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -677,6 +686,192 @@ function summarizeHealthStatus(raw: any) {
 	}
 }
 
+function describeRecentSignatureFailures(status: MetaSignatureStatus): string {
+	const f = status.recentFailures
+	if (!f.total) return ''
+	const invalid = f.byReason.invalid_signature || 0
+	const missing = (f.byReason.missing_signature || 0) + (f.byReason.malformed_signature || 0)
+	const parts = [
+		invalid ? `${invalid} com assinatura que não confere` : null,
+		missing ? `${missing} sem assinatura/malformada(s)` : null,
+	].filter(Boolean)
+	return parts.length ? ` Falhas recentes (últimos ${f.windowMinutes} min, nesta instância): ${parts.join(', ')}.` : ''
+}
+
+function buildWebhookSignatureCheck(status: MetaSignatureStatus): DiagnosticCheck {
+	const details: Record<string, unknown> = {
+		mode: status.mode,
+		verification: status.verification,
+		secretSource: status.secretSource,
+		requireSignature: status.requireSignature,
+		verifiedAt: status.verifiedAt,
+		lastValidSignatureAt: status.lastValidSignatureAt,
+		recentFailures: status.recentFailures,
+		recentAlerts: status.recentAlerts,
+		recommendedAction: status.recommendedAction,
+	}
+	const openSettings = [
+		{ id: 'open_settings', label: 'Configurar App Secret', kind: 'link' as const, href: '/settings' },
+	]
+	const failures = describeRecentSignatureFailures(status)
+
+	if (status.error) {
+		return {
+			id: 'webhook_signature',
+			title: 'Assinatura do webhook (X-Hub-Signature-256)',
+			status: 'warn',
+			message: 'Não foi possível ler o App Secret agora; o webhook rejeita requisições até conseguir ler (fail-closed).',
+			details: { ...details, error: status.error },
+		}
+	}
+
+	if (status.mode === 'report_only') {
+		const invalid = status.recentFailures.byReason.invalid_signature || 0
+		return {
+			id: 'webhook_signature',
+			title: 'Assinatura do webhook (X-Hub-Signature-256)',
+			status: 'warn',
+			message:
+				'Em verificação (pending_verification): o App Secret salvo em Configurações ainda não foi confirmado por uma requisição assinada da Meta, então a assinatura é conferida mas NÃO exigida. ' +
+				(invalid
+					? 'Há requisições recentes com assinatura que não confere: confira se o App Secret é o do mesmo App da Meta que envia o webhook.'
+					: 'Passa a ser exigida automaticamente na primeira assinatura válida.') +
+				failures,
+			details,
+			actions: openSettings,
+		}
+	}
+
+	if (status.mode === 'enforced' && status.secretSource) {
+		const source = status.secretSource === 'env' ? 'env META_APP_SECRET' : 'Configurações'
+		const verified = status.verification === 'verified' ? ' (verified: confirmado por assinatura válida da Meta)' : ''
+		return {
+			id: 'webhook_signature',
+			title: 'Assinatura do webhook (X-Hub-Signature-256)',
+			status: 'pass',
+			message: `Exigida (App Secret via ${source})${verified}. Requisições sem assinatura válida são rejeitadas.${failures}`,
+			details,
+		}
+	}
+
+	if (status.rejectsAll) {
+		return {
+			id: 'webhook_signature',
+			title: 'Assinatura do webhook (X-Hub-Signature-256)',
+			status: 'fail',
+			message: 'META_WEBHOOK_REQUIRE_SIGNATURE=true sem App Secret: todo POST da Meta (webhook e Flows) está sendo rejeitado. Configure o App Secret em Configurações.',
+			details,
+			actions: openSettings,
+		}
+	}
+
+	return {
+		id: 'webhook_signature',
+		title: 'Assinatura do webhook (X-Hub-Signature-256)',
+		status: 'warn',
+		message:
+			'Não verificada (unsigned_allowed): sem App Secret, o webhook e o endpoint de Flows aceitam requisições sem assinatura — qualquer um que conheça a URL pode forjar mensagens recebidas, opt-outs e respostas de Flows. ' +
+			'Configurar o App Secret em Configurações é o que fecha esse buraco (status de templates vindos sem assinatura já são ignorados).',
+		details,
+		actions: openSettings,
+	}
+}
+
+async function buildFlowEndpointKeysCheck(): Promise<DiagnosticCheck> {
+	const title = 'Chave do endpoint de Flows (MiniApp Dinâmico)'
+	const failures = getFlowDecryptFailureSummary()
+	const [inspection, recentAlerts] = await Promise.all([
+		inspectFlowPublicKey().catch(
+			(error): FlowPublicKeyInspection => ({
+				status: 'failed',
+				error: error instanceof Error ? error.message : String(error),
+			})
+		),
+		listRecentMetaIntegrationAlerts(FLOW_KEYS_ALERT_ID_PREFIX, 3),
+	])
+	const details: Record<string, unknown> = {
+		inspection,
+		recentDecryptFailures: failures,
+		recentAlerts,
+		recommendedAction: FLOW_KEYS_RECOMMENDED_ACTION,
+	}
+	const syncAction = {
+		id: 'flow_keys_sync',
+		label: 'Re-sincronizar chave dos Flows',
+		kind: 'api' as const,
+		method: 'POST' as const,
+		endpoint: '/api/flows/endpoint/keys/sync',
+	}
+	const generateAction = {
+		id: 'flow_keys_generate',
+		label: 'Gerar chaves do endpoint de Flows',
+		kind: 'api' as const,
+		method: 'POST' as const,
+		endpoint: '/api/flows/endpoint/keys',
+	}
+	const failuresText = failures.total
+		? ` ${failures.total} falha(s) de decifração nos últimos ${failures.windowMinutes} min (nesta instância).`
+		: ''
+
+	switch (inspection.status) {
+		case 'in_sync':
+			return {
+				id: 'flow_endpoint_keys',
+				title,
+				status: 'pass',
+				message: `A chave pública registrada na Meta é a do endpoint.${failuresText}`,
+				details,
+			}
+		case 'mismatch':
+			return {
+				id: 'flow_endpoint_keys',
+				title,
+				status: inspection.metaHasKey || failures.total ? 'warn' : 'info',
+				message: inspection.metaHasKey
+					? `A chave pública registrada na Meta NÃO é a do endpoint: MiniApps com endpoint recebem erro 421 até re-sincronizar.${failuresText}`
+					: `Nenhuma chave pública registrada na Meta para este número (só necessária para MiniApps com endpoint).${failuresText}`,
+				details,
+				actions: [syncAction],
+			}
+		case 'missing_local_key':
+		case 'invalid_local_key': {
+			// Só falha com assinatura VERIFICADA é prova de que a Meta está chamando o
+			// endpoint; sem ela pode ser só lixo anônimo (qualquer um faz POST aqui).
+			const onlyUnverified = failures.total > 0 && failures.verifiedTotal === 0
+			return {
+				id: 'flow_endpoint_keys',
+				title,
+				status: failures.verifiedTotal ? 'fail' : failures.total ? 'warn' : 'info',
+				message:
+					(inspection.status === 'missing_local_key'
+						? 'Endpoint de Flows sem chave privada configurada (só necessária para MiniApps com endpoint).'
+						: 'A chave privada salva do endpoint de Flows é inválida.') +
+					failuresText +
+					(onlyUnverified ? ' Nenhuma delas tinha assinatura verificada: podem ser requisições de terceiros (ruído), não da Meta.' : ''),
+				details,
+				actions: [generateAction],
+			}
+		}
+		case 'no_credentials':
+			return {
+				id: 'flow_endpoint_keys',
+				title,
+				status: 'info',
+				message: `Sem credenciais do WhatsApp para conferir a chave na Meta.${failuresText}`,
+				details,
+			}
+		default:
+			return {
+				id: 'flow_endpoint_keys',
+				title,
+				status: failures.total ? 'warn' : 'info',
+				message: `Não foi possível conferir a chave registrada na Meta: ${inspection.error}.${failuresText}`,
+				details,
+				actions: [syncAction],
+			}
+	}
+}
+
 /**
  * GET /api/meta/diagnostics
  * Centraliza o diagnóstico (infra + credenciais + Graph API + sinais internos).
@@ -689,6 +884,7 @@ export async function GET() {
 
 	const credentials = await getWhatsAppCredentials().catch(() => null)
 	const source = credentials ? 'db' : 'none'
+	const webhookSignature = await getMetaSignatureStatus()
 
 	const checks: DiagnosticCheck[] = []
 
@@ -709,6 +905,9 @@ export async function GET() {
 			hasSupabaseSecretKey,
 		},
 	})
+
+	// 0.1) Assinatura do webhook: 'enforced' (com App Secret) ou 'unsigned_allowed'
+	checks.push(buildWebhookSignatureCheck(webhookSignature))
 
 	// 1) Credenciais
 	if (!credentials?.accessToken || !credentials?.businessAccountId || !credentials?.phoneNumberId) {
@@ -740,6 +939,7 @@ export async function GET() {
 				webhook: {
 					expectedUrl: webhookUrl,
 					verifyTokenPreview: maskTokenPreview(webhookToken),
+					signature: webhookSignature,
 				},
 				whatsapp: {
 					credentialsSource: source,
@@ -776,6 +976,9 @@ export async function GET() {
 			},
 		],
 	})
+
+	// 1.1) Endpoint de Flows: chave local x chave registrada na Meta + falhas de decifração
+	checks.push(await buildFlowEndpointKeysCheck())
 
 	// 2) Graph API — token sanity
 	const meta: Record<string, unknown> = {
@@ -1459,6 +1662,7 @@ export async function GET() {
 		webhook: {
 			expectedUrl: webhookUrl,
 			verifyTokenPreview: maskTokenPreview(webhookToken),
+			signature: webhookSignature,
 		},
 		whatsapp: {
 			credentialsSource: source,

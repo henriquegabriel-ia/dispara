@@ -6,6 +6,10 @@ import {
   getCompanyId,
   toSavedWorkflow,
 } from "@/lib/builder/workflow-db";
+import {
+  findWorkflowGraphIssues,
+  workflowGraphIssuesBody,
+} from "@/lib/builder/workflow-graph-guard";
 
 type RouteParams = {
   params: Promise<{ workflowId: string }>;
@@ -22,6 +26,15 @@ export async function POST(_request: Request, { params }: RouteParams) {
   }
   const companyId = await getCompanyId(supabase);
   const record = await ensureWorkflowRecord(supabase, workflowId, companyId);
+  // A cópia nasce como versão ativa (rascunho executável): mesma revalidação de
+  // condições e actionTypes do PATCH — senão duplicar um grafo gravado antes
+  // da revalidação "lavaria" uma condição maliciosa ou um passo removido.
+  const graphIssues = findWorkflowGraphIssues(record.version.nodes);
+  if (graphIssues.length > 0) {
+    return NextResponse.json(workflowGraphIssuesBody(graphIssues), {
+      status: 400,
+    });
+  }
   const duplicate = await createWorkflowRecord(
     supabase,
     {

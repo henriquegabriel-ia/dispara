@@ -13,11 +13,19 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { Lock, Eye, EyeOff, LogIn, AlertCircle, Info } from 'lucide-react'
 import { CorporateBackground } from '@/components/brand/CorporateBackground'
+import { ensureSameOriginPath, sanitizeRedirectPath } from '@/lib/auth-redirect'
+
+/** Último filtro antes do router.push: o destino tem que ficar no mesmo origin. */
+function sameOriginTarget(path: string): string {
+  return ensureSameOriginPath(path, window.location.origin)
+}
 
 function LoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const redirectTo = searchParams.get('redirect') || '/'
+  // Só caminhos relativos do próprio app (evita open redirect: //evil.com, /\evil.com,
+  // /..//evil.com, https://...)
+  const redirectTo = sanitizeRedirectPath(searchParams.get('redirect'))
 
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -60,13 +68,13 @@ function LoginForm() {
           // Instalação incompleta - redireciona para o wizard
           router.push('/install/wizard')
         } else if (data.isAuthenticated) {
-          router.push('/')
+          router.push(sameOriginTarget(redirectTo))
         }
       })
       .catch((err) => {
         console.error('🔍 [LOGIN] Auth status error:', err)
       })
-  }, [router, isLocalhost])
+  }, [router, isLocalhost, redirectTo])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -93,7 +101,7 @@ function LoginForm() {
       }
 
       // Redirect to original destination or dashboard
-      router.push(redirectTo)
+      router.push(sameOriginTarget(redirectTo))
       router.refresh()
 
     } catch (err) {

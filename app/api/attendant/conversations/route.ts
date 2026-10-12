@@ -7,6 +7,7 @@
 
 import { NextResponse } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabase'
+import { requireAttendantPermission } from '@/lib/principal'
 import type { InboxConversation, Contact } from '@/types'
 
 // =============================================================================
@@ -96,6 +97,10 @@ function formatPhoneForDisplay(phone: string): string {
 // =============================================================================
 
 export async function GET(request: Request) {
+  // Dono passa sempre; atendente só com canView
+  const denied = requireAttendantPermission(request, 'canView')
+  if (denied) return denied
+
   try {
     const supabase = getSupabaseAdmin()
     if (!supabase) {

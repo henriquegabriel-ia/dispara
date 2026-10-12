@@ -1,84 +1,40 @@
 /**
  * T069: Lightweight hook for unread conversations count
  * Used by sidebar to display unread badge without loading full conversation data
+ *
+ * A contagem vem da API autenticada (/api/inbox/unread-count) — o browser não lê
+ * mais tabelas direto com a chave publishable. A atualização em tempo real é feita
+ * pelo CentralizedRealtimeProvider, que invalida ['inbox-unread-count'] a cada
+ * evento de inbox_conversations/inbox_messages do broadcast `dispara-db`.
  */
 
-import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useMemo } from 'react'
-import { getSupabaseBrowser } from '@/lib/supabase'
+import { useQuery } from '@tanstack/react-query'
 
-const UNREAD_COUNT_KEY = ['inbox-unread-count']
+export const UNREAD_COUNT_KEY = ['inbox-unread-count']
+
+export async function fetchUnreadCount(): Promise<number> {
+  const response = await fetch('/api/inbox/unread-count', { cache: 'no-store' })
+  if (!response.ok) {
+    // 401/5xx: badge some em vez de quebrar a sidebar (o shell trata sessão expirada)
+    return 0
+  }
+  const data = (await response.json().catch(() => null)) as { count?: unknown } | null
+  const count = Number(data?.count)
+  return Number.isFinite(count) && count > 0 ? Math.floor(count) : 0
+}
 
 /**
  * Lightweight hook that returns total count of unread conversations
- * Subscribes to real-time updates for automatic refresh
+ * Refreshed by realtime invalidation (CentralizedRealtimeProvider)
  */
 export function useUnreadCount() {
-  const queryClient = useQueryClient()
-  const supabase = useMemo(() => getSupabaseBrowser(), [])
-
   // Query for unread count
   const query = useQuery({
     queryKey: UNREAD_COUNT_KEY,
-    queryFn: async () => {
-      if (!supabase) return 0
-
-      // Count conversations with unread_count > 0
-      const { count, error } = await supabase
-        .from('inbox_conversations')
-        .select('*', { count: 'exact', head: true })
-        .gt('unread_count', 0)
-        .eq('status', 'open')
-
-      if (error) {
-        console.error('[useUnreadCount] Error fetching count:', error)
-        return 0
-      }
-
-      return count ?? 0
-    },
+    queryFn: fetchUnreadCount,
     staleTime: 30_000, // 30 seconds
     refetchOnWindowFocus: true,
-    enabled: !!supabase,
   })
-
-  // Subscribe to real-time updates
-  useEffect(() => {
-    if (!supabase) return
-
-    const channel = supabase
-      .channel('unread-count-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'inbox_conversations',
-        },
-        () => {
-          // Invalidate on any conversation change
-          queryClient.invalidateQueries({ queryKey: UNREAD_COUNT_KEY })
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'inbox_messages',
-          filter: 'direction=eq.inbound',
-        },
-        () => {
-          // Invalidate on new inbound messages
-          queryClient.invalidateQueries({ queryKey: UNREAD_COUNT_KEY })
-        }
-      )
-      .subscribe()
-
-    return () => {
-      supabase.removeChannel(channel)
-    }
-  }, [supabase, queryClient])
 
   return {
     count: query.data ?? 0,

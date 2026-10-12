@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { useQueryClient, useMutation } from '@tanstack/react-query';
 import { templateProjectService, CreateTemplateProjectDTO } from '@/services/templateProjectService';
 import { useRealtimeQuery } from './useRealtimeQuery';
+import { REALTIME_FILTERS } from '@/lib/realtime-db-change';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
 
@@ -22,7 +23,7 @@ export const useTemplateProjectDetailsQuery = (id: string) => {
         queryKey: ['template_projects', id],
         queryFn: () => templateProjectService.getById(id),
         table: 'template_project_items',
-        filter: `project_id=eq.${id}`,
+        filter: REALTIME_FILTERS.projectItemsByProject(id),
         events: ['INSERT', 'UPDATE', 'DELETE'],
         // Note: This primarily listens to ITEM changes. 
         // Project-level changes (status) might need a separate subscription or manual invalidation if they happen outside this user's context.

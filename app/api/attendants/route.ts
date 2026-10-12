@@ -1,17 +1,25 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { randomBytes } from 'crypto';
+import { clearAttendantAuthCache } from '@/lib/attendant-auth';
+import { OWNER_KINDS, requirePrincipal } from '@/lib/principal';
 import type {
   AttendantToken,
   CreateAttendantTokenDTO,
   UpdateAttendantTokenDTO,
 } from '@/types';
 
+// CRUD de tokens de atendente: só o dono (política default 'session' no proxy;
+// a checagem aqui é defesa em profundidade — a lista devolve os tokens).
+
 // =============================================================================
 // GET - Listar todos os tokens de atendentes
 // =============================================================================
 
-export async function GET() {
+export async function GET(request: Request) {
+  const denied = requirePrincipal(request, OWNER_KINDS);
+  if (denied) return denied;
+
   try {
     const { data, error } = await supabase
       .from('attendant_tokens')
@@ -41,6 +49,9 @@ export async function GET() {
 // =============================================================================
 
 export async function POST(request: Request) {
+  const denied = requirePrincipal(request, OWNER_KINDS);
+  if (denied) return denied;
+
   try {
     const body: CreateAttendantTokenDTO = await request.json();
 
@@ -80,6 +91,10 @@ export async function POST(request: Request) {
         { status: 500 }
       );
     }
+
+    // Descarta o cache negativo deste bundle (token novo pode ter sido testado há
+    // segundos). O cache do proxy é outra cópia e expira sozinho (lib/attendant-auth.ts).
+    clearAttendantAuthCache();
 
     return NextResponse.json(data as AttendantToken, { status: 201 });
   } catch (error) {

@@ -7,6 +7,8 @@ import {
   preValidateConditionExpression,
   validateConditionExpression,
 } from "@/lib/builder/condition-validator";
+import { evaluateSafeExpression } from "@/lib/builder/condition-evaluator";
+import { isAllowedWorkflowActionType } from "@/lib/builder/action-types";
 import {
   getActionLabel,
   getStepImporter,
@@ -26,13 +28,11 @@ import {
   type WorkflowSettings,
 } from "@/lib/builder/workflow-settings";
 
-// System actions that don't have plugins - maps to module import functions
+// System actions that don't have plugins - maps to module import functions.
+// O antigo "Database Query" (SQL arbitrário via DATABASE_URL, sem UI que o
+// emitisse) foi removido; a allowlist (lib/builder/action-types.ts) barra o
+// actionType no save e aqui no runtime.
 const SYSTEM_ACTIONS: Record<string, StepImporter> = {
-  "Database Query": {
-    // biome-ignore lint/suspicious/noExplicitAny: Dynamic module import
-    importer: () => import("./steps/database-query") as Promise<any>,
-    stepFunction: "databaseQueryStep",
-  },
   "HTTP Request": {
     // biome-ignore lint/suspicious/noExplicitAny: Dynamic module import
     importer: () => import("./steps/http-request") as Promise<any>,
@@ -162,14 +162,21 @@ function replaceTemplateVariable(
 type ConditionEvalResult = {
   result: boolean;
   resolvedValues: Record<string, unknown>;
+  /**
+   * Expressão rejeitada pela gramática/política (não um false "normal"): vai
+   * para o log do passo, para a falha não passar como false silencioso.
+   */
+  expressionError?: string;
 };
 
 /**
  * Evaluate condition expression with template variable replacement
- * Uses Function constructor to evaluate user-defined conditions dynamically
  *
- * Security: Expressions are validated before evaluation to prevent code injection.
- * Only comparison operators, logical operators, and whitelisted methods are allowed.
+ * Security: a expressão NÃO é executada como código (sem new Function/eval).
+ * Ela é parseada para uma AST de um subconjunto restrito de JS e interpretada
+ * por lib/builder/condition-evaluator.ts: só variáveis __vN, literais,
+ * operadores de comparação/lógicos/aritméticos, leitura de propriedades
+ * próprias de dados e métodos da whitelist. Qualquer erro → condição falsa.
  */
 function evaluateConditionExpression(
   conditionExpression: unknown,
@@ -188,7 +195,11 @@ function evaluateConditionExpression(
     if (!preValidation.valid) {
       console.error("[Condition] Pre-validation failed:", preValidation.error);
       console.error("[Condition] Expression was:", conditionExpression);
-      return { result: false, resolvedValues: {} };
+      return {
+        result: false,
+        resolvedValues: {},
+        expressionError: preValidation.error,
+      };
     }
 
     try {
@@ -241,19 +252,12 @@ function evaluateConditionExpression(
           "[Condition] Transformed expression:",
           transformedExpression
         );
-        return { result: false, resolvedValues };
+        return { result: false, resolvedValues, expressionError: validation.error };
       }
 
-      const varNames = Object.keys(evalContext);
-      const varValues = Object.values(evalContext);
-
-      // Safe to evaluate - expression has been validated
-      // Only contains: variables (__v0, __v1), operators, literals, and whitelisted methods
-      const evalFunc = new Function(
-        ...varNames,
-        `return (${transformedExpression});`
-      );
-      const result = evalFunc(...varValues);
+      // Interpretador de AST restrita — nunca gera/executa código (o antigo
+      // new Function permitia RCE via __v0["constructor"]["constructor"](...)).
+      const result = evaluateSafeExpression(transformedExpression, evalContext);
       return { result: Boolean(result), resolvedValues };
     } catch (error) {
       console.error("[Condition] Failed to evaluate condition:", error);
@@ -405,8 +409,11 @@ async function executeActionStep(input: {
       (input: Record<string, unknown>) => Promise<unknown>
     >;
     const originalExpression = stepInput.condition;
-    const { result: evaluatedCondition, resolvedValues } =
-      evaluateConditionExpression(originalExpression, outputs, variables);
+    const {
+      result: evaluatedCondition,
+      resolvedValues,
+      expressionError,
+    } = evaluateConditionExpression(originalExpression, outputs, variables);
     console.log("[Condition] Final result:", evaluatedCondition);
 
     return await runWithRetry(
@@ -420,6 +427,7 @@ async function executeActionStep(input: {
               : undefined,
           values:
             Object.keys(resolvedValues).length > 0 ? resolvedValues : undefined,
+          expressionError,
           _context: context,
         }),
       Number.isFinite(retryCount) ? retryCount : 0,
@@ -428,8 +436,14 @@ async function executeActionStep(input: {
     );
   }
 
-  // Check system actions first (Database Query, HTTP Request)
-  const systemAction = SYSTEM_ACTIONS[actionType];
+  // Check system actions first (HTTP Request). Só chave PRÓPRIA: um actionType
+  // como "constructor" não pode cair em Object.prototype.
+  const systemAction = Object.prototype.hasOwnProperty.call(
+    SYSTEM_ACTIONS,
+    actionType
+  )
+    ? SYSTEM_ACTIONS[actionType]
+    : undefined;
   if (systemAction) {
     const mod = (await systemAction.importer()) as Record<
       string,
@@ -840,6 +854,17 @@ export async function executeWorkflow(
             result = {
               success: false,
               error: `Action node "${node.data.label || node.id}" has no action type configured`,
+            };
+          } else if (
+            !isAllowedWorkflowActionType(actionType) &&
+            !shouldTreatAsAskQuestion(actionType, config)
+          ) {
+            // Falha controlada: actionType fora da allowlist (ex.: o removido
+            // "Database Query", ou valor forjado no grafo cru) nunca é
+            // despachado. Nós com cara de "Perguntar" seguem a coerção antiga.
+            result = {
+              success: false,
+              error: `Action type "${actionType}" is not supported (node "${node.data.label || node.id}").`,
             };
           } else {
             const configWithoutCondition = { ...config };

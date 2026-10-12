@@ -5,9 +5,17 @@ import { ThemeProvider } from 'next-themes'
 import { CentralizedRealtimeProvider } from '@/components/providers/CentralizedRealtimeProvider'
 import { DevModeProvider } from '@/components/providers/DevModeProvider'
 import { PWAProvider } from '@/components/pwa'
+import { installUnauthorizedRedirect } from '@/lib/auth-redirect'
 import { useState } from 'react'
 
 export function Providers({ children }: { children: React.ReactNode }) {
+  // Tratamento global de 401: sessão expirada/inválida numa chamada /api (vinda do
+  // proxy) leva para /login?redirect=<página atual>, uma única vez. Instalado no
+  // primeiro render (antes das queries dos filhos dispararem); ignorado no SSR e nas
+  // páginas públicas (PWA /atendimento tem auth própria). Cobre React Query e os
+  // services que engolem o status.
+  useState(() => installUnauthorizedRedirect())
+
   const [queryClient] = useState(
     () =>
       new QueryClient({

@@ -12,6 +12,8 @@ import {
 } from '@/services/inboxService'
 import type { InboxConversation, InboxMessage, ConversationMode } from '@/types'
 import { CACHE, REALTIME } from '@/lib/constants'
+import { createRealtimeInvalidator } from '@/lib/realtime-invalidation'
+import { REALTIME_FILTERS } from '@/lib/realtime-db-change'
 import { useRealtimeQuery } from './useRealtimeQuery'
 import {
   createRealtimeChannel,
@@ -51,7 +53,7 @@ export function useConversation(conversationId: string | null) {
     // Real-time
     table: 'inbox_conversations',
     events: ['UPDATE'],
-    filter: conversationId ? `id=eq.${conversationId}` : undefined,
+    filter: conversationId ? REALTIME_FILTERS.conversationById(conversationId) : undefined,
     debounceMs: REALTIME.debounceDefault,
   })
 
@@ -204,52 +206,21 @@ export function useMessages(conversationId: string | null) {
 
     channelRef.current = channel
 
-    // Subscribe to INSERT events (new messages)
-    subscribeToTable(
-      channel,
-      'inbox_messages',
-      'INSERT',
-      (payload) => {
-        // Only refetch if the message is for this conversation
-        const newRecord = payload.new as { conversation_id?: string }
-        if (newRecord?.conversation_id === conversationId) {
-          // Invalidate to trigger refetch
-          queryClient.invalidateQueries({
-            queryKey: getMessagesQueryKey(conversationId),
-          })
-        }
-      },
-      `conversation_id=eq.${conversationId}`
-    )
+    // O canal `dispara-db` é público (qualquer um emite nele): o evento é só um SINAL.
+    // Nova mensagem (INSERT) e mudança de status de entrega (UPDATE) invalidam a lista
+    // e o status real vem da API autenticada — nunca do payload (um UPDATE forjado com
+    // delivery_status 'read' mostraria "lida" numa mensagem que o contato não leu).
+    // O invalidador limita a taxa (debounce + maxWait) e não cancela o fetch em curso.
+    const invalidator = createRealtimeInvalidator(queryClient, { waitMs: REALTIME.debounceDefault })
+    const invalidateMessages = () => {
+      invalidator.invalidate(getMessagesQueryKey(conversationId))
+    }
+
+    // Subscribe to INSERT events (new messages) — filtro por conversa no hub
+    subscribeToTable(channel, 'inbox_messages', 'INSERT', invalidateMessages, REALTIME_FILTERS.messagesByConversation(conversationId))
 
     // Also subscribe to UPDATE events (delivery status changes)
-    subscribeToTable(
-      channel,
-      'inbox_messages',
-      'UPDATE',
-      (payload) => {
-        const updatedRecord = payload.new as unknown as InboxMessage
-        if (updatedRecord?.conversation_id === conversationId) {
-          // Update the specific message in cache (optimistic)
-          queryClient.setQueryData(
-            getMessagesQueryKey(conversationId),
-            (old: typeof messagesQuery.data) => {
-              if (!old) return old
-              return {
-                ...old,
-                pages: old.pages.map((page) => ({
-                  ...page,
-                  messages: page.messages.map((m) =>
-                    m.id === updatedRecord.id ? { ...m, ...updatedRecord } : m
-                  ),
-                })),
-              }
-            }
-          )
-        }
-      },
-      `conversation_id=eq.${conversationId}`
-    )
+    subscribeToTable(channel, 'inbox_messages', 'UPDATE', invalidateMessages, REALTIME_FILTERS.messagesByConversation(conversationId))
 
     // Activate the channel
     activateChannel(channel).catch((err) => {
@@ -258,6 +229,7 @@ export function useMessages(conversationId: string | null) {
 
     // Cleanup on unmount or conversationId change
     return () => {
+      invalidator.cancel()
       if (channelRef.current) {
         removeChannel(channelRef.current)
         channelRef.current = null

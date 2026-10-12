@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useMutation, useQueryClient, type QueryKey } from '@tanstack/react-query';
 import { campaignService, type CampaignListResult } from '../services/campaignService';
-import { Campaign } from '../types';
+import { Campaign, CampaignStatus } from '../types';
 import { useRealtimeQuery } from './useRealtimeQuery';
 import { PAGINATION, CACHE, REALTIME } from '@/lib/constants';
 import { invalidateCampaigns } from '@/lib/query-invalidation';
@@ -10,6 +10,38 @@ type CampaignsQueryData =
   | Campaign[]
   | CampaignListResult
   | undefined;
+
+/** Intervalo do polling da lista enquanto há campanha com contadores mudando. */
+export const CAMPAIGNS_LIVE_REFETCH_MS = 30_000;
+/** Depois do último envio/conclusão, delivered/read ainda chegam por um tempo. */
+export const CAMPAIGNS_LIVE_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Polling condicional da lista /campaigns.
+ *
+ * O realtime de campaigns publica contadores no máximo 1x a cada 2s por campanha (e
+ * só o PRIMEIRO update de cada janela — ver a migration de hardening): o último
+ * delivered/read de uma rajada pode nunca virar evento. Enquanto houver campanha
+ * enviando, ou com envio/conclusão nas últimas 24h, a lista refaz o fetch a cada 30s
+ * para convergir; sem campanha ativa, custo zero.
+ */
+export const getCampaignsListRefetchInterval = (
+  data: CampaignsQueryData,
+  now: number = Date.now()
+): number | false => {
+  const list = Array.isArray(data) ? data : data?.data ?? [];
+  const isRecent = (at?: string | null) => {
+    const time = at ? Date.parse(at) : Number.NaN;
+    return Number.isFinite(time) && now - time < CAMPAIGNS_LIVE_WINDOW_MS;
+  };
+  const live = list.some(
+    (campaign) =>
+      campaign.status === CampaignStatus.SENDING ||
+      isRecent(campaign.lastSentAt) ||
+      isRecent(campaign.completedAt)
+  );
+  return live ? CAMPAIGNS_LIVE_REFETCH_MS : false;
+};
 
 const removeCampaignFromCache = (current: CampaignsQueryData, id: string): CampaignsQueryData => {
   if (!current) return current;
@@ -63,6 +95,9 @@ export const useCampaignsQuery = (
     staleTime: CACHE.campaigns,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
+    // Convergência dos contadores (o realtime de campaigns é throttled): só com a aba visível
+    refetchInterval: (query) => getCampaignsListRefetchInterval(query.state.data),
+    refetchIntervalInBackground: false,
     // Realtime configuration
     table: 'campaigns',
     events: ['INSERT', 'UPDATE', 'DELETE'],

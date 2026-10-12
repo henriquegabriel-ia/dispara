@@ -8,7 +8,7 @@ export const revalidate = 120
 
 async function FormsWithData() {
   const initialData = await getFormsInitialData()
-  return <FormsClientWrapper initialData={initialData} />
+  return <FormsClientWrapper initialData={initialData ?? undefined} />
 }
 
 /**

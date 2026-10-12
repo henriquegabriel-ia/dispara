@@ -7,6 +7,11 @@ import { NextRequest, NextResponse } from 'next/server';
  * Usado no step 2 do wizard de instalação.
  */
 export async function POST(req: NextRequest) {
+  // Installer desabilitado após a instalação (mesma trava das demais rotas do installer).
+  if (process.env.INSTALLER_ENABLED === 'false') {
+    return NextResponse.json({ error: 'Installer desabilitado' }, { status: 403 });
+  }
+
   try {
     const { token } = await req.json();
 

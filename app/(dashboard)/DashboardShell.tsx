@@ -25,6 +25,7 @@ import { campaignService } from '@/services/campaignService'
 import { contactService } from '@/services/contactService'
 import { templateService } from '@/services/templateService'
 import { settingsService } from '@/services/settingsService'
+import { saveMetaAppConfigWithFeedback } from '@/components/shared/save-meta-app-config'
 import { dashboardService } from '@/services/dashboardService'
 import { useUnreadCount } from '@/hooks/useUnreadCount'
 import { PrefetchLink } from '@/components/ui/PrefetchLink'
@@ -50,6 +51,7 @@ import {
 } from '@/components/features/setup'
 import { useOnboardingStatus } from '@/hooks/useOnboardingStatus'
 import { useBrand } from '@/hooks/useBrand'
+import { logoutAndRedirect } from '@/lib/logout-client'
 
 export function DashboardShell({
     children,
@@ -155,19 +157,16 @@ export function DashboardShell({
     // Whitelabel: nome/logo da marca do deploy (fallback 'Dispara' / /brand/logo.svg)
     const { brand } = useBrand()
 
-    // Logout handler
+    // Logout handler: revoga a sessão, limpa o cache do service worker e navega com
+    // reload completo (descarta Router Cache e React Query) — lib/logout-client.ts.
     const handleLogout = useCallback(async () => {
         setIsLoggingOut(true)
         try {
-            await fetch('/api/auth/logout', { method: 'POST' })
-            router.push('/login')
-            router.refresh()
-        } catch (error) {
-            console.error('Logout error:', error)
+            await logoutAndRedirect()
         } finally {
             setIsLoggingOut(false)
         }
-    }, [router])
+    }, [])
 
     // Prefetch data on hover for faster page loads
     const prefetchRoute = useCallback((path: string) => {
@@ -253,17 +252,22 @@ export function DashboardShell({
         },
     })
 
+    // Banco fora → overlay. Vale também para o payload público de /api/health
+    // (sessão não validável porque o banco caiu): ele traz services.database.status.
     const needsSetup = !!healthStatus &&
         healthStatus.services.database?.status !== 'ok'
 
+    // WhatsApp/webhook só são confiáveis no payload completo (dono); o público não os checa.
+    const fullHealthStatus = healthStatus?.scope === 'public' ? undefined : healthStatus
+
     // Determina se WhatsApp está conectado
-    const isWhatsAppConnected = healthStatus?.services.whatsapp?.status === 'ok'
+    const isWhatsAppConnected = fullHealthStatus?.services.whatsapp?.status === 'ok'
 
     // Determina se webhook está configurado
-    const isWebhookConfigured = healthStatus?.services.webhook?.status === 'ok'
+    const isWebhookConfigured = fullHealthStatus?.services.webhook?.status === 'ok'
 
     // Determina se precisa configurar webhook (WhatsApp conectado mas webhook não)
-    const needsWebhookSetup = isWhatsAppConnected && !isWebhookConfigured && healthStatus !== undefined
+    const needsWebhookSetup = isWhatsAppConnected && !isWebhookConfigured && fullHealthStatus !== undefined
 
 
     // Handler para salvar credenciais (NÃO marca como completo - o usuário ainda precisa configurar webhook)
@@ -285,22 +289,21 @@ export function DashboardShell({
             testContact: undefined,
         })
 
-        // Salva Meta App ID e Secret separadamente (se fornecido)
+        // Salva Meta App ID e Secret separadamente (se fornecido). Não bloqueia o
+        // onboarding, mas um App Secret recusado (ou não validado) vira toast — antes
+        // o erro sumia no console e o App ID também ficava sem salvar.
         if (credentials.metaAppId?.trim()) {
-            try {
-                await settingsService.saveMetaAppConfig({
-                    appId: credentials.metaAppId.trim(),
-                    appSecret: credentials.metaAppSecret?.trim() || '',
-                })
-            } catch (e) {
-                console.warn('Falha ao salvar Meta App config:', e)
-            }
+            await saveMetaAppConfigWithFeedback({
+                appId: credentials.metaAppId.trim(),
+                appSecret: credentials.metaAppSecret?.trim() || '',
+            })
         }
 
         // Revalida o health status e queries relacionadas
         refetchHealth()
         queryClient.invalidateQueries({ queryKey: ['settings'] })
         queryClient.invalidateQueries({ queryKey: ['allSettings'] })
+        queryClient.invalidateQueries({ queryKey: ['metaAppConfig'] })
         queryClient.invalidateQueries({ queryKey: ['account-limits'] })
 
         // Sincroniza templates automaticamente em background (não bloqueia o usuário)
@@ -653,10 +656,10 @@ export function DashboardShell({
 
                     {/* Onboarding Checklist LEGADO - mantido para transição */}
                     {/* Mostra se: onboarding completo (banco OU localStorage) E não dismissado E não minimizado E novo checklist não ativo */}
-                    {pathname === '/' && !isOnboardingCompletedInDb && !isOnboardingStatusLoading && (shouldShowChecklist) && !onboardingProgress.isChecklistMinimized && !onboardingProgress.isChecklistDismissed && healthStatus && (
+                    {pathname === '/' && !isOnboardingCompletedInDb && !isOnboardingStatusLoading && (shouldShowChecklist) && !onboardingProgress.isChecklistMinimized && !onboardingProgress.isChecklistDismissed && fullHealthStatus && (
                         <div className="mb-6">
                             <OnboardingChecklist
-                                healthStatus={healthStatus}
+                                healthStatus={fullHealthStatus}
                                 onNavigate={(path) => router.push(path)}
                                 onOpenStep={setForceModalStep}
                             />

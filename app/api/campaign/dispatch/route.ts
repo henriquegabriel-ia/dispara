@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { reinvokeSelf } from '@/lib/self-invoke'
+import { internalAuthHeaders, reinvokeSelf } from '@/lib/self-invoke'
 import { getWhatsAppCredentials } from '@/lib/whatsapp-credentials'
 import { supabase } from '@/lib/supabase'
 import { templateDb } from '@/lib/supabase-db'
@@ -11,7 +11,7 @@ import { getActiveSuppressionsByPhone } from '@/lib/phone-suppressions'
 import { fetchWithTimeout, safeJson } from '@/lib/server-http'
 
 import { CampaignStatus, ContactStatus } from '@/types'
-import { unauthorizedResponse, verifyApiKey } from '@/lib/auth'
+import { OWNER_KINDS, requirePrincipal } from '@/lib/principal'
 import { createHash } from 'crypto'
 
 interface DispatchContact {
@@ -176,19 +176,12 @@ async function fetchSingleTemplateFromMeta(params: {
 // Generate simple ID
 // Trigger campaign dispatch workflow
 export async function POST(request: NextRequest) {
+  // Auth: o proxy resolve o principal (política `session_or_cron`). Aceita o dono
+  // (sessão validada / API key / admin key) ou o cron (pg_cron → campanhas agendadas).
+  const authError = requirePrincipal(request, [...OWNER_KINDS, 'cron'])
+  if (authError) return authError
+
   const bodyText = await request.text()
-  const signature = request.headers.get('upstash-signature')
-  const cookieHeader = request.headers.get('cookie') || ''
-  const hasSession = cookieHeader.includes('dispara_session=')
-
-  // Auth: QStash requests têm signature header, requests manuais usam session ou API key
-  if (!signature && !hasSession) {
-    const authResult = await verifyApiKey(request)
-    if (!authResult.valid) {
-      return unauthorizedResponse(authResult.error)
-    }
-  }
-
   const body = bodyText ? JSON.parse(bodyText) : {}
   const { campaignId, templateName, whatsappCredentials, templateVariables, flowId } = body
   const trigger: 'schedule' | 'manual' | string | undefined = body?.trigger
@@ -1074,7 +1067,7 @@ export async function POST(request: NextRequest) {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${process.env.CRON_SECRET || process.env.DISPARA_ADMIN_KEY || ''}`,
+            ...internalAuthHeaders(),
           },
           body: JSON.stringify({ ...leanPayload, source: 'dispatch' }),
           timeoutMs: 30000,
