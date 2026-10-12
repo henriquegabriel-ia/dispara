@@ -51,9 +51,9 @@ export function PipelineFormModal({
       <ModalHeader
         icon={
           mode === 'create' ? (
-            <KanbanSquare size={24} className="text-primary-600 dark:text-primary-400" />
+            <KanbanSquare size={24} className="text-primary-600 legacy-dark:text-primary-400" />
           ) : (
-            <Pencil size={24} className="text-primary-600 dark:text-primary-400" />
+            <Pencil size={24} className="text-primary-600 legacy-dark:text-primary-400" />
           )
         }
         iconClassName="bg-primary-500/10"

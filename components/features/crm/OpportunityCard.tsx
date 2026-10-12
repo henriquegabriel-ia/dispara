@@ -29,15 +29,15 @@ import { formatBRL, getOpportunityContactLabel } from './crm-format'
 const STATUS_BADGES: Record<Exclude<OpportunityStatus, 'open'>, { label: string; className: string }> = {
   won: {
     label: 'Ganha',
-    className: 'bg-primary-500/10 text-primary-700 dark:text-primary-300 border-primary-500/30',
+    className: 'bg-primary-500/10 text-primary-700 legacy-dark:text-primary-300 border-primary-500/30',
   },
   lost: {
     label: 'Perdida',
-    className: 'bg-red-500/10 text-red-700 dark:text-red-300 border-red-500/30',
+    className: 'bg-red-500/10 text-red-700 legacy-dark:text-red-300 border-red-500/30',
   },
   abandoned: {
     label: 'Abandonada',
-    className: 'bg-zinc-500/10 text-zinc-600 dark:text-zinc-300 border-zinc-500/30',
+    className: 'bg-zinc-500/10 text-zinc-600 legacy-dark:text-zinc-300 border-zinc-500/30',
   },
 }
 
@@ -97,19 +97,19 @@ export function OpportunityCard({
           <DropdownMenuContent align="end" className="w-52">
             {opportunity.status !== 'won' && (
               <DropdownMenuItem onClick={() => onChangeStatus(opportunity, 'won')}>
-                <Trophy className="text-primary-600 dark:text-primary-400" />
+                <Trophy className="text-primary-600 legacy-dark:text-primary-400" />
                 Marcar como ganha
               </DropdownMenuItem>
             )}
             {opportunity.status !== 'lost' && (
               <DropdownMenuItem onClick={() => onChangeStatus(opportunity, 'lost')}>
-                <ThumbsDown className="text-red-600 dark:text-red-400" />
+                <ThumbsDown className="text-red-600 legacy-dark:text-red-400" />
                 Marcar como perdida
               </DropdownMenuItem>
             )}
             {opportunity.status !== 'abandoned' && (
               <DropdownMenuItem onClick={() => onChangeStatus(opportunity, 'abandoned')}>
-                <XCircle className="text-zinc-500 dark:text-zinc-400" />
+                <XCircle className="text-zinc-500 legacy-dark:text-zinc-400" />
                 Marcar como abandonada
               </DropdownMenuItem>
             )}
@@ -142,7 +142,7 @@ export function OpportunityCard({
       <div className="mt-2 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           {opportunity.value !== null && (
-            <span className="inline-flex items-center gap-1 text-xs font-semibold text-primary-700 dark:text-primary-400">
+            <span className="inline-flex items-center gap-1 text-xs font-semibold text-primary-700 legacy-dark:text-primary-400">
               <Banknote className="w-3.5 h-3.5" />
               {formatBRL(opportunity.value)}
             </span>

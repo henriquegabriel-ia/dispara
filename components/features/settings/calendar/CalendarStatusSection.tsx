@@ -67,7 +67,7 @@ export function CalendarStatusSection({
           <button
             type="button"
             onClick={handlePrimaryCalendarAction}
-            className="h-9 px-4 rounded-lg bg-primary-600 text-white hover:bg-primary-500 dark:bg-white dark:text-black dark:hover:bg-neutral-100 text-xs font-medium transition-colors"
+            className="h-9 px-4 rounded-lg bg-primary-600 text-white hover:bg-primary-500 legacy-dark:bg-white legacy-dark:text-black legacy-dark:hover:bg-neutral-100 text-xs font-medium transition-colors"
           >
             {calendarAuthStatus?.connected ? 'Gerenciar conexão' : 'Conectar Google Calendar'}
           </button>

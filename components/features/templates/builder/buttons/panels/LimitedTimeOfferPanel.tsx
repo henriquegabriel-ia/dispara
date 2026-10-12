@@ -111,13 +111,13 @@ export function LimitedTimeOfferPanel({
           </div>
 
           {limitedTimeOfferTextTooLong && (
-            <div className="text-xs text-amber-700 dark:text-amber-300">Texto do LTO deve ter ate 16 caracteres.</div>
+            <div className="text-xs text-amber-700 legacy-dark:text-amber-300">Texto do LTO deve ter ate 16 caracteres.</div>
           )}
           {limitedTimeOfferTextMissing && (
-            <div className="text-xs text-amber-700 dark:text-amber-300">Texto do LTO é obrigatório.</div>
+            <div className="text-xs text-amber-700 legacy-dark:text-amber-300">Texto do LTO é obrigatório.</div>
           )}
           {limitedTimeOfferCategoryInvalid && (
-            <div className="text-xs text-amber-700 dark:text-amber-300">Limited Time Offer so e permitido em Marketing.</div>
+            <div className="text-xs text-amber-700 legacy-dark:text-amber-300">Limited Time Offer so e permitido em Marketing.</div>
           )}
         </>
       )}

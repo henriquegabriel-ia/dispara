@@ -68,7 +68,7 @@ export function KanbanColumn({
           </div>
           <button
             onClick={() => onAddOpportunity(stage.id)}
-            className="shrink-0 p-1 rounded-md text-[var(--ds-text-muted)] hover:bg-[var(--ds-bg-hover)] hover:text-primary-600 dark:hover:text-primary-400 transition-colors"
+            className="shrink-0 p-1 rounded-md text-[var(--ds-text-muted)] hover:bg-[var(--ds-bg-hover)] hover:text-primary-600 legacy-dark:hover:text-primary-400 transition-colors"
             aria-label={`Nova oportunidade em ${stage.name}`}
             title="Nova oportunidade"
           >

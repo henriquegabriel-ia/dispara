@@ -101,7 +101,7 @@ export function WizardStepCalendarSelection({
               type="button"
               onClick={handleSaveCalendarSelection}
               disabled={!calendarSelectionId || calendarSelectionSaving}
-              className="h-10 px-5 rounded-lg bg-primary-600 text-white hover:bg-primary-500 dark:bg-white dark:text-black dark:hover:bg-neutral-100 text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed"
+              className="h-10 px-5 rounded-lg bg-primary-600 text-white hover:bg-primary-500 legacy-dark:bg-white legacy-dark:text-black legacy-dark:hover:bg-neutral-100 text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {calendarSelectionSaving ? 'Salvando...' : 'Salvar'}
             </button>

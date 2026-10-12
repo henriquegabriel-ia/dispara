@@ -75,7 +75,7 @@ export function WorkflowExecutionPanel({
               <button
                 onClick={handleSave}
                 disabled={!!isSaving}
-                className="h-10 px-5 rounded-xl bg-primary-600 text-white hover:bg-primary-500 dark:bg-white dark:text-black dark:hover:bg-neutral-100 font-semibold transition-all text-sm flex items-center gap-2 shadow-lg shadow-primary-500/10 disabled:opacity-50"
+                className="h-10 px-5 rounded-xl bg-primary-600 text-white hover:bg-primary-500 legacy-dark:bg-white legacy-dark:text-black legacy-dark:hover:bg-neutral-100 font-semibold transition-all text-sm flex items-center gap-2 shadow-lg shadow-primary-500/10 disabled:opacity-50"
               >
                 {isSaving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
                 Salvar

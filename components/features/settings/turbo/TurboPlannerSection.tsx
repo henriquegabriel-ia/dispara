@@ -249,7 +249,7 @@ export function TurboPlannerSection({
                 <button
                   type="button"
                   onClick={handleApplySuggestion}
-                  className="h-10 px-3 bg-primary-600 text-white dark:bg-white dark:text-black font-semibold rounded-lg hover:bg-primary-500 dark:hover:bg-neutral-100 transition-colors text-sm"
+                  className="h-10 px-3 bg-primary-600 text-white legacy-dark:bg-white legacy-dark:text-black font-semibold rounded-lg hover:bg-primary-500 legacy-dark:hover:bg-neutral-100 transition-colors text-sm"
                 >
                   Aplicar no Turbo
                 </button>

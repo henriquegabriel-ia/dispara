@@ -52,7 +52,7 @@ export const OnboardingOverlay = ({
                 : health?.services.database?.status === 'error'
                     ? 'error'
                     : 'pending',
-            icon: React.createElement(Database, { size: 20, className: 'text-primary-600 dark:text-primary-400' }),
+            icon: React.createElement(Database, { size: 20, className: 'text-primary-600 legacy-dark:text-primary-400' }),
             actionLabel: 'Abrir Assistente de Configuração',
             actionUrl: '/install',
             errorMessage: health?.services.database?.message,
@@ -73,7 +73,7 @@ export const OnboardingOverlay = ({
                 : health?.services.whatsapp.status === 'error'
                     ? 'error'
                     : 'pending',
-            icon: React.createElement(MessageCircle, { size: 20, className: 'text-green-600 dark:text-green-400' }),
+            icon: React.createElement(MessageCircle, { size: 20, className: 'text-green-600 legacy-dark:text-green-400' }),
             errorMessage: health?.services.whatsapp.message,
             isRequired: true,
             actionLabel: 'Configurar WhatsApp',
@@ -140,7 +140,7 @@ export const OnboardingOverlay = ({
                     {/* Redeploy warning */}
                     {completedSteps === 0 && (
                         <div className="mt-4 p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl">
-                            <p className="text-sm text-amber-700 dark:text-amber-300 mb-2">
+                            <p className="text-sm text-amber-700 legacy-dark:text-amber-300 mb-2">
                                 💡 <strong>Importante:</strong> Após configurar as variáveis no Vercel, faça um <strong>redeploy</strong> para ativá-las.
                             </p>
                             <div className="flex gap-2">
@@ -149,7 +149,7 @@ export const OnboardingOverlay = ({
                                         href={`${health.vercel.dashboardUrl}/deployments`}
                                         target="_blank"
                                         rel="noopener noreferrer"
-                                        className="text-xs px-3 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-700 dark:text-amber-300 rounded-lg transition-colors"
+                                        className="text-xs px-3 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-700 legacy-dark:text-amber-300 rounded-lg transition-colors"
                                     >
                                         Abrir Deployments →
                                     </a>
@@ -201,7 +201,7 @@ export const OnboardingOverlay = ({
                                         {/* Header */}
                                         <div className="flex items-center justify-between mb-2">
                                             <div className="flex items-center gap-2">
-                                                <h3 className={`font-semibold ${isConfigured ? 'text-primary-600 dark:text-primary-400' : isError ? 'text-red-600 dark:text-red-400' : 'text-[var(--ds-text-primary)]'
+                                                <h3 className={`font-semibold ${isConfigured ? 'text-primary-600 legacy-dark:text-primary-400' : isError ? 'text-red-600 legacy-dark:text-red-400' : 'text-[var(--ds-text-primary)]'
                                                     }`}>
                                                     {step.title}
                                                 </h3>
@@ -230,7 +230,7 @@ export const OnboardingOverlay = ({
                                         )}
 
                                         {isConfigured && (
-                                            <div className="flex items-center gap-2 text-sm text-primary-600 dark:text-primary-400 mt-3">
+                                            <div className="flex items-center gap-2 text-sm text-primary-600 legacy-dark:text-primary-400 mt-3">
                                                 <CheckCircle2 size={14} />
                                                 <span>Configurado</span>
                                             </div>
@@ -245,7 +245,7 @@ export const OnboardingOverlay = ({
                                                             key={i}
                                                             className="flex items-center gap-3 text-sm text-[var(--ds-text-secondary)]"
                                                         >
-                                                            <span className="shrink-0 w-5 h-5 rounded-full bg-primary-500/20 text-primary-600 dark:text-primary-400 flex items-center justify-center text-xs font-bold">
+                                                            <span className="shrink-0 w-5 h-5 rounded-full bg-primary-500/20 text-primary-600 legacy-dark:text-primary-400 flex items-center justify-center text-xs font-bold">
                                                                 {i + 1}
                                                             </span>
                                                             <span>{instruction}</span>
@@ -297,13 +297,13 @@ export const OnboardingOverlay = ({
                         <div className="mt-8 p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl">
                             <div className="flex items-start gap-3">
                                 <div className="p-2 bg-amber-500/20 rounded-lg">
-                                    <MessageCircle size={20} className="text-amber-600 dark:text-amber-400" />
+                                    <MessageCircle size={20} className="text-amber-600 legacy-dark:text-amber-400" />
                                 </div>
                                 <div>
-                                    <h4 className="font-medium text-amber-700 dark:text-amber-300 mb-1">
+                                    <h4 className="font-medium text-amber-700 legacy-dark:text-amber-300 mb-1">
                                         Infraestrutura pronta!
                                     </h4>
-                                    <p className="text-sm text-amber-700/70 dark:text-amber-200/70">
+                                    <p className="text-sm text-amber-700/70 legacy-dark:text-amber-200/70">
                                         Banco de dados configurado. Agora adicione suas credenciais do WhatsApp
                                         na página de configurações.
                                     </p>
@@ -344,7 +344,7 @@ export const OnboardingOverlay = ({
                             rel="noopener noreferrer"
                             className="flex items-center gap-2 p-3 bg-[var(--ds-bg-surface)] hover:bg-[var(--ds-bg-surface)] border border-[var(--ds-border-default)] rounded-xl text-sm text-[var(--ds-text-secondary)] transition-colors"
                         >
-                            <MessageCircle size={16} className="text-green-600 dark:text-green-400" />
+                            <MessageCircle size={16} className="text-green-600 legacy-dark:text-green-400" />
                             Docs: WhatsApp Cloud API
                             <ExternalLink size={12} className="text-[var(--ds-text-muted)] ml-auto" />
                         </a>

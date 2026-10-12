@@ -80,7 +80,7 @@ export function ManageStagesModal({
     <>
       <Modal isOpen={isOpen} onClose={onClose} maxWidth="lg" showCloseButton>
         <ModalHeader
-          icon={<Layers size={24} className="text-primary-600 dark:text-primary-400" />}
+          icon={<Layers size={24} className="text-primary-600 legacy-dark:text-primary-400" />}
           iconClassName="bg-primary-500/10"
           title="Gerenciar etapas"
           description={`Etapas do pipeline "${pipelineName}"`}
@@ -116,7 +116,7 @@ export function ManageStagesModal({
                   <button
                     onClick={confirmRename}
                     disabled={!editingName.trim() || isRenaming}
-                    className="shrink-0 p-1.5 rounded-md text-primary-600 dark:text-primary-400 hover:bg-primary-500/10 transition-colors disabled:opacity-50"
+                    className="shrink-0 p-1.5 rounded-md text-primary-600 legacy-dark:text-primary-400 hover:bg-primary-500/10 transition-colors disabled:opacity-50"
                     aria-label="Confirmar renomeação"
                   >
                     <Check className="w-4 h-4" />
@@ -144,7 +144,7 @@ export function ManageStagesModal({
                   <button
                     onClick={() => setStageToDelete(stage)}
                     disabled={sortedStages.length <= 1}
-                    className="shrink-0 p-1.5 rounded-md text-[var(--ds-text-muted)] hover:bg-red-500/10 hover:text-red-600 dark:hover:text-red-400 transition-colors disabled:opacity-40 disabled:pointer-events-none"
+                    className="shrink-0 p-1.5 rounded-md text-[var(--ds-text-muted)] hover:bg-red-500/10 hover:text-red-600 legacy-dark:hover:text-red-400 transition-colors disabled:opacity-40 disabled:pointer-events-none"
                     aria-label={`Excluir etapa ${stage.name}`}
                     title={
                       sortedStages.length <= 1

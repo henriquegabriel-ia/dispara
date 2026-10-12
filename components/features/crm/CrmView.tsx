@@ -132,7 +132,7 @@ export function CrmView({ controller }: CrmViewProps) {
         <div className="flex-1 flex items-center justify-center">
           <Container padding="xl" className="max-w-md text-center">
             <div className="mx-auto w-12 h-12 rounded-xl bg-primary-500/10 flex items-center justify-center mb-4">
-              <KanbanSquare className="w-6 h-6 text-primary-600 dark:text-primary-400" />
+              <KanbanSquare className="w-6 h-6 text-primary-600 legacy-dark:text-primary-400" />
             </div>
             <h2 className="text-lg font-semibold text-[var(--ds-text-primary)]">
               Crie seu primeiro pipeline

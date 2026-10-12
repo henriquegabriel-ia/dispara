@@ -78,7 +78,7 @@ export const ContactFilters: React.FC<ContactFiltersProps> = ({
         <button
           onClick={onToggleFilters}
           className={`p-2.5 rounded-xl border transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500 focus-visible:outline-offset-2 ${showFilters || statusFilter !== 'ALL' || tagsFilter.length > 0
-            ? 'text-primary-600 dark:text-primary-400 bg-primary-500/10 border-primary-500/30'
+            ? 'text-primary-600 legacy-dark:text-primary-400 bg-primary-500/10 border-primary-500/30'
             : 'text-[var(--ds-text-secondary)] hover:text-[var(--ds-text-primary)] hover:bg-[var(--ds-bg-hover)] border-[var(--ds-border-default)]'
             }`}
           aria-label={showFilters ? "Ocultar filtros avançados" : "Mostrar filtros avançados"}

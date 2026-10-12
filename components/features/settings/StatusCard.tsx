@@ -125,7 +125,7 @@ export const StatusCard = forwardRef<HTMLDivElement, StatusCardProps>(function S
             onClick={onToggleEdit}
             className={`group relative overflow-hidden rounded-xl h-10 px-4 text-sm font-medium transition-all duration-300 flex items-center justify-center gap-2 focus-visible:outline-2 focus-visible:outline-primary-500 focus-visible:outline-offset-2
               ${isEditing
-                ? 'bg-primary-600 text-white shadow-lg hover:bg-primary-500 dark:bg-white dark:text-black dark:hover:bg-neutral-100'
+                ? 'bg-primary-600 text-white shadow-lg hover:bg-primary-500 legacy-dark:bg-white legacy-dark:text-black legacy-dark:hover:bg-neutral-100'
                 : 'bg-[var(--ds-bg-hover)] text-[var(--ds-text-primary)] hover:bg-[var(--ds-bg-surface)] border border-[var(--ds-border-default)] hover:border-[var(--ds-border-strong)]'
               }`}
             aria-label={isEditing ? 'Cancelar edição das configurações' : 'Editar configurações'}

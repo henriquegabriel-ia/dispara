@@ -57,7 +57,7 @@ export function WizardStepConnect({
                 type="button"
                 onClick={handleConnectCalendar}
                 disabled={calendarConnectLoading}
-                className="h-10 px-6 rounded-lg bg-primary-600 text-white hover:bg-primary-500 dark:bg-white dark:text-black dark:hover:bg-neutral-100 font-medium disabled:opacity-50 inline-flex items-center gap-2"
+                className="h-10 px-6 rounded-lg bg-primary-600 text-white hover:bg-primary-500 legacy-dark:bg-white legacy-dark:text-black legacy-dark:hover:bg-neutral-100 font-medium disabled:opacity-50 inline-flex items-center gap-2"
               >
                 {calendarConnectLoading ? (
                   <><RefreshCw className="w-4 h-4 animate-spin" /> Conectando...</>

@@ -52,7 +52,7 @@ const TriggerNode = memo(function TriggerNode({ data, selected }: NodeProps) {
         className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
           isEmpty
             ? "border border-dashed border-[var(--ds-border-strong)] text-[var(--ds-text-muted)]"
-            : "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+            : "bg-amber-500/15 text-amber-600 legacy-dark:text-amber-400"
         }`}
       >
         {isEmpty ? <Plus size={16} /> : <Zap size={16} />}

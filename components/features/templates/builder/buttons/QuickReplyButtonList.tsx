@@ -65,7 +65,7 @@ export function QuickReplyButtonList({
                     {countChars(text)}/{maxButtonText}
                   </div>
                   {hasTextError && (
-                    <div className="mt-1 text-xs text-amber-700 dark:text-amber-300">Informe o texto do botão.</div>
+                    <div className="mt-1 text-xs text-amber-700 legacy-dark:text-amber-300">Informe o texto do botão.</div>
                   )}
                 </div>
 

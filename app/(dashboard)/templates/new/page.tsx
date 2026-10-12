@@ -408,7 +408,7 @@ Quanto mais informação, melhor!`}
                             <button
                                 onClick={handleExtract}
                                 disabled={rawContent.length < 50 || isExtracting}
-                                className="px-6 py-3 bg-primary-600 text-white dark:bg-white dark:text-black rounded-xl font-semibold flex items-center gap-2 transition-colors hover:bg-primary-700 dark:hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                                className="px-6 py-3 bg-primary-600 text-white legacy-dark:bg-white legacy-dark:text-black rounded-xl font-semibold flex items-center gap-2 transition-colors hover:bg-primary-700 legacy-dark:hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 {isExtracting ? (
                                     <>
@@ -562,7 +562,7 @@ Quanto mais informação, melhor!`}
                         </button>
                         <button
                             onClick={handleGoToStrategy}
-                            className="px-6 py-3 bg-primary-600 text-white dark:bg-white dark:text-black rounded-xl font-semibold flex items-center gap-2 transition-colors hover:bg-primary-700 dark:hover:bg-slate-200"
+                            className="px-6 py-3 bg-primary-600 text-white legacy-dark:bg-white legacy-dark:text-black rounded-xl font-semibold flex items-center gap-2 transition-colors hover:bg-primary-700 legacy-dark:hover:bg-slate-200"
                         >
                             Escolher Estratégia
                             <ArrowRight className="w-4 h-4" />
@@ -716,7 +716,7 @@ Quanto mais informação, melhor!`}
                         <button
                             onClick={handleGenerate}
                             disabled={!prompt}
-                            className="px-6 py-3 bg-primary-600 text-white dark:bg-white dark:text-black rounded-xl font-semibold flex items-center gap-2 transition-colors hover:bg-primary-700 dark:hover:bg-slate-200 disabled:opacity-50"
+                            className="px-6 py-3 bg-primary-600 text-white legacy-dark:bg-white legacy-dark:text-black rounded-xl font-semibold flex items-center gap-2 transition-colors hover:bg-primary-700 legacy-dark:hover:bg-slate-200 disabled:opacity-50"
                         >
                             <Wand2 className="w-5 h-5" />
                             Gerar Templates
@@ -766,7 +766,7 @@ Quanto mais informação, melhor!`}
                             <button
                                 onClick={handleSaveProject}
                                 disabled={isCreating || selectedIds.size === 0}
-                                className="px-6 py-2 bg-primary-600 text-white dark:bg-white dark:text-black rounded-lg font-semibold flex items-center gap-2 hover:bg-primary-700 dark:hover:bg-slate-200 disabled:opacity-50"
+                                className="px-6 py-2 bg-primary-600 text-white legacy-dark:bg-white legacy-dark:text-black rounded-lg font-semibold flex items-center gap-2 hover:bg-primary-700 legacy-dark:hover:bg-slate-200 disabled:opacity-50"
                             >
                                 {isCreating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                                 Salvar Projeto
@@ -784,7 +784,7 @@ Quanto mais informação, melhor!`}
                                     onMouseEnter={() => setHoveredId(t.id)}
                                     onMouseLeave={() => setHoveredId(null)}
                                     className={`relative p-4 rounded-2xl border cursor-pointer transition-all hover:shadow-lg ${selectedIds.has(t.id)
-                                            ? 'border-primary-600 dark:border-primary-400/40 bg-primary-100 dark:bg-primary-500/10'
+                                            ? 'border-primary-600 legacy-dark:border-primary-400/40 bg-primary-100 legacy-dark:bg-primary-500/10'
                                             : 'border-[var(--ds-border-default)] bg-[var(--ds-bg-surface)]'
                                         }`}
                                 >
@@ -830,7 +830,7 @@ Quanto mais informação, melhor!`}
                                     {t.buttons && t.buttons.length > 0 && (
                                         <div className="space-y-2">
                                             {t.buttons.map((btn, i) => (
-                                                <div key={i} className="w-full py-2 px-3 bg-[var(--ds-bg-elevated)] text-center text-primary-700 dark:text-primary-200 text-sm rounded font-medium border border-[var(--ds-border-default)]">
+                                                <div key={i} className="w-full py-2 px-3 bg-[var(--ds-bg-elevated)] text-center text-primary-700 legacy-dark:text-primary-200 text-sm rounded font-medium border border-[var(--ds-border-default)]">
                                                     {btn.type === 'URL' && <span className="mr-1">🔗</span>}
                                                     {btn.text}
                                                 </div>
@@ -855,13 +855,13 @@ Quanto mais informação, melhor!`}
 
                                     {/* AI Judgment */}
                                     {t.judgment && !t.judgment.approved && (
-                                        <div className="mt-4 p-2 bg-amber-100 dark:bg-amber-500/10 text-amber-700 dark:text-amber-200 text-xs rounded border border-amber-400 dark:border-amber-500/20 flex items-start gap-1">
+                                        <div className="mt-4 p-2 bg-amber-100 legacy-dark:bg-amber-500/10 text-amber-700 legacy-dark:text-amber-200 text-xs rounded border border-amber-400 legacy-dark:border-amber-500/20 flex items-start gap-1">
                                             <AlertCircle className="w-3 h-3 shrink-0 mt-0.5" />
                                             <span>{t.judgment.issues[0]?.reason || 'Problemas detectados'}</span>
                                         </div>
                                     )}
                                     {t.wasFixed && (
-                                        <div className="mt-4 p-2 bg-primary-100 dark:bg-primary-500/10 text-primary-700 dark:text-primary-200 text-xs rounded border border-primary-400 dark:border-primary-500/20 flex items-start gap-1">
+                                        <div className="mt-4 p-2 bg-primary-100 legacy-dark:bg-primary-500/10 text-primary-700 legacy-dark:text-primary-200 text-xs rounded border border-primary-400 legacy-dark:border-primary-500/20 flex items-start gap-1">
                                             <Sparkles className="w-3 h-3 shrink-0 mt-0.5 text-primary-300" />
                                             <span>Corrigido pelo AI Judge</span>
                                         </div>

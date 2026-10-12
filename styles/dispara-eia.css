@@ -1,0 +1,269 @@
+/* ==========================================================================
+   Dispara × DS Empreende IA V2 — ponte e desvios locais
+   --------------------------------------------------------------------------
+   Carregado DEPOIS de styles/eia-tokens.css e dos CSS de componentes do DS e
+   ANTES de styles/eia-light.css (que precisa ser o último). Tudo aqui vive em
+   .eia-theme (no <body>): os tokens --eia-* só existem dentro desse escopo e
+   os portais (dialog, menu, toast) também ficam dentro do body.
+
+   1. Fonte: Manrope via next/font (nome de família com hash).
+   2. Ponte --ds-* → --eia-*: o app ainda usa ~5,5 mil referências a --ds-*.
+      Cada PR de área troca essas referências por utilitários eia-*; quando a
+      catraca (npm run ds:report) zerar --ds-*, esta seção sai.
+   3. Paletas Tailwind remapeadas (slate/gray/zinc/neutral/stone → neutro
+      esverdeado; primary → esmeralda do DS). Só a matiz muda: a luminância de
+      cada passo é a mesma do Tailwind, então os pares claro/escuro
+      (`text-slate-700 legacy-dark:text-slate-300`) continuam legíveis.
+   4. Desvios locais documentados (lacunas do DS ainda não resolvidas no
+      repositório do DS).
+   Valores literais só onde o DS não tem token equivalente — comentados.
+   ========================================================================== */
+
+/* Fundo fora do body (overscroll, barras do navegador). Mesmos valores de
+   --eia-color-bg; html fica fora do escopo .eia-theme. */
+html {
+  background-color: #080a09;
+}
+html[data-eia-theme='light'] {
+  background-color: #f4f7f5;
+}
+
+.eia-theme {
+  /* 1. Fonte ---------------------------------------------------------------- */
+  --eia-font-body: var(--font-manrope), 'Manrope', Arial, sans-serif;
+  --eia-font-display: var(--font-manrope), 'Manrope', Arial, sans-serif;
+
+  /* Raio dos utilitários legados (rounded-sm/md/lg/xl derivam de --radius). */
+  --radius: var(--eia-radius-control);
+
+  /* 2. Ponte --ds-* → --eia-* ----------------------------------------------- */
+  --ds-font-display: var(--eia-font-display);
+  --ds-font-body: var(--eia-font-body);
+  --ds-font-mono: var(--eia-font-mono);
+
+  --ds-brand-primary: var(--eia-color-accent);
+  --ds-brand-primary-hover: var(--eia-color-accent-hover);
+  --ds-brand-primary-active: var(--eia-color-accent-pressed);
+  --ds-brand-primary-muted: color-mix(in srgb, var(--eia-color-accent) 12%, transparent);
+  --ds-brand-secondary: var(--eia-color-accent);
+  --ds-brand-secondary-hover: var(--eia-color-accent-hover);
+  --ds-brand-secondary-muted: color-mix(in srgb, var(--eia-color-accent) 12%, transparent);
+  --ds-brand-secondary-text: var(--eia-color-accent-text);
+
+  --ds-bg-base: var(--eia-color-bg);
+  --ds-bg-elevated: var(--eia-color-surface);
+  --ds-bg-elevated-hover: var(--eia-color-surface-hover);
+  --ds-bg-surface: var(--eia-color-surface-raised);
+  --ds-bg-tertiary: var(--eia-color-surface-raised);
+  --ds-bg-subtle: var(--eia-color-surface-raised);
+  --ds-bg-hover: color-mix(in srgb, var(--eia-color-text) 6%, transparent);
+  --ds-bg-overlay: var(--eia-material-scrim);
+  /* Cor sólida translúcida (usada em background-color: os materiais do DS são gradientes). */
+  --ds-bg-glass: color-mix(in srgb, var(--eia-color-surface) 80%, transparent);
+  --ds-bg-glass-header: color-mix(in srgb, var(--eia-color-bg) 85%, transparent);
+
+  --ds-text-primary: var(--eia-color-text);
+  --ds-text-secondary: var(--eia-color-text-muted);
+  --ds-text-muted: var(--eia-color-text-subtle);
+  --ds-text-brand: var(--eia-color-accent-text);
+  --ds-text-disabled: color-mix(in srgb, var(--eia-color-text-subtle) 65%, transparent);
+
+  --ds-border-subtle: var(--eia-border-subtle);
+  --ds-border-default: var(--eia-border-default);
+  --ds-border-strong: var(--eia-border-control);
+  --ds-border-focus: var(--eia-color-focus);
+
+  --ds-focus-outline: var(--eia-color-focus);
+  --ds-selection-bg: var(--eia-color-selection);
+  /* O DS não usa a grade de pontos decorativa no canvas da aplicação. */
+  --ds-dot-grid: transparent;
+
+  --ds-status-success: var(--eia-color-accent);
+  --ds-status-success-text: var(--eia-color-success);
+  --ds-status-success-bg: var(--eia-color-success-surface);
+  --ds-status-error: var(--eia-color-danger);
+  --ds-status-error-text: var(--eia-color-danger);
+  --ds-status-error-bg: var(--eia-color-danger-surface);
+  --ds-status-warning: var(--eia-color-warning);
+  --ds-status-warning-text: var(--eia-color-warning);
+  --ds-status-warning-bg: var(--eia-color-warning-surface);
+  /* O DS não tem azul: "info" é neutro. */
+  --ds-status-info: var(--eia-color-info);
+  --ds-status-info-text: var(--eia-color-info);
+  --ds-status-info-bg: var(--eia-color-info-surface);
+
+  /* Status de campanha sem segunda cor decorativa: rascunho/agendada/enviando
+     neutros (o ícone diferencia), concluída/pausada/falhou nos estados do DS. */
+  --ds-campaign-draft-text: var(--eia-color-text-muted);
+  --ds-campaign-draft-bg: var(--eia-color-info-surface);
+  --ds-campaign-scheduled-text: var(--eia-color-info);
+  --ds-campaign-scheduled-bg: var(--eia-color-info-surface);
+  --ds-campaign-sending-text: var(--eia-color-text);
+  --ds-campaign-sending-bg: var(--eia-color-info-surface);
+  --ds-campaign-completed-text: var(--eia-color-success);
+  --ds-campaign-completed-bg: var(--eia-color-success-surface);
+  --ds-campaign-paused-text: var(--eia-color-warning);
+  --ds-campaign-paused-bg: var(--eia-color-warning-surface);
+  --ds-campaign-failed-text: var(--eia-color-danger);
+  --ds-campaign-failed-bg: var(--eia-color-danger-surface);
+
+  /* Sombras: as do DS; brilhos esmeralda (assinatura antiga) desligados. */
+  --ds-shadow-xs: 0 1px 2px 0 #00000066;
+  --ds-shadow-sm: 0 2px 4px 0 #00000066;
+  --ds-shadow-md: var(--eia-shadow-panel);
+  --ds-shadow-lg: var(--eia-shadow-panel);
+  --ds-shadow-xl: var(--eia-shadow-panel);
+  --ds-shadow-2xl: var(--eia-shadow-hero);
+  --ds-shadow-card: var(--eia-shadow-panel);
+  --ds-shadow-card-hover: var(--eia-shadow-panel);
+  --ds-shadow-button: var(--eia-shadow-inset);
+  --ds-shadow-button-hover: var(--eia-shadow-inset);
+  --ds-shadow-button-primary: var(--eia-shadow-action);
+  --ds-shadow-button-primary-hover: var(--eia-shadow-action);
+  --ds-shadow-input-focus: 0 0 0 3px color-mix(in srgb, var(--eia-color-focus) 30%, transparent);
+  --ds-shadow-modal: var(--eia-shadow-overlay);
+  --ds-shadow-dropdown: var(--eia-shadow-overlay);
+  --ds-glow-brand-sm: 0 0 #0000;
+  --ds-glow-brand-md: 0 0 #0000;
+  --ds-glow-brand-ring: 0 0 0 3px color-mix(in srgb, var(--eia-color-focus) 30%, transparent);
+  --ds-glow-error-ring: 0 0 0 3px color-mix(in srgb, var(--eia-color-danger) 30%, transparent);
+  --ds-glow-secondary-sm: 0 0 #0000;
+  --ds-glow-secondary-ring: 0 0 0 3px color-mix(in srgb, var(--eia-color-focus) 30%, transparent);
+  --glow-primary: 0 0 #0000;
+  --glow-strong: 0 0 #0000;
+
+  --ds-duration-fastest: var(--eia-motion-fast);
+  --ds-duration-fast: var(--eia-motion-fast);
+  --ds-duration-normal: var(--eia-motion-normal);
+  --ds-duration-slow: var(--eia-motion-slow);
+  --ds-ease-out: var(--eia-motion-ease);
+  --ds-ease-in-out: var(--eia-motion-ease);
+  --ds-ease-spring: var(--eia-motion-ease);
+  --ds-transition-fast: all var(--eia-motion-fast) var(--eia-motion-ease);
+  --ds-transition-normal: all var(--eia-motion-normal) var(--eia-motion-ease);
+  --ds-transition-colors:
+    color var(--eia-motion-normal) var(--eia-motion-ease),
+    background-color var(--eia-motion-normal) var(--eia-motion-ease),
+    border-color var(--eia-motion-normal) var(--eia-motion-ease);
+
+  --ds-radius-sm: var(--eia-radius-small);
+  --ds-radius-md: var(--eia-radius-control);
+  --ds-radius-lg: var(--eia-radius-control);
+  --ds-radius-xl: var(--eia-radius-panel);
+  --ds-radius-2xl: var(--eia-radius-panel);
+  --ds-radius-full: var(--eia-radius-pill);
+
+  /* Campo de telefone (react-international-phone) */
+  --react-international-phone-height: var(--eia-control-md);
+  --react-international-phone-font-size: var(--eia-type-control);
+  --react-international-phone-border-radius: var(--eia-radius-control);
+  --react-international-phone-background-color: var(--eia-color-surface);
+  --react-international-phone-text-color: var(--eia-color-text);
+  --react-international-phone-border-color: var(--eia-border-control);
+  --react-international-phone-country-selector-background-color: var(--eia-color-surface);
+  --react-international-phone-country-selector-background-color-hover: var(--eia-color-surface-hover);
+  --react-international-phone-country-selector-border-color: var(--eia-border-control);
+  --react-international-phone-country-selector-arrow-color: var(--eia-color-text-subtle);
+  --react-international-phone-dropdown-item-background-color: var(--eia-color-surface);
+  --react-international-phone-dropdown-item-text-color: var(--eia-color-text);
+  --react-international-phone-dropdown-shadow: var(--eia-shadow-overlay);
+  --react-international-phone-dropdown-item-dial-code-color: var(--eia-color-text-subtle);
+  --react-international-phone-selected-dropdown-item-background-color: var(--eia-color-surface-hover);
+  --react-international-phone-selected-dropdown-item-text-color: var(--eia-color-text);
+
+  /* 3. Paletas Tailwind remapeadas ------------------------------------------
+     Neutros: mesma luminância (oklch L) do slate do Tailwind, matiz verde do
+     DS (155°) e croma reduzido. */
+  --color-slate-50: oklch(0.984 0.002 155);
+  --color-slate-100: oklch(0.968 0.004 155);
+  --color-slate-200: oklch(0.929 0.007 155);
+  --color-slate-300: oklch(0.869 0.01 155);
+  --color-slate-400: oklch(0.704 0.016 155);
+  --color-slate-500: oklch(0.554 0.018 155);
+  --color-slate-600: oklch(0.446 0.017 155);
+  --color-slate-700: oklch(0.372 0.017 155);
+  --color-slate-800: oklch(0.279 0.015 155);
+  --color-slate-900: oklch(0.208 0.014 155);
+  --color-slate-950: oklch(0.129 0.012 155);
+  --color-gray-50: var(--color-slate-50);
+  --color-gray-100: var(--color-slate-100);
+  --color-gray-200: var(--color-slate-200);
+  --color-gray-300: var(--color-slate-300);
+  --color-gray-400: var(--color-slate-400);
+  --color-gray-500: var(--color-slate-500);
+  --color-gray-600: var(--color-slate-600);
+  --color-gray-700: var(--color-slate-700);
+  --color-gray-800: var(--color-slate-800);
+  --color-gray-900: var(--color-slate-900);
+  --color-gray-950: var(--color-slate-950);
+  --color-zinc-50: var(--color-slate-50);
+  --color-zinc-100: var(--color-slate-100);
+  --color-zinc-200: var(--color-slate-200);
+  --color-zinc-300: var(--color-slate-300);
+  --color-zinc-400: var(--color-slate-400);
+  --color-zinc-500: var(--color-slate-500);
+  --color-zinc-600: var(--color-slate-600);
+  --color-zinc-700: var(--color-slate-700);
+  --color-zinc-800: var(--color-slate-800);
+  --color-zinc-900: var(--color-slate-900);
+  --color-zinc-950: var(--color-slate-950);
+  --color-neutral-50: var(--color-slate-50);
+  --color-neutral-100: var(--color-slate-100);
+  --color-neutral-200: var(--color-slate-200);
+  --color-neutral-300: var(--color-slate-300);
+  --color-neutral-400: var(--color-slate-400);
+  --color-neutral-500: var(--color-slate-500);
+  --color-neutral-600: var(--color-slate-600);
+  --color-neutral-700: var(--color-slate-700);
+  --color-neutral-800: var(--color-slate-800);
+  --color-neutral-900: var(--color-slate-900);
+  --color-neutral-950: var(--color-slate-950);
+  --color-stone-50: var(--color-slate-50);
+  --color-stone-100: var(--color-slate-100);
+  --color-stone-200: var(--color-slate-200);
+  --color-stone-300: var(--color-slate-300);
+  --color-stone-400: var(--color-slate-400);
+  --color-stone-500: var(--color-slate-500);
+  --color-stone-600: var(--color-slate-600);
+  --color-stone-700: var(--color-slate-700);
+  --color-stone-800: var(--color-slate-800);
+  --color-stone-900: var(--color-slate-900);
+  --color-stone-950: var(--color-slate-950);
+
+  /* primary-*: esmeralda do DS. Passos ancorados nos tokens de acento
+     (300 = accent-text escuro, 400 = accent-bright, 500 = accent,
+     600 = accent-hover, 700 = accent-text claro, 800 = accent-pressed,
+     950 = text-inverse); os demais seguem a mesma matiz em oklch. */
+  --color-primary-50: oklch(0.975 0.02 160);
+  --color-primary-100: oklch(0.95 0.045 160);
+  --color-primary-200: oklch(0.905 0.08 160);
+  --color-primary-300: #8de7bb;
+  --color-primary-400: #65dfab;
+  --color-primary-500: #0fa968;
+  --color-primary-600: #158359;
+  --color-primary-700: #08643e;
+  --color-primary-800: #095436;
+  --color-primary-900: oklch(0.33 0.06 160);
+  --color-primary-950: #062418;
+  --color-emerald-50: var(--color-primary-50);
+  --color-emerald-100: var(--color-primary-100);
+  --color-emerald-200: var(--color-primary-200);
+  --color-emerald-300: var(--color-primary-300);
+  --color-emerald-400: var(--color-primary-400);
+  --color-emerald-500: var(--color-primary-500);
+  --color-emerald-600: var(--color-primary-600);
+  --color-emerald-700: var(--color-primary-700);
+  --color-emerald-800: var(--color-primary-800);
+  --color-emerald-900: var(--color-primary-900);
+  --color-emerald-950: var(--color-primary-950);
+}
+
+/* Claro: só o que não deriva de --eia-* (sombras pequenas literais). */
+html[data-eia-theme='light'] .eia-theme {
+  --ds-shadow-xs: 0 1px 2px 0 #183d2914;
+  --ds-shadow-sm: 0 2px 4px 0 #183d2917;
+}
+
+/* 4. Desvios locais ---------------------------------------------------------
+   (vazio na fundação; entram com o PR-3: kicker do EiaDialog, cor do ícone
+   de aviso no toast, rótulos sr-only em barras de filtro) */

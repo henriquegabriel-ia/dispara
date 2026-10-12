@@ -149,7 +149,7 @@ export function TestContactPanel({
             <button
               onClick={handleSave}
               disabled={isSaving}
-              className="h-10 px-4 bg-[var(--ds-status-warning)] hover:opacity-90 text-white dark:text-black font-medium rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50"
+              className="h-10 px-4 bg-[var(--ds-status-warning)] hover:opacity-90 text-white legacy-dark:text-black font-medium rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50"
             >
               <Smartphone size={16} />
               Salvar Contato de Teste

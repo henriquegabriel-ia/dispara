@@ -206,7 +206,7 @@ export const SetupWizardView: React.FC<SetupWizardViewProps> = ({
           {onContinueToSettings && (
             <button
               onClick={onContinueToSettings}
-              className="w-full py-4 bg-primary-600 hover:bg-primary-500 text-white dark:bg-white dark:hover:bg-neutral-100 dark:text-black font-bold rounded-xl transition-colors flex items-center justify-center gap-2"
+              className="w-full py-4 bg-primary-600 hover:bg-primary-500 text-white legacy-dark:bg-white legacy-dark:hover:bg-neutral-100 legacy-dark:text-black font-bold rounded-xl transition-colors flex items-center justify-center gap-2"
             >
               Ir para Configurações
               <ChevronRight size={20} />

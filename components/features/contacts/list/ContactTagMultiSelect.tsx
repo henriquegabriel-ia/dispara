@@ -73,7 +73,7 @@ export const ContactTagMultiSelect: React.FC<ContactTagMultiSelectProps> = ({
         <button
           type="button"
           className={`px-4 py-2.5 text-sm font-medium rounded-xl border transition-colors outline-none cursor-pointer flex items-center gap-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500 focus-visible:outline-offset-2 ${hasSelection
-            ? 'text-primary-600 dark:text-primary-400 bg-primary-500/10 border-primary-500/30'
+            ? 'text-primary-600 legacy-dark:text-primary-400 bg-primary-500/10 border-primary-500/30'
             : 'bg-[var(--ds-bg-elevated)] text-[var(--ds-text-primary)] border-[var(--ds-border-default)] hover:bg-[var(--ds-bg-hover)]'
             }`}
           aria-label="Filtrar contatos por tags"
@@ -98,7 +98,7 @@ export const ContactTagMultiSelect: React.FC<ContactTagMultiSelectProps> = ({
               aria-checked={tagMatch === 'any'}
               onClick={() => onTagMatchChange('any')}
               className={`flex-1 px-2 py-1.5 text-xs font-medium rounded-md transition-colors ${tagMatch === 'any'
-                ? 'bg-primary-500/15 text-primary-600 dark:text-primary-400'
+                ? 'bg-primary-500/15 text-primary-600 legacy-dark:text-primary-400'
                 : 'text-[var(--ds-text-secondary)] hover:text-[var(--ds-text-primary)] hover:bg-[var(--ds-bg-hover)]'
                 }`}
             >
@@ -110,7 +110,7 @@ export const ContactTagMultiSelect: React.FC<ContactTagMultiSelectProps> = ({
               aria-checked={tagMatch === 'all'}
               onClick={() => onTagMatchChange('all')}
               className={`flex-1 px-2 py-1.5 text-xs font-medium rounded-md transition-colors ${tagMatch === 'all'
-                ? 'bg-primary-500/15 text-primary-600 dark:text-primary-400'
+                ? 'bg-primary-500/15 text-primary-600 legacy-dark:text-primary-400'
                 : 'text-[var(--ds-text-secondary)] hover:text-[var(--ds-text-primary)] hover:bg-[var(--ds-bg-hover)]'
                 }`}
             >
@@ -179,7 +179,7 @@ export const ContactTagMultiSelect: React.FC<ContactTagMultiSelectProps> = ({
             <button
               type="button"
               onClick={() => onChange([])}
-              className="w-full px-2 py-1.5 text-xs font-medium text-primary-600 dark:text-primary-400 hover:bg-[var(--ds-bg-hover)] rounded-lg transition-colors"
+              className="w-full px-2 py-1.5 text-xs font-medium text-primary-600 legacy-dark:text-primary-400 hover:bg-[var(--ds-bg-hover)] rounded-lg transition-colors"
             >
               Limpar seleção
             </button>

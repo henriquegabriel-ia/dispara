@@ -87,7 +87,7 @@ export function StepConfig({
             value={spec.name || ''}
             onChange={(e) => update({ name: e.target.value })}
             className={`bg-[var(--ds-bg-elevated)] text-[var(--ds-text-primary)] ${
-              isNameValid ? 'border-[var(--ds-border-default)]' : 'border-amber-600 dark:border-amber-400/40'
+              isNameValid ? 'border-[var(--ds-border-default)]' : 'border-amber-600 legacy-dark:border-amber-400/40'
             }`}
           />
           <p className="text-xs text-[var(--ds-text-muted)]">Apenas <span className="font-mono">a-z 0-9 _</span></p>

@@ -76,7 +76,7 @@ export function NewOpportunityModal({
   return (
     <Modal isOpen={isOpen} onClose={onClose} maxWidth="md" showCloseButton>
       <ModalHeader
-        icon={<Target size={24} className="text-primary-600 dark:text-primary-400" />}
+        icon={<Target size={24} className="text-primary-600 legacy-dark:text-primary-400" />}
         iconClassName="bg-primary-500/10"
         title="Nova oportunidade"
         description={stage ? `Será criada na etapa "${stage.name}"` : undefined}
@@ -88,7 +88,7 @@ export function NewOpportunityModal({
           <Label htmlFor="opportunity-contact">Contato (opcional)</Label>
           {selectedContact ? (
             <div className="flex items-center gap-2 rounded-lg border border-[var(--ds-border-default)] bg-[var(--ds-bg-surface)]/30 px-3 py-2">
-              <CircleUser className="w-4 h-4 shrink-0 text-primary-600 dark:text-primary-400" />
+              <CircleUser className="w-4 h-4 shrink-0 text-primary-600 legacy-dark:text-primary-400" />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-[var(--ds-text-primary)] truncate">
                   {selectedContact.name || 'Sem nome'}
@@ -182,7 +182,7 @@ export function NewOpportunityModal({
             aria-invalid={isValueInvalid}
           />
           {isValueInvalid && (
-            <p className="text-xs text-red-600 dark:text-red-400">Informe um valor válido.</p>
+            <p className="text-xs text-red-600 legacy-dark:text-red-400">Informe um valor válido.</p>
           )}
         </div>
 

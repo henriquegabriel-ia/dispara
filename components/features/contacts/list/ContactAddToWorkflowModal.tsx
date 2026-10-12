@@ -100,7 +100,7 @@ export function ContactAddToWorkflowModal({
               </div>
             </>
           ) : (
-            <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
+            <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 legacy-dark:text-amber-400">
               <AlertTriangle size={16} className="mt-0.5 shrink-0" aria-hidden="true" />
               <span>
                 Nenhum workflow publicado. Publique um workflow no builder antes
