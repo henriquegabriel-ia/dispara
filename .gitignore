@@ -80,6 +80,8 @@ metadata.json
 scripts/*
 !scripts/meta-audit.mjs
 !scripts/check-migrations.mjs
+!scripts/ds-migration-report.mjs
+!scripts/ds-migration-baseline.json
 
 # OS
 .DS_Store
