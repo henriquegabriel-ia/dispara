@@ -2,9 +2,9 @@
 
 import React from 'react';
 import { ChevronLeft, Clock, CheckCircle2, Ban, FileText, Loader2, AlertCircle } from 'lucide-react';
-import { PrefetchLink } from '@/components/ui/PrefetchLink';
-import { Page, PageHeader, PageTitle } from '@/components/ui/page';
-import { Container } from '@/components/ui/container';
+import { PrefetchLink } from '@/components/app/PrefetchLink';
+import { Page, PageHeader, PageTitle } from '@/components/app/page';
+import { Container } from '@/components/app/container';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { MessageStatus } from '@/types';
 import { formatPhoneNumberDisplay } from '@/lib/phone-formatter';

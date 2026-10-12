@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Workflow, Check, AlertCircle, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { StatusBadge } from '@/components/ui/status-badge';
+import { StatusBadge } from '@/components/app/status-badge';
 
 interface FlowOption {
   id: string;

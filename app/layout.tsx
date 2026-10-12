@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from 'next'
 import { Inter, JetBrains_Mono } from 'next/font/google'
 import './globals.css'
 import { Providers } from './providers'
-import { ThemedToaster } from '@/components/ui/themed-toaster'
+import { ThemedToaster } from '@/components/app/themed-toaster'
 import { getBrandConfig, buildBrandCssOverrides, DEFAULT_BRAND } from '@/lib/branding'
 
 const inter = Inter({

@@ -7,7 +7,7 @@
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { useTypedForm } from '@/components/ui/Form';
+import { useTypedForm } from '@/components/app/Form';
 import { contactFormSchema, ContactForm } from '@/lib/validation/schemas';
 import { contactService } from '@/services/contactService';
 

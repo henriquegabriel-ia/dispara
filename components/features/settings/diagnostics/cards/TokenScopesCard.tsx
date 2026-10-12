@@ -6,7 +6,7 @@ import type { MetaDiagnosticsResponse } from '@/services/metaDiagnosticsService'
 import type { MetaDiagnosticsCheck, MetaDiagnosticsCheckStatus } from '../types'
 import { StatusBadge } from '../StatusBadge'
 import { Pill } from '../Pill'
-import { Container } from '@/components/ui/container'
+import { Container } from '@/components/app/container'
 
 export interface TokenScopesCardProps {
   data?: MetaDiagnosticsResponse

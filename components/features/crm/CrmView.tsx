@@ -3,8 +3,8 @@
 import React from 'react'
 import { KanbanSquare, Loader2, MoreVertical, Pencil, Plus, SlidersHorizontal, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Container } from '@/components/ui/container'
-import { ConfirmDeleteModal } from '@/components/ui/ConfirmDeleteModal'
+import { Container } from '@/components/app/container'
+import { ConfirmDeleteModal } from '@/components/app/ConfirmDeleteModal'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19,7 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { PageDescription, PageTitle } from '@/components/ui/page'
+import { PageDescription, PageTitle } from '@/components/app/page'
 import type { CrmController } from '@/hooks/useCrm'
 import { KanbanBoard } from './KanbanBoard'
 import { PipelineFormModal } from './PipelineFormModal'

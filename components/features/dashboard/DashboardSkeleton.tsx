@@ -1,4 +1,4 @@
-import { Page, PageActions, PageDescription, PageHeader, PageTitle } from '@/components/ui/page'
+import { Page, PageActions, PageDescription, PageHeader, PageTitle } from '@/components/app/page'
 
 export function DashboardSkeleton() {
   return (

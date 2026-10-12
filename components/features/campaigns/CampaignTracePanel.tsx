@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { ChevronDown, Copy, Loader2, RefreshCw, Search } from 'lucide-react'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
-import { Container } from '@/components/ui/container'
-import { StatusBadge } from '@/components/ui/status-badge'
+import { Container } from '@/components/app/container'
+import { StatusBadge } from '@/components/app/status-badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { campaignService } from '@/services/campaignService'
 

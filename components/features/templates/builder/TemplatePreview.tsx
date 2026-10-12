@@ -4,8 +4,8 @@ import React from 'react'
 import Image from 'next/image'
 import { Play, ExternalLink, CornerDownLeft, FileText, MapPin } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { Container } from '@/components/ui/container'
-import { WhatsAppInlineText } from '@/components/ui/whatsapp-text'
+import { Container } from '@/components/app/container'
+import { WhatsAppInlineText } from '@/components/app/whatsapp-text'
 
 type HeaderFormat = 'TEXT' | 'IMAGE' | 'VIDEO' | 'GIF' | 'DOCUMENT' | 'LOCATION'
 

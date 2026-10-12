@@ -7,8 +7,8 @@ import { Contact, ContactStatus, CustomFieldDefinition } from '../../../types';
 import type { ContactList } from '@/services/contactListService';
 import type { WorkflowSummary } from '@/services/workflowEnrollmentService';
 import { CustomFieldsSheet } from './CustomFieldsSheet';
-import { Page, PageActions, PageDescription, PageHeader, PageTitle } from '@/components/ui/page';
-import { Container } from '@/components/ui/container';
+import { Page, PageActions, PageDescription, PageHeader, PageTitle } from '@/components/app/page';
+import { Container } from '@/components/app/container';
 import { Button } from '@/components/ui/button';
 
 // Import extracted components

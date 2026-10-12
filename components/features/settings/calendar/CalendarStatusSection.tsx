@@ -3,8 +3,8 @@
 import React from 'react';
 import { ExternalLink } from 'lucide-react';
 import type { CalendarStatusSectionProps } from './types';
-import { Container } from '@/components/ui/container';
-import { StatusBadge } from '@/components/ui/status-badge';
+import { Container } from '@/components/app/container';
+import { StatusBadge } from '@/components/app/status-badge';
 
 export function CalendarStatusSection({
   calendarAuthLoading,

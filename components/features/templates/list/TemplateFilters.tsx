@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { Search, Trash2 } from 'lucide-react';
-import { Container } from '@/components/ui/container';
+import { Container } from '@/components/app/container';
 import { StatusFilterType } from './types';
 
 export interface TemplateFiltersProps {

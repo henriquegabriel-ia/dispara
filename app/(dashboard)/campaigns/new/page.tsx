@@ -19,10 +19,10 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
-import { TemplatePreviewCard } from '@/components/ui/TemplatePreviewCard'
+import { TemplatePreviewCard } from '@/components/app/TemplatePreviewCard'
 import { ContactQuickEditModal } from '@/components/features/contacts/ContactQuickEditModal'
 import { Calendar } from '@/components/ui/calendar'
-import DateTimePicker from '@/components/ui/date-time-picker'
+import DateTimePicker from '@/components/app/date-time-picker'
 import { ptBRLight as ptBR } from '@/lib/locale-pt-br-light'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'

@@ -19,7 +19,7 @@ import {
   Clock,
   MoreVertical,
 } from 'lucide-react'
-import { Page, PageDescription, PageHeader, PageTitle } from '@/components/ui/page'
+import { Page, PageDescription, PageHeader, PageTitle } from '@/components/app/page'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'

@@ -17,7 +17,7 @@ import {
   ResizablePanelGroup,
 } from '@/components/ui/resizable'
 import { TooltipProvider } from '@/components/ui/tooltip'
-import { ErrorBoundary } from '@/components/ui/ErrorBoundary'
+import { ErrorBoundary } from '@/components/app/ErrorBoundary'
 import { ConversationList } from './ConversationList'
 import { MessagePanel } from './MessagePanel'
 import { RefreshCw, MessageSquare, Users } from 'lucide-react'

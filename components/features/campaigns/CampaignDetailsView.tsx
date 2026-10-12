@@ -3,7 +3,7 @@
 import React, { useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { CampaignStatus } from '@/types';
-import { Page } from '@/components/ui/page';
+import { Page } from '@/components/app/page';
 import { ContactQuickEditModal } from '@/components/features/contacts/ContactQuickEditModal';
 import { computeCampaignUiCounters } from '@/lib/campaign-ui-counters';
 import { CampaignTracePanel } from './CampaignTracePanel';

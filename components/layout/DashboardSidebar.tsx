@@ -10,8 +10,8 @@ import {
   X,
   LucideIcon,
 } from 'lucide-react'
-import { PrefetchLink } from '@/components/ui/PrefetchLink'
-import { ThemeToggle } from '@/components/ui/theme-toggle'
+import { PrefetchLink } from '@/components/app/PrefetchLink'
+import { ThemeToggle } from '@/components/app/theme-toggle'
 import { cn } from '@/lib/utils'
 import { useUnreadCount } from '@/hooks/useUnreadCount'
 

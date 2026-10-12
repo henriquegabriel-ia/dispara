@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { ConfirmDeleteModal } from '@/components/ui/ConfirmDeleteModal';
+import { ConfirmDeleteModal } from '@/components/app/ConfirmDeleteModal';
 
 export interface BulkDeleteModalProps {
   isOpen: boolean;

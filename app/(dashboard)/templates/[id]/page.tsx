@@ -13,8 +13,8 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { createClient } from '@/utils/supabase/client';
 import { cn } from '@/lib/utils';
 import { manualDraftsService } from '@/services/manualDraftsService';
-import { WhatsAppPhonePreview } from '@/components/ui/WhatsAppPhonePreview';
-import { Page, PageActions, PageDescription, PageHeader, PageTitle } from '@/components/ui/page';
+import { WhatsAppPhonePreview } from '@/components/app/WhatsAppPhonePreview';
+import { Page, PageActions, PageDescription, PageHeader, PageTitle } from '@/components/app/page';
 
 export default function TemplateProjectDetailsPage() {
     const params = useParams();

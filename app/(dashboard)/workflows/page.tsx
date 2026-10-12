@@ -12,7 +12,7 @@ import {
   Workflow as WorkflowIcon,
 } from "lucide-react";
 import { toast } from "sonner";
-import { Page, PageActions, PageDescription, PageHeader, PageTitle } from "@/components/ui/page";
+import { Page, PageActions, PageDescription, PageHeader, PageTitle } from "@/components/app/page";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {

@@ -1,11 +1,11 @@
 'use client';
 
 import React from 'react';
-import { PrefetchLink } from '@/components/ui/PrefetchLink';
-import { Page, PageActions, PageDescription, PageHeader, PageTitle } from '@/components/ui/page';
+import { PrefetchLink } from '@/components/app/PrefetchLink';
+import { Page, PageActions, PageDescription, PageHeader, PageTitle } from '@/components/app/page';
 import { formatDateFull } from '@/lib/date-formatter';
-import { Container } from '@/components/ui/container';
-import { StatusBadge } from '@/components/ui/status-badge';
+import { Container } from '@/components/app/container';
+import { StatusBadge } from '@/components/app/status-badge';
 import {
   Send,
   TrendingUp,
@@ -17,7 +17,7 @@ import {
   BarChart3,
   Plus,
 } from 'lucide-react';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from '@/components/ui/lazy-charts';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from '@/components/app/lazy-charts';
 import { Campaign, CampaignStatus } from '../../../types';
 import { DashboardStats } from '../../../services/dashboardService';
 

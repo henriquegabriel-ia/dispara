@@ -2,10 +2,10 @@
 
 import React from 'react'
 import { Search, ChevronLeft, ChevronRight, Loader2, Inbox, Phone, Calendar, FileText, User, Megaphone, Download } from 'lucide-react'
-import { Page, PageHeader, PageTitle, PageDescription } from '@/components/ui/page'
+import { Page, PageHeader, PageTitle, PageDescription } from '@/components/app/page'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import { Container } from '@/components/ui/container'
+import { Container } from '@/components/app/container'
 import { SubmissionsController } from '@/hooks/useSubmissions'
 import { FlowSubmission } from '@/services/submissionsService'
 

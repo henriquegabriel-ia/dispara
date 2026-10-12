@@ -6,7 +6,7 @@ import { SettingsView } from '@/components/features/settings/SettingsView'
 import { SetupWizardView } from '@/components/features/settings/SetupWizardView'
 import { UsagePanel } from '@/components/UsagePanel'
 import { useUsage } from '@/hooks/useUsage'
-import { Page, PageDescription, PageHeader, PageTitle } from '@/components/ui/page'
+import { Page, PageDescription, PageHeader, PageTitle } from '@/components/app/page'
 
 export default function SettingsPage() {
   const controller = useSettingsController()

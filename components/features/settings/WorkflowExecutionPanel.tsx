@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { Clock, Save, Loader2 } from 'lucide-react';
 import { WorkflowExecutionConfig } from '../../../types';
-import { SectionHeader } from '@/components/ui/section-header';
+import { SectionHeader } from '@/components/app/section-header';
 
 export interface WorkflowExecutionPanelProps {
   workflowExecution?: {

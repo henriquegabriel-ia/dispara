@@ -29,8 +29,8 @@ import {
 import { parseCSV, formatPhoneNumber } from './utils';
 import { normalizePhoneNumber } from '@/lib/phone-formatter';
 import { ContactFieldMappingSheet } from './ContactFieldMappingSheet';
-import { Container } from '@/components/ui/container';
-import { StatusBadge } from '@/components/ui/status-badge';
+import { Container } from '@/components/app/container';
+import { StatusBadge } from '@/components/app/status-badge';
 
 // Estatísticas de pré-importação
 interface ImportPreviewStats {

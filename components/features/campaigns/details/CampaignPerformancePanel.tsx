@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { ChevronDown, Clock, CheckCircle2, AlertCircle } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { Container } from '@/components/ui/container';
+import { Container } from '@/components/app/container';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { DetailCard } from './DetailCard';
 import { formatDurationMs, formatThroughput } from './utils';

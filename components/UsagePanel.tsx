@@ -12,7 +12,7 @@ import {
   ExternalLink,
   RefreshCw
 } from 'lucide-react'
-import { Container } from '@/components/ui/container'
+import { Container } from '@/components/app/container'
 
 interface UsageData {
   vercel: {

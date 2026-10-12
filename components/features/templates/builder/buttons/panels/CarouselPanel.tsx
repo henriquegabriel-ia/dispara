@@ -1,7 +1,7 @@
 'use client'
 
 import React from 'react'
-import { Container } from '@/components/ui/container'
+import { Container } from '@/components/app/container'
 import { Textarea } from '@/components/ui/textarea'
 import { Spec } from '../types'
 

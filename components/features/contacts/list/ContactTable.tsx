@@ -3,7 +3,7 @@
 import React from 'react';
 import { Edit2, Trash2, Tag, ChevronLeft, ChevronRight, ShieldOff } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { StatusBadge } from '@/components/ui/status-badge';
+import { StatusBadge } from '@/components/app/status-badge';
 import { Button } from '@/components/ui/button';
 import { Contact, ContactStatus } from './types';
 import { calculateRelativeTime, getContactInitials } from './utils';

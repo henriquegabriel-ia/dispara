@@ -3,7 +3,7 @@
 import type { LeadForm } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Container } from '@/components/ui/container'
+import { Container } from '@/components/app/container'
 import { Pencil } from 'lucide-react'
 
 export interface FormCardProps {

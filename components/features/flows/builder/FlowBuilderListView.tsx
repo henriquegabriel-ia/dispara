@@ -8,8 +8,8 @@ import { Plus, Trash2, ArrowRight, RefreshCw } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Container } from '@/components/ui/container'
-import { StatusBadge } from '@/components/ui/status-badge'
+import { Container } from '@/components/app/container'
+import { StatusBadge } from '@/components/app/status-badge'
 import { CreateFlowFromTemplateDialog } from '@/components/features/flows/builder/CreateFlowFromTemplateDialog'
 import type { FlowRow } from '@/services/flowsService'
 

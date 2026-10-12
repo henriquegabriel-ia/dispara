@@ -11,9 +11,9 @@ import {
   XCircle,
 } from 'lucide-react'
 
-import { Page, PageActions, PageDescription, PageHeader, PageTitle } from '@/components/ui/page'
-import { Container, containerVariants } from '@/components/ui/container'
-import { PrefetchLink } from '@/components/ui/PrefetchLink'
+import { Page, PageActions, PageDescription, PageHeader, PageTitle } from '@/components/app/page'
+import { Container, containerVariants } from '@/components/app/container'
+import { PrefetchLink } from '@/components/app/PrefetchLink'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import type {
   MetaDiagnosticsAction,

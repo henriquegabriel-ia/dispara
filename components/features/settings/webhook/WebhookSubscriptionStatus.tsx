@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { WebhookSubscription } from './types';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { StatusBadge } from '@/components/ui/status-badge';
+import { StatusBadge } from '@/components/app/status-badge';
 
 interface WebhookSubscriptionStatusProps {
   webhookSubscription?: WebhookSubscription | null;

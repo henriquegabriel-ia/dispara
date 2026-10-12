@@ -6,7 +6,7 @@ import { FileText, Check, Loader2, Trash2, Eye, Send, Megaphone, Copy } from 'lu
 import { Template } from '../../../../types';
 import { StatusBadge } from './StatusBadge';
 import { Button } from '@/components/ui/button';
-import { WhatsAppInlineText } from '@/components/ui/whatsapp-text';
+import { WhatsAppInlineText } from '@/components/app/whatsapp-text';
 
 export interface TemplateTableRowProps {
   template: Template;

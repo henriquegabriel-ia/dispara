@@ -12,7 +12,7 @@ import React, { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Palette } from 'lucide-react';
 import { toast } from 'sonner';
-import { SectionHeader } from '@/components/ui/section-header';
+import { SectionHeader } from '@/components/app/section-header';
 import { LogoUploader } from '@/components/brand/LogoUploader';
 
 interface BrandSettings {

@@ -21,7 +21,7 @@ vi.mock('@/lib/supabase-realtime', () => ({
   }),
 }))
 
-vi.mock('@/components/ui/PrefetchLink', () => ({
+vi.mock('@/components/app/PrefetchLink', () => ({
   PrefetchLink: ({ children, href }: { children: React.ReactNode; href: string }) => <a href={href}>{children}</a>,
 }))
 

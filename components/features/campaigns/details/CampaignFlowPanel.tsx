@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { FormInput, ArrowUpRight, Users, Percent } from 'lucide-react';
-import { PrefetchLink } from '@/components/ui/PrefetchLink';
+import { PrefetchLink } from '@/components/app/PrefetchLink';
 import { onDbChangesStatus, subscribeToDbChanges } from '@/lib/supabase-realtime';
 import { createRealtimeInvalidator } from '@/lib/realtime-invalidation';
 import { REALTIME_FILTERS } from '@/lib/realtime-db-change';

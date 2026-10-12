@@ -9,7 +9,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from './dialog';
+} from '@/components/ui/dialog';
 
 interface ConfirmationDialogProps {
   open: boolean;
