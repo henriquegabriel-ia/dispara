@@ -74,7 +74,6 @@ export function TestContactPanel({
       <SectionHeader
         title="Contato de Teste"
         description="Configure um número para testar suas campanhas antes de enviar para todos os contatos."
-        color="warning"
         icon={UserCheck}
         className="mb-6"
       />

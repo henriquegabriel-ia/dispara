@@ -1,64 +1,51 @@
 'use client'
 
-import { AlertTriangle, CreditCard, ShieldAlert, X, XCircle } from 'lucide-react'
+import { CircleX, CreditCard, ShieldAlert, TriangleAlert, type LucideIcon } from 'lucide-react'
 import Link from 'next/link'
-import { useAccountAlerts } from '@/hooks/useAccountAlerts'
 
-const alertIcons: Record<string, typeof AlertTriangle> = {
+import { EiaAlert, type EiaAlertTone } from '@/components/eia'
+import { useAccountAlerts } from '@/hooks/useAccountAlerts'
+import { cn } from '@/lib/utils'
+
+/*
+ * Banner do alerta de conta mais relevante, sobre o EiaAlert do DS.
+ *
+ * Tom por tipo (o DS tem info/success/warning/danger e nenhuma segunda cor):
+ * pagamento e autenticação bloqueiam o envio (danger); limite de taxa e avisos
+ * da integração com a Meta pedem atenção (warning); template e sistema são
+ * informativos (info, neutro). O ícone por tipo e o título em texto garantem
+ * que a cor não seja o único sinal.
+ */
+
+const alertIcons: Record<string, LucideIcon> = {
   payment: CreditCard,
   auth: ShieldAlert,
-  rate_limit: AlertTriangle,
-  template: AlertTriangle,
-  system: AlertTriangle,
-  meta_integration: AlertTriangle,
-  recipient: AlertTriangle,
-  media: AlertTriangle,
-  unknown: XCircle,
+  rate_limit: TriangleAlert,
+  template: TriangleAlert,
+  system: TriangleAlert,
+  meta_integration: TriangleAlert,
+  recipient: TriangleAlert,
+  media: TriangleAlert,
+  unknown: CircleX,
 }
 
-const alertColors: Record<string, { bg: string; border: string; text: string; icon: string }> = {
-  payment: {
-    bg: 'bg-red-950/50',
-    border: 'border-red-800',
-    text: 'text-red-200',
-    icon: 'text-red-400',
-  },
-  auth: {
-    bg: 'bg-orange-950/50',
-    border: 'border-orange-800',
-    text: 'text-orange-200',
-    icon: 'text-orange-400',
-  },
-  rate_limit: {
-    bg: 'bg-yellow-950/50',
-    border: 'border-yellow-800',
-    text: 'text-yellow-200',
-    icon: 'text-yellow-400',
-  },
-  template: {
-    bg: 'bg-blue-950/50',
-    border: 'border-blue-800',
-    text: 'text-blue-200',
-    icon: 'text-blue-400',
-  },
-  system: {
-    bg: 'bg-[var(--ds-bg-elevated)]',
-    border: 'border-[var(--ds-border-default)]',
-    text: 'text-[var(--ds-text-primary)]',
-    icon: 'text-[var(--ds-text-secondary)]',
-  },
-  meta_integration: {
-    bg: 'bg-yellow-950/50',
-    border: 'border-yellow-800',
-    text: 'text-yellow-200',
-    icon: 'text-yellow-400',
-  },
-  default: {
-    bg: 'bg-red-950/50',
-    border: 'border-red-800',
-    text: 'text-red-200',
-    icon: 'text-red-400',
-  },
+const alertTones: Record<string, EiaAlertTone> = {
+  payment: 'danger',
+  auth: 'danger',
+  rate_limit: 'warning',
+  template: 'info',
+  system: 'info',
+  meta_integration: 'warning',
+  default: 'danger',
+}
+
+const alertTitles: Record<string, string> = {
+  payment: 'Problema de pagamento',
+  auth: 'Erro de autenticação',
+  rate_limit: 'Limite de taxa excedido',
+  template: 'Problema com template',
+  system: 'Erro do sistema',
+  meta_integration: 'Integração com a Meta',
 }
 
 interface AccountAlertBannerProps {
@@ -75,13 +62,16 @@ export function AccountAlertBanner({ className = '' }: AccountAlertBannerProps) 
   if (!criticalAlert) {
     return null
   }
-  
+
   const alertType = criticalAlert.type || 'default'
-  const Icon = alertIcons[alertType] || AlertTriangle
-  const colors = alertColors[alertType] || alertColors.default
+  const Icon = alertIcons[alertType] || TriangleAlert
 
   const isPossibleMetaLock = alertType === 'auth' && criticalAlert.code === 131031
-  
+  // Bloqueio NÃO confirmado: atenção, não erro.
+  const tone: EiaAlertTone = isPossibleMetaLock
+    ? 'warning'
+    : alertTones[alertType] || alertTones.default
+
   // Parse details if JSON
   let actionText: string | null = null
   try {
@@ -95,15 +85,7 @@ export function AccountAlertBanner({ className = '' }: AccountAlertBannerProps) 
 
   const displayTitle = isPossibleMetaLock
     ? 'Possível bloqueio na Meta (não confirmado)'
-    : (
-        alertType === 'payment' ? 'Problema de Pagamento'
-        : alertType === 'auth' ? 'Erro de Autenticação'
-        : alertType === 'rate_limit' ? 'Limite de Taxa Excedido'
-        : alertType === 'template' ? 'Problema com Template'
-        : alertType === 'system' ? 'Erro do Sistema'
-        : alertType === 'meta_integration' ? 'Integração com a Meta'
-        : 'Alerta'
-      )
+    : alertTitles[alertType] || 'Alerta'
 
   const displayMessage = isPossibleMetaLock
     ? 'Detectamos um erro 131031 em tentativas recentes. Isso pode indicar bloqueio, mas também pode ser um sinal histórico/intermitente. Confirme o status atual no Diagnóstico da Meta.'
@@ -112,55 +94,38 @@ export function AccountAlertBanner({ className = '' }: AccountAlertBannerProps) 
   const displayActionText = isPossibleMetaLock
     ? 'Abra “Diagnósticos da Meta” para checar o Health Status e seguir o passo a passo recomendado.'
     : actionText
-  
-  return (
-    <div
-      className={`${colors.bg} ${colors.border} border rounded-lg p-4 mb-4 ${className}`}
-      role="alert"
-    >
-      <div className="flex items-start gap-3">
-        <Icon className={`w-5 h-5 mt-0.5 shrink-0 ${colors.icon}`} />
-        
-        <div className="flex-1 min-w-0">
-          <h4 className={`font-medium ${colors.text}`}>{displayTitle}</h4>
-          
-          <p className={`text-sm mt-1 ${colors.text} opacity-90`}>
-            {displayMessage}
-          </p>
-          
-          {displayActionText && (
-            <p className={`text-sm mt-2 ${colors.text} opacity-75`}>
-              {displayActionText}
-            </p>
-          )}
 
-          {(isPossibleMetaLock || alertType === 'meta_integration') && (
-            <div className="mt-2">
-              <Link
-                href="/settings/meta-diagnostics"
-                className={`text-sm underline ${colors.text} opacity-90 hover:opacity-100 transition-opacity`}
-              >
-                Abrir Diagnósticos da Meta
-              </Link>
-            </div>
-          )}
-          
-          {criticalAlert.code && (
-            <p className={`text-xs mt-2 ${colors.text} opacity-50`}>
-              Código do erro: {criticalAlert.code}
-            </p>
-          )}
-        </div>
-        
-        <button
-          onClick={() => dismiss(criticalAlert.id)}
-          disabled={isDismissing}
-          className={`p-1 rounded hover:bg-[var(--ds-bg-hover)] transition-colors ${colors.text} opacity-60 hover:opacity-100`}
-          aria-label="Dispensar alerta"
-        >
-          <X className="w-4 h-4" />
-        </button>
-      </div>
-    </div>
+  const showDiagnosticsLink = isPossibleMetaLock || alertType === 'meta_integration'
+
+  return (
+    <EiaAlert
+      tone={tone}
+      title={displayTitle}
+      icon={<Icon />}
+      className={cn('mb-(--eia-space-4)', className)}
+      onDismiss={() => {
+        if (!isDismissing) dismiss(criticalAlert.id)
+      }}
+      dismissLabel="Dispensar alerta"
+    >
+      <p>{displayMessage}</p>
+
+      {displayActionText && <p className="mt-(--eia-space-2)">{displayActionText}</p>}
+
+      {showDiagnosticsLink && (
+        <p className="mt-(--eia-space-2)">
+          {/* next/link com o visual do EiaLink (mantém o prefetch da rota interna) */}
+          <Link href="/settings/meta-diagnostics" className="eia-link" data-variant="default">
+            Abrir Diagnósticos da Meta
+          </Link>
+        </p>
+      )}
+
+      {criticalAlert.code && (
+        <p className="mt-(--eia-space-2) text-(length:--eia-type-caption) text-eia-subtle tabular-nums">
+          Código do erro: {criticalAlert.code}
+        </p>
+      )}
+    </EiaAlert>
   )
 }

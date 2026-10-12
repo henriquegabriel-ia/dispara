@@ -1,82 +1,140 @@
 import * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
+import {
+  Check,
+  CircleAlert,
+  CircleDashed,
+  CircleX,
+  Clock,
+  Info,
+  LoaderCircle,
+  Pause,
+  PencilLine,
+  TriangleAlert,
+  type LucideIcon,
+} from "lucide-react"
 
+import { EiaBadge } from "@/components/eia"
 import { cn } from "@/lib/utils"
 
 /**
- * StatusBadge - Badge semântico para status de campanhas e contatos
+ * StatusBadge — badge semântico para status de campanhas, contatos e
+ * integrações, sobre o EiaBadge do DS Empreende IA V2.
  *
- * Usa os tokens de cores de status do Design System:
- * - Campaign status: draft, scheduled, sending, completed, paused, failed
- * - Generic status: success, error, warning, info, processing
+ * O DS tem quatro tons (neutral, success, warning, danger) e nenhuma segunda
+ * cor decorativa: rascunho, agendada e enviando são neutros e o ÍCONE
+ * diferencia os estados. Cor nunca é o único sinal — o texto (children) está
+ * sempre presente e o ícone é decorativo (aria-hidden).
+ *
+ * - Campanha: draft, scheduled, sending, completed, paused, failed
+ * - Genérico: success, error, warning, info, processing, default
  */
-const statusBadgeVariants = cva(
-  [
-    "inline-flex items-center justify-center",
-    "rounded-full px-2.5 py-0.5",
-    "text-xs font-medium",
-    "whitespace-nowrap",
-    "transition-colors duration-150",
-  ].join(" "),
-  {
-    variants: {
-      status: {
-        // Generic status
-        success: "bg-green-500/10 text-[var(--ds-status-success-text)]",
-        error: "bg-red-500/10 text-[var(--ds-status-error-text)]",
-        warning: "bg-amber-500/10 text-[var(--ds-status-warning-text)]",
-        info: "bg-blue-500/10 text-[var(--ds-status-info-text)]",
-        processing: "bg-blue-500/10 text-[var(--ds-status-info-text)] animate-pulse",
-        default: "bg-[var(--ds-bg-surface)] text-[var(--ds-text-secondary)]",
+type StatusBadgeStatus =
+  | "success"
+  | "error"
+  | "warning"
+  | "info"
+  | "processing"
+  | "default"
+  | "draft"
+  | "scheduled"
+  | "sending"
+  | "completed"
+  | "paused"
+  | "failed"
 
-        // Campaign status (Dispara specific)
-        draft: "bg-[var(--ds-bg-surface)] text-[var(--ds-text-secondary)]",
-        scheduled: "bg-violet-500/10 text-violet-600 legacy-dark:text-violet-400",
-        sending: "bg-blue-500/10 text-[var(--ds-status-info-text)] animate-pulse",
-        completed: "bg-green-500/10 text-[var(--ds-status-success-text)]",
-        paused: "bg-amber-500/10 text-[var(--ds-status-warning-text)]",
-        failed: "bg-red-500/10 text-[var(--ds-status-error-text)]",
-      },
-      size: {
-        sm: "text-[10px] px-2 py-px",
-        md: "text-xs px-2.5 py-0.5",
-        lg: "text-sm px-3 py-1",
-      },
-      withDot: {
-        true: "gap-1.5",
-        false: "",
-      },
+type StatusBadgeTone = "neutral" | "success" | "warning" | "danger"
+
+interface StatusVisual {
+  tone: StatusBadgeTone
+  /** Ícone que distingue o estado sem depender da cor */
+  icon?: LucideIcon
+  /** Ícone em rotação (estados em andamento); respeita movimento reduzido */
+  spin?: boolean
+}
+
+const statusVisuals: Record<StatusBadgeStatus, StatusVisual> = {
+  // Genéricos
+  success: { tone: "success", icon: Check },
+  error: { tone: "danger", icon: CircleAlert },
+  warning: { tone: "warning", icon: TriangleAlert },
+  info: { tone: "neutral", icon: Info },
+  processing: { tone: "neutral", icon: LoaderCircle, spin: true },
+  default: { tone: "neutral" },
+
+  // Campanha (Dispara)
+  draft: { tone: "neutral", icon: PencilLine },
+  scheduled: { tone: "neutral", icon: Clock },
+  sending: { tone: "neutral", icon: LoaderCircle, spin: true },
+  completed: { tone: "success", icon: Check },
+  paused: { tone: "warning", icon: Pause },
+  failed: { tone: "danger", icon: CircleX },
+}
+
+/**
+ * Mantido por compatibilidade de API. O visual do badge vem do EiaBadge
+ * (`.eia-badge[data-tone][data-size]`); estas variantes só tipam as props e
+ * não geram classes.
+ */
+const statusBadgeVariants = cva("", {
+  variants: {
+    status: {
+      success: "",
+      error: "",
+      warning: "",
+      info: "",
+      processing: "",
+      default: "",
+      draft: "",
+      scheduled: "",
+      sending: "",
+      completed: "",
+      paused: "",
+      failed: "",
+    } satisfies Record<StatusBadgeStatus, string>,
+    size: {
+      sm: "",
+      md: "",
+      lg: "",
     },
-    defaultVariants: {
-      status: "default",
-      size: "md",
-      withDot: false,
+    withDot: {
+      true: "",
+      false: "",
     },
-  }
-)
+  },
+  defaultVariants: {
+    status: "default",
+    size: "md",
+    withDot: false,
+  },
+})
 
 export interface StatusBadgeProps
   extends React.HTMLAttributes<HTMLSpanElement>,
     VariantProps<typeof statusBadgeVariants> {
-  /** Exibir ponto colorido à esquerda */
+  /**
+   * Força um indicador visual mesmo em status sem ícone próprio (`default`
+   * ganha um círculo tracejado). Os demais status sempre exibem o ícone.
+   */
   showDot?: boolean
 }
 
+/** Tom do EiaBadge correspondente ao status. */
+export function getStatusBadgeTone(
+  status: StatusBadgeStatus | null | undefined
+): StatusBadgeTone {
+  return statusVisuals[status ?? "default"].tone
+}
+
 /**
- * StatusBadge para exibir status de campanhas e operações
+ * StatusBadge para exibir status de campanhas e operações.
  *
  * @example
  * ```tsx
- * // Status de campanha
  * <StatusBadge status="sending">Enviando</StatusBadge>
  * <StatusBadge status="completed">Concluída</StatusBadge>
- *
- * // Status genérico
- * <StatusBadge status="success">Entregue</StatusBadge>
  * <StatusBadge status="error">Falhou</StatusBadge>
- *
- * // Com ponto indicador
- * <StatusBadge status="processing" showDot>Processando</StatusBadge>
+ * <StatusBadge status="default" showDot>Não configurado</StatusBadge>
  * ```
  */
 function StatusBadge({
@@ -84,44 +142,37 @@ function StatusBadge({
   status,
   size,
   showDot = false,
+  withDot: _withDot,
   children,
   ...props
 }: StatusBadgeProps) {
+  const visual = statusVisuals[status ?? "default"]
+  const Icon = visual.icon ?? (showDot ? CircleDashed : undefined)
+  // O EiaBadge só tem sm|md: `lg` usa o tamanho padrão.
+  const badgeSize = size === "sm" ? "sm" : "md"
+
   return (
-    <span
+    <EiaBadge
       data-slot="status-badge"
-      className={cn(
-        statusBadgeVariants({ status, size, withDot: showDot }),
-        className
-      )}
+      data-status={status ?? "default"}
+      tone={visual.tone}
+      size={badgeSize}
+      className={className}
       {...props}
     >
-      {showDot && (
-        <span
-          className={cn(
-            "size-1.5 rounded-full",
-            status === "processing" || status === "sending"
-              ? "animate-pulse"
-              : "",
-            // Cor do dot baseado no status
-            {
-              "bg-green-400": status === "success" || status === "completed",
-              "bg-red-400": status === "error" || status === "failed",
-              "bg-amber-400": status === "warning" || status === "paused",
-              "bg-blue-400": status === "info" || status === "sending" || status === "processing",
-              "bg-violet-400": status === "scheduled",
-              "bg-slate-400": status === "default" || status === "draft",
-            }
-          )}
+      {Icon && (
+        <Icon
+          aria-hidden="true"
+          className={cn("shrink-0", visual.spin && "motion-safe:animate-spin")}
         />
       )}
       {children}
-    </span>
+    </EiaBadge>
   )
 }
 
 /**
- * Helper para mapear CampaignStatus enum para status do badge
+ * Helper para mapear o enum CampaignStatus para o status do badge.
  */
 export const campaignStatusMap = {
   DRAFT: "draft",
@@ -133,7 +184,7 @@ export const campaignStatusMap = {
 } as const
 
 /**
- * Helper para obter label em português do status
+ * Helper para obter o rótulo em português do status.
  */
 export const statusLabels = {
   draft: "Rascunho",
@@ -145,9 +196,9 @@ export const statusLabels = {
   success: "Sucesso",
   error: "Erro",
   warning: "Atenção",
-  info: "Info",
+  info: "Informação",
   processing: "Processando",
   default: "Indefinido",
 } as const
 
-export { StatusBadge, statusBadgeVariants }
+export { StatusBadge, statusBadgeVariants, type StatusBadgeStatus }
