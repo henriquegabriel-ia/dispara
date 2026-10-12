@@ -1,26 +1,29 @@
 import type { Metadata, Viewport } from 'next'
-import { Inter, JetBrains_Mono } from 'next/font/google'
+import localFont from 'next/font/local'
 import './globals.css'
 import { Providers } from './providers'
 import { ThemedToaster } from '@/components/app/themed-toaster'
+import { EiaThemeScript } from '@/components/eia/theme'
 import { BRAND } from '@/lib/branding'
 
-const inter = Inter({
-  subsets: ['latin'],
-  variable: '--font-inter',
+// Manrope variável do DS Empreende IA V2 (OFL, public/fonts). O nome de família
+// gerado pelo next/font entra nos tokens --eia-font-* via styles/dispara-eia.css.
+const manrope = localFont({
+  src: '../public/fonts/Manrope-Variable.ttf',
+  weight: '200 800',
+  display: 'swap',
+  variable: '--font-manrope',
+  fallback: ['Arial', 'sans-serif'],
 })
 
-const jetbrainsMono = JetBrains_Mono({
-  subsets: ['latin'],
-  variable: '--font-jetbrains-mono',
-})
+// Preferência de tema salva pelo next-themes (chave "theme") migra uma vez para
+// a chave do DS antes do EiaThemeScript ler. Remover depois de alguns meses.
+const LEGACY_THEME_KEY_MIGRATION =
+  "(function(){try{var k='empreende-ia-theme';if(localStorage.getItem(k)===null){var v=localStorage.getItem('theme');if(v==='light'||v==='dark'||v==='system')localStorage.setItem(k,v)}}catch(e){}})()"
 
 export const viewport: Viewport = {
-  // Dark-only: mesma cor nos dois esquemas (brand bg-base)
-  themeColor: [
-    { media: '(prefers-color-scheme: light)', color: '#030712' },
-    { media: '(prefers-color-scheme: dark)', color: '#030712' },
-  ],
+  // Escuro é o padrão do DS mesmo com o sistema claro: --eia-color-bg escuro.
+  themeColor: '#080a09',
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
@@ -61,10 +64,15 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    // Classe de tema (dark|light) é gerenciada pelo next-themes (Providers);
-    // dark é o default. suppressHydrationWarning cobre a troca no client.
-    <html lang="pt-BR" className={`${inter.variable} ${jetbrainsMono.variable}`} suppressHydrationWarning>
-      <body className="font-sans antialiased">
+    // Tema do DS: EiaThemeScript grava data-eia-theme no <html> antes da pintura
+    // (escuro por padrão); suppressHydrationWarning cobre esses atributos.
+    // .eia-theme no <body> abre o escopo dos tokens --eia-* para o app e os portais.
+    <html lang="pt-BR" className={manrope.variable} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: LEGACY_THEME_KEY_MIGRATION }} />
+        <EiaThemeScript />
+      </head>
+      <body className="eia-theme font-sans antialiased">
         <Providers>
           <ThemedToaster />
           {children}

@@ -9,6 +9,6 @@
 export const BRAND = {
   name: 'Dispara',
   logoUrl: '/brand/logo.svg',
-  /** theme_color do manifest da PWA */
-  themeColor: '#10b981',
+  /** theme_color/background_color do manifest da PWA (--eia-color-bg escuro) */
+  themeColor: '#080a09',
 } as const
