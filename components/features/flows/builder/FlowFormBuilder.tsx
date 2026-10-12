@@ -4,17 +4,17 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { nanoid } from 'nanoid'
 import { MoreVertical, Plus, Trash2 } from 'lucide-react'
 
-import { Input } from '@/components/ui/input'
-import { Switch } from '@/components/ui/switch'
-import { Button } from '@/components/ui/button'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Input } from '@/components/legacy-ui/input'
+import { Switch } from '@/components/legacy-ui/switch'
+import { Button } from '@/components/legacy-ui/button'
+import { Tabs, TabsList, TabsTrigger } from '@/components/legacy-ui/tabs'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+} from '@/components/legacy-ui/dropdown-menu'
 
 import {
   FlowFormFieldType,

@@ -4,8 +4,8 @@ import { useState, useRef, useEffect } from 'react'
 import { cn } from '@/lib/utils'
 import { useCampaignFolders } from '@/hooks/useCampaignFolders'
 import { FolderIcon, FolderInputIcon, CheckIcon, XIcon } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { Button } from '@/components/legacy-ui/button'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/legacy-ui/tooltip'
 import type { CampaignFolder } from '@/types'
 
 interface MoveToFolderButtonProps {

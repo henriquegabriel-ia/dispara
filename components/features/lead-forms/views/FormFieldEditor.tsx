@@ -1,11 +1,11 @@
 'use client'
 
 import type { LeadFormField } from '@/types'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Switch } from '@/components/ui/switch'
-import { Textarea } from '@/components/ui/textarea'
+import { Button } from '@/components/legacy-ui/button'
+import { Input } from '@/components/legacy-ui/input'
+import { Label } from '@/components/legacy-ui/label'
+import { Switch } from '@/components/legacy-ui/switch'
+import { Textarea } from '@/components/legacy-ui/textarea'
 import { Container } from '@/components/app/container'
 import { ArrowDown, ArrowUp } from 'lucide-react'
 

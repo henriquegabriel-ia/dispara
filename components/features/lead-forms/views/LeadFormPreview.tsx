@@ -1,9 +1,9 @@
 'use client'
 
 import type { LeadFormField } from '@/types'
-import { Label } from '@/components/ui/label'
-import { Input } from '@/components/ui/input'
-import { Button } from '@/components/ui/button'
+import { Label } from '@/components/legacy-ui/label'
+import { Input } from '@/components/legacy-ui/input'
+import { Button } from '@/components/legacy-ui/button'
 import { Container } from '@/components/app/container'
 import { InternationalPhoneInput } from '@/components/app/international-phone-input'
 

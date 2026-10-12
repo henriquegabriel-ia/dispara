@@ -19,7 +19,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+} from '@/components/legacy-ui/dropdown-menu'
 import { cn } from '@/lib/utils'
 import { formatRelativeTime } from '@/lib/date-utils'
 import type { Opportunity, OpportunityStatus } from '@/services/crmService'

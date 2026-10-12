@@ -2,8 +2,8 @@
 
 import React, { useMemo, useState } from 'react';
 import { ChevronDown, Search, Tags } from 'lucide-react';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Checkbox } from '@/components/ui/checkbox';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/legacy-ui/popover';
+import { Checkbox } from '@/components/legacy-ui/checkbox';
 import { NO_TAGS_FILTER } from '@/services/contactService';
 
 export interface ContactTagMultiSelectProps {

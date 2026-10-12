@@ -1,7 +1,7 @@
 'use client'
 
 import React from 'react'
-import { Input } from '@/components/ui/input'
+import { Input } from '@/components/legacy-ui/input'
 import { GripVertical, X } from 'lucide-react'
 import { ButtonData } from './types'
 import { REQUIRES_BUTTON_TEXT } from './constants'

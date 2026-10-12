@@ -4,7 +4,7 @@ import React, { useState } from 'react'
 import { Check, Layers, Loader2, Pencil, Plus, Trash2, X } from 'lucide-react'
 import { Modal, ModalHeader } from '@/components/app/Modal'
 import { ConfirmDeleteModal } from '@/components/app/ConfirmDeleteModal'
-import { Input } from '@/components/ui/input'
+import { Input } from '@/components/legacy-ui/input'
 import type { PipelineStage } from '@/services/crmService'
 
 export interface ManageStagesModalProps {

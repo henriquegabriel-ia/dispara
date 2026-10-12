@@ -3,8 +3,8 @@
 import React, { useEffect, useState } from 'react'
 import { Loader2, Pencil } from 'lucide-react'
 import { Modal, ModalCancelButton, ModalFooter, ModalHeader } from '@/components/app/Modal'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import { Input } from '@/components/legacy-ui/input'
+import { Label } from '@/components/legacy-ui/label'
 import type { Opportunity } from '@/services/crmService'
 
 export interface EditOpportunityModalProps {

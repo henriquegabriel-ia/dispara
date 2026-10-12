@@ -7,9 +7,9 @@
 
 import React, { useState, useCallback, useRef, useEffect } from 'react'
 import { Send, Loader2, Bot, User, RefreshCw, AlertCircle } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Textarea } from '@/components/ui/textarea'
+import { Button } from '@/components/legacy-ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/legacy-ui/card'
+import { Textarea } from '@/components/legacy-ui/textarea'
 import { cn } from '@/lib/utils'
 import type { AIAgent } from '@/types'
 

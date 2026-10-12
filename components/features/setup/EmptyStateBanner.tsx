@@ -1,7 +1,7 @@
 'use client';
 
 import { AlertTriangle, ExternalLink } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/components/legacy-ui/button';
 
 interface EmptyStateBannerProps {
   onConnect: () => void;

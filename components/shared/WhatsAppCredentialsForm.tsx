@@ -2,9 +2,9 @@
 
 import { useState, useCallback, useEffect } from 'react'
 import { HelpCircle, Eye, EyeOff, Loader2, CheckCircle2, AlertTriangle, ExternalLink, RefreshCw, Save } from 'lucide-react'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Button } from '@/components/ui/button'
+import { Input } from '@/components/legacy-ui/input'
+import { Label } from '@/components/legacy-ui/label'
+import { Button } from '@/components/legacy-ui/button'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { PermissionStatusView } from './PermissionStatusView'

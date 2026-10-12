@@ -8,7 +8,7 @@
 import React from 'react'
 import { Settings, Power } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { Button } from '@/components/ui/button'
+import { Button } from '@/components/legacy-ui/button'
 import type { AIAgent } from '@/types'
 
 export interface AIAgentHeroCardProps {

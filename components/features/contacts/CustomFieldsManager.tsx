@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, memo } from 'react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { Button } from '@/components/legacy-ui/button';
+import { Input } from '@/components/legacy-ui/input';
+import { Label } from '@/components/legacy-ui/label';
 import { Trash2, Plus, Type, Loader2 } from 'lucide-react';
 import { customFieldService } from '@/services/customFieldService';
 import { CustomFieldDefinition } from '@/types';

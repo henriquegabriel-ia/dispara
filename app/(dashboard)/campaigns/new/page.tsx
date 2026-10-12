@@ -9,7 +9,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+} from '@/components/legacy-ui/dropdown-menu'
 import { Braces, Calendar as CalendarIcon, Check, Eye, FolderIcon, Layers, MessageSquare, Plus, RefreshCw, Save, Search, Sparkles, Users, Wand2 } from 'lucide-react'
 import { CustomFieldsSheet } from '@/components/features/contacts/CustomFieldsSheet'
 import {
@@ -18,14 +18,14 @@ import {
   SheetDescription,
   SheetHeader,
   SheetTitle,
-} from '@/components/ui/sheet'
+} from '@/components/legacy-ui/sheet'
 import { TemplatePreviewCard } from '@/components/app/TemplatePreviewCard'
 import { ContactQuickEditModal } from '@/components/features/contacts/ContactQuickEditModal'
-import { Calendar } from '@/components/ui/calendar'
+import { Calendar } from '@/components/legacy-ui/calendar'
 import DateTimePicker from '@/components/app/date-time-picker'
 import { ptBRLight as ptBR } from '@/lib/locale-pt-br-light'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/legacy-ui/popover'
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/legacy-ui/command'
 import { useCampaignNewController, steps, formatDateLabel, parsePickerDate } from '@/hooks/useCampaignNew'
 
 export default function CampaignsNewRealPage() {

@@ -7,7 +7,7 @@ import { PrefetchLink } from '@/components/app/PrefetchLink'
 import { Page, PageActions, PageDescription, PageHeader, PageTitle } from '@/components/app/page'
 import type { SettingsPerformanceResponse } from '@/services/performanceService'
 import { Container } from '@/components/app/container'
-import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
+import { Alert, AlertTitle, AlertDescription } from '@/components/legacy-ui/alert'
 
 function clamp(n: number, min: number, max: number) {
   if (!Number.isFinite(n)) return min

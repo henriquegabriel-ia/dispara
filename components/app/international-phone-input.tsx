@@ -12,7 +12,7 @@ import {
 } from "react-international-phone"
 
 import { cn } from "@/lib/utils"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/legacy-ui/popover"
 import {
   Command,
   CommandEmpty,
@@ -21,7 +21,7 @@ import {
   CommandItem,
   CommandList,
   CommandSeparator,
-} from "@/components/ui/command"
+} from "@/components/legacy-ui/command"
 
 export interface InternationalPhoneInputProps {
   value: string

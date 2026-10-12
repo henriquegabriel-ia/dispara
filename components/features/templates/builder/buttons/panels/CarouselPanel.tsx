@@ -2,7 +2,7 @@
 
 import React from 'react'
 import { Container } from '@/components/app/container'
-import { Textarea } from '@/components/ui/textarea'
+import { Textarea } from '@/components/legacy-ui/textarea'
 import { Spec } from '../types'
 
 interface CarouselPanelProps {

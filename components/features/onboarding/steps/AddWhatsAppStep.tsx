@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { ArrowRight, AlertTriangle } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/components/legacy-ui/button';
 import { StepHeader } from './StepHeader';
 
 interface AddWhatsAppStepProps {

@@ -12,14 +12,14 @@ import {
   Star,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { Card } from '@/components/ui/card'
+import { Button } from '@/components/legacy-ui/button'
+import { Badge } from '@/components/legacy-ui/badge'
+import { Card } from '@/components/legacy-ui/card'
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from '@/components/ui/tooltip'
+} from '@/components/legacy-ui/tooltip'
 import type { AIAgent } from '@/types'
 
 export interface AIAgentCardProps {

@@ -2,17 +2,17 @@
 
 import React, { useState } from 'react';
 import { BookmarkPlus, Check, ChevronDown, ListFilter, Pencil, RefreshCw, Trash2, Users } from 'lucide-react';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/legacy-ui/popover';
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogFooter,
-} from '@/components/ui/dialog';
+} from '@/components/legacy-ui/dialog';
 import { ConfirmationDialog } from '@/components/app/confirmation-dialog';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Button } from '@/components/legacy-ui/button';
+import { Input } from '@/components/legacy-ui/input';
 import type { ContactList } from '@/services/contactListService';
 
 export interface ContactListSelectorProps {

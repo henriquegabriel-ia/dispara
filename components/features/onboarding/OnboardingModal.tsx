@@ -7,7 +7,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
-} from '@/components/ui/dialog';
+} from '@/components/legacy-ui/dialog';
 import { useOnboardingProgress, OnboardingStep } from './hooks/useOnboardingProgress';
 
 // Steps
@@ -21,7 +21,7 @@ import { ConfigureWebhookStep } from './steps/ConfigureWebhookStep';
 import { CreatePermanentTokenStep } from './steps/CreatePermanentTokenStep';
 import { DirectCredentialsStep } from './steps/DirectCredentialsStep';
 import { OnboardingCompleteStep } from './steps/OnboardingCompleteStep';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/components/legacy-ui/button';
 
 // Ordem dos steps do tutorial (fluxo simplificado - 6 passos)
 // Removidos: test-connection (integrado em credentials), sync-templates (automático), send-first-message (depende de templates)

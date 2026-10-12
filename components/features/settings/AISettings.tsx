@@ -5,7 +5,7 @@ import { AI_PROVIDERS, type AIProvider, type AIProviderConfig } from '@/lib/ai/p
 import type { AiFallbackConfig, AiPromptsConfig, AiRoutesConfig } from '@/lib/ai/ai-center-defaults';
 import { Container } from '@/components/app/container';
 import { StatusBadge } from '@/components/app/status-badge';
-import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
+import { Alert, AlertTitle, AlertDescription } from '@/components/legacy-ui/alert';
 
 interface ProviderStatus {
     isConfigured: boolean;

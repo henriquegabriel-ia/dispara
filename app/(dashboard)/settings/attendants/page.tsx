@@ -20,16 +20,16 @@ import {
   MoreVertical,
 } from 'lucide-react'
 import { Page, PageDescription, PageHeader, PageTitle } from '@/components/app/page'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Switch } from '@/components/ui/switch'
+import { Button } from '@/components/legacy-ui/button'
+import { Input } from '@/components/legacy-ui/input'
+import { Label } from '@/components/legacy-ui/label'
+import { Switch } from '@/components/legacy-ui/switch'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+} from '@/components/legacy-ui/dropdown-menu'
 import { toast } from 'sonner'
 import type { AttendantToken, AttendantPermissions } from '@/types'
 

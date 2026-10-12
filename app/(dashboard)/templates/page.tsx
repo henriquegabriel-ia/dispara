@@ -9,7 +9,7 @@ import { useTemplateProjectsQuery, useTemplateProjectMutations } from '@/hooks/u
 import { Loader2, Plus, Folder, Search, RefreshCw, CheckCircle, AlertTriangle, Trash2, Pencil, LayoutGrid, Workflow, FileText, ClipboardList, Check, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Page, PageActions, PageDescription, PageHeader, PageTitle } from '@/components/app/page';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/components/legacy-ui/button';
 import { Megaphone, Wrench, VenetianMask } from 'lucide-react';
 import type { AIStrategy } from '@/types';
 import {
@@ -21,9 +21,9 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Label } from '@/components/ui/label';
+} from '@/components/legacy-ui/alert-dialog';
+import { Checkbox } from '@/components/legacy-ui/checkbox';
+import { Label } from '@/components/legacy-ui/label';
 
 import { FlowPublishPanel } from '@/components/features/flows/FlowPublishPanel'
 import { flowsService } from '@/services/flowsService'

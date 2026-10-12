@@ -4,29 +4,29 @@ import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { Play, ChevronRight, Smartphone } from 'lucide-react'
 
-import { Button } from '@/components/ui/button'
+import { Button } from '@/components/legacy-ui/button'
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
+} from '@/components/legacy-ui/dialog'
+import { Input } from '@/components/legacy-ui/input'
+import { Label } from '@/components/legacy-ui/label'
+import { Textarea } from '@/components/legacy-ui/textarea'
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
+} from '@/components/legacy-ui/select'
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
-} from '@/components/ui/collapsible'
+} from '@/components/legacy-ui/collapsible'
 import { flowsService, type FlowRow } from '@/services/flowsService'
 import { settingsService } from '@/services/settingsService'
 import { cn } from '@/lib/utils'

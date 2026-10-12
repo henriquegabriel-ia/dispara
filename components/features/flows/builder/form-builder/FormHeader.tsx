@@ -3,7 +3,7 @@
 import React from 'react'
 import { Wand2 } from 'lucide-react'
 
-import { Button } from '@/components/ui/button'
+import { Button } from '@/components/legacy-ui/button'
 import { FormHeaderProps } from './types'
 
 export function FormHeader({ showHeaderActions, onOpenAI, onOpenTemplate }: FormHeaderProps) {

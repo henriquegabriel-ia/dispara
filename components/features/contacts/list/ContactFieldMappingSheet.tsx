@@ -7,7 +7,7 @@ import {
   SheetDescription,
   SheetHeader,
   SheetTitle,
-} from '@/components/ui/sheet';
+} from '@/components/legacy-ui/sheet';
 import { Settings2, Plus, ChevronLeft, Check, CheckCircle2 } from 'lucide-react';
 import { CustomFieldsManager } from '../CustomFieldsManager';
 import { CustomFieldDefinition, CsvPreviewData, ColumnMapping } from './types';

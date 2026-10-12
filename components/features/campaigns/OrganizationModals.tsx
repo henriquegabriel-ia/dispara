@@ -18,10 +18,10 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+} from '@/components/legacy-ui/dialog'
+import { Button } from '@/components/legacy-ui/button'
+import { Input } from '@/components/legacy-ui/input'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/legacy-ui/tabs'
 import { toast } from 'sonner'
 import type { CampaignFolder, CampaignTag } from '@/types'
 

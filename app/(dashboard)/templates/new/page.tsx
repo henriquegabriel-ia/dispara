@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { Badge } from '@/components/ui/badge';
+import { Badge } from '@/components/legacy-ui/badge';
 import { VenetianMask, Megaphone, Wrench, Sparkles, ArrowLeft, ArrowRight, Wand2, Loader2, Check, Save, AlertCircle, CheckSquare, Square, Pencil, FileText, Brain, Zap, RotateCcw } from 'lucide-react';
 import { useTemplateProjectMutations } from '@/hooks/useTemplateProjects';
 import { toast } from 'sonner';

@@ -13,14 +13,14 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Page, PageActions, PageDescription, PageHeader, PageTitle } from "@/components/app/page";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Button } from "@/components/legacy-ui/button";
+import { Input } from "@/components/legacy-ui/input";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+} from "@/components/legacy-ui/dropdown-menu";
 import { api } from "@/lib/builder/api-client";
 import { cn } from "@/lib/utils";
 

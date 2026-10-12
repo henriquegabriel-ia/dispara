@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { Users2, Plus, RefreshCw, Link2, Eye, EyeOff, Copy, ExternalLink, MoreVertical, MessageCircle, ArrowRightLeft } from 'lucide-react'
 import { PageHeader, PageTitle, PageDescription, PageActions } from '@/components/app/page'
-import { Button } from '@/components/ui/button'
+import { Button } from '@/components/legacy-ui/button'
 import { Container } from '@/components/app/container'
 
 interface Attendant {

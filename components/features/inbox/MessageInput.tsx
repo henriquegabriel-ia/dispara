@@ -14,12 +14,12 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { Send, Loader2, Sparkles } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { Textarea } from '@/components/ui/textarea'
+import { Textarea } from '@/components/legacy-ui/textarea'
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from '@/components/ui/tooltip'
+} from '@/components/legacy-ui/tooltip'
 import { QuickRepliesPopover } from './QuickRepliesPopover'
 import type { InboxQuickReply } from '@/types'
 

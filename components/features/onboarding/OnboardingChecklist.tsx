@@ -12,15 +12,15 @@ import {
   Key,
   Loader2,
 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
+import { Button } from '@/components/legacy-ui/button';
+import { Checkbox } from '@/components/legacy-ui/checkbox';
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogDescription,
-} from '@/components/ui/dialog';
+} from '@/components/legacy-ui/dialog';
 import { useOnboardingProgress, type OnboardingStep } from './hooks/useOnboardingProgress';
 import { cn } from '@/lib/utils';
 import type { HealthStatus } from '@/lib/health-check';

@@ -7,7 +7,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
+} from '@/components/legacy-ui/select'
 import { ButtonData, Flow } from '../types'
 
 interface FlowButtonFieldsProps {

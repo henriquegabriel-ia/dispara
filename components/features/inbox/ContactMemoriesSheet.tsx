@@ -22,7 +22,7 @@ import {
   SheetHeader,
   SheetTitle,
   SheetDescription,
-} from '@/components/ui/sheet'
+} from '@/components/legacy-ui/sheet'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -32,8 +32,8 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
-import { Button } from '@/components/ui/button'
+} from '@/components/legacy-ui/alert-dialog'
+import { Button } from '@/components/legacy-ui/button'
 import { cn } from '@/lib/utils'
 
 interface Memory {

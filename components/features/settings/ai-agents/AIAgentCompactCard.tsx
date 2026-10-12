@@ -8,12 +8,12 @@
 import React from 'react'
 import { Star, Pencil, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { Button } from '@/components/ui/button'
+import { Button } from '@/components/legacy-ui/button'
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from '@/components/ui/tooltip'
+} from '@/components/legacy-ui/tooltip'
 import type { AIAgent } from '@/types'
 
 export interface AIAgentCompactCardProps {

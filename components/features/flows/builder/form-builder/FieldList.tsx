@@ -3,13 +3,13 @@
 import React from 'react'
 import { ChevronDown, ListPlus, Plus } from 'lucide-react'
 
-import { Button } from '@/components/ui/button'
+import { Button } from '@/components/legacy-ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+} from '@/components/legacy-ui/dropdown-menu'
 
 import { FlowFormFieldType } from '@/lib/flow-form'
 import { FIELD_TYPE_LABEL, FieldListProps } from './types'

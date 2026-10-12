@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from 'react'
 import { cn } from '@/lib/utils'
 import { useCampaignTags } from '@/hooks/useCampaignTags'
 import { TagIcon, ChevronDownIcon, XIcon, CheckIcon } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { Button } from '@/components/legacy-ui/button'
 import { CampaignTagBadge } from './CampaignTagBadge'
 import type { CampaignTag } from '@/types'
 

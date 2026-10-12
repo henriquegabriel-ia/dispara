@@ -2,8 +2,8 @@
 
 import { Code, ExternalLink } from 'lucide-react'
 import { SectionHeader } from '@/components/app/section-header'
-import { Switch } from '@/components/ui/switch'
-import { Button } from '@/components/ui/button'
+import { Switch } from '@/components/legacy-ui/switch'
+import { Button } from '@/components/legacy-ui/button'
 import { useDevMode } from '@/components/providers/DevModeProvider'
 import Link from 'next/link'
 

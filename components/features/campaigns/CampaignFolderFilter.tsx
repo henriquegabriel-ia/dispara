@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { cn } from '@/lib/utils'
 import { useCampaignFolders } from '@/hooks/useCampaignFolders'
 import { FolderIcon, FolderOpenIcon, ChevronDownIcon, XIcon, CheckIcon, SettingsIcon } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { Button } from '@/components/legacy-ui/button'
 
 interface CampaignFolderFilterProps {
   selectedFolderId: string | null

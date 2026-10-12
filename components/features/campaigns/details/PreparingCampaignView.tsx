@@ -5,7 +5,7 @@ import { ChevronLeft, Clock, CheckCircle2, Ban, FileText, Loader2, AlertCircle }
 import { PrefetchLink } from '@/components/app/PrefetchLink';
 import { Page, PageHeader, PageTitle } from '@/components/app/page';
 import { Container } from '@/components/app/container';
-import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Alert, AlertDescription } from '@/components/legacy-ui/alert';
 import { MessageStatus } from '@/types';
 import { formatPhoneNumberDisplay } from '@/lib/phone-formatter';
 import { MessageStatusBadge } from './MessageStatusBadge';

@@ -10,8 +10,8 @@ import {
   Phone,
   User,
 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Button } from '@/components/legacy-ui/button';
+import { Input } from '@/components/legacy-ui/input';
 import { StepHeader } from './StepHeader';
 import { toast } from 'sonner';
 

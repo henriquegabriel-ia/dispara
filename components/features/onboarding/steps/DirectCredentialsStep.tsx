@@ -2,7 +2,7 @@
 
 import React, { useState, useCallback } from 'react'
 import { ArrowLeft, Loader2, PartyPopper } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { Button } from '@/components/legacy-ui/button'
 import { toast } from 'sonner'
 import { WhatsAppCredentialsForm, type WhatsAppCredentials } from '@/components/shared/WhatsAppCredentialsForm'
 

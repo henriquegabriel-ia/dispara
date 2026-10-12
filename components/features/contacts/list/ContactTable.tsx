@@ -2,9 +2,9 @@
 
 import React from 'react';
 import { Edit2, Trash2, Tag, ChevronLeft, ChevronRight, ShieldOff } from 'lucide-react';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/legacy-ui/tooltip';
 import { StatusBadge } from '@/components/app/status-badge';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/components/legacy-ui/button';
 import { Contact, ContactStatus } from './types';
 import { calculateRelativeTime, getContactInitials } from './utils';
 import { ContactCardList } from './ContactCard';

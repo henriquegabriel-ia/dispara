@@ -2,7 +2,7 @@
 
 import React from 'react'
 import Image from 'next/image'
-import { Button } from '@/components/ui/button'
+import { Button } from '@/components/legacy-ui/button'
 import { Container } from '@/components/app/container'
 import {
   Dialog,
@@ -11,9 +11,9 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
+} from '@/components/legacy-ui/dialog'
+import { Input } from '@/components/legacy-ui/input'
+import { Textarea } from '@/components/legacy-ui/textarea'
 import {
   Code,
   Bold,
@@ -35,7 +35,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
+} from '@/components/legacy-ui/select'
 import { cn } from '@/lib/utils'
 
 type Spec = any

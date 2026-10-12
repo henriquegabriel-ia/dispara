@@ -29,8 +29,8 @@ import {
   Brain,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { Button } from '@/components/ui/button'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Button } from '@/components/legacy-ui/button'
+import { Avatar, AvatarFallback } from '@/components/legacy-ui/avatar'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -43,12 +43,12 @@ import {
   DropdownMenuSubContent,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
-} from '@/components/ui/dropdown-menu'
+} from '@/components/legacy-ui/dropdown-menu'
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from '@/components/ui/tooltip'
+} from '@/components/legacy-ui/tooltip'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -58,7 +58,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
+} from '@/components/legacy-ui/alert-dialog'
 import type {
   InboxConversation,
   InboxLabel,

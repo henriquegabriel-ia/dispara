@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react'
 import { toast } from 'sonner'
 
-import { Button } from '@/components/ui/button'
+import { Button } from '@/components/legacy-ui/button'
 import {
   Dialog,
   DialogContent,
@@ -11,7 +11,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog'
+} from '@/components/legacy-ui/dialog'
 
 import { flowJsonToFormSpec } from '@/lib/flow-form'
 import { FLOW_TEMPLATES } from '@/lib/flow-templates'

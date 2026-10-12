@@ -7,15 +7,15 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
-} from '@/components/ui/dialog'
-import { Button } from '@/components/ui/button'
+} from '@/components/legacy-ui/dialog'
+import { Button } from '@/components/legacy-ui/button'
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
+} from '@/components/legacy-ui/select'
 import { AlertTriangle, CircleUser } from 'lucide-react'
 import { ContactStatus } from '@/types'
 

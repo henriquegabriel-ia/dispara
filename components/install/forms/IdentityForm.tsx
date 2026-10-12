@@ -4,7 +4,7 @@ import { useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { User, Mail, Lock, Eye, EyeOff, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/components/legacy-ui/button';
 import { isValidEmail, VALIDATION } from '@/lib/installer/types';
 import type { FormProps } from './types';
 

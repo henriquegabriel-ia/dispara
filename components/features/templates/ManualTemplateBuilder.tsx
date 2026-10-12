@@ -46,7 +46,7 @@ import {
   splitPhone,
   joinPhone,
 } from './utils/templateBuilderUtils'
-import { Input } from '@/components/ui/input'
+import { Input } from '@/components/legacy-ui/input'
 import { Container } from '@/components/app/container'
 
 export function ManualTemplateBuilder({

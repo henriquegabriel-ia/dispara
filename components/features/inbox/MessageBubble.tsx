@@ -19,7 +19,7 @@ import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from '@/components/ui/tooltip'
+} from '@/components/legacy-ui/tooltip'
 import type { InboxMessage, DeliveryStatus, Sentiment } from '@/types'
 import { WhatsAppFormattedText } from '@/lib/whatsapp-text-formatter'
 

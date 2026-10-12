@@ -6,7 +6,7 @@ import { User, Mail, Lock, Eye, EyeOff, Sparkles } from 'lucide-react';
 import { StepCard } from '../StepCard';
 import { ServiceIcon } from '../ServiceIcon';
 import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/components/legacy-ui/button';
 
 interface IdentityStepProps {
   onComplete: (data: { name: string; email: string; password: string; passwordHash: string }) => void;

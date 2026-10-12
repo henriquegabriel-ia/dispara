@@ -4,18 +4,18 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { nanoid } from 'nanoid'
 import { ChevronDown, MoreVertical, Plus, Trash2 } from 'lucide-react'
 
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Switch } from '@/components/ui/switch'
-import { Textarea } from '@/components/ui/textarea'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Button } from '@/components/legacy-ui/button'
+import { Input } from '@/components/legacy-ui/input'
+import { Switch } from '@/components/legacy-ui/switch'
+import { Textarea } from '@/components/legacy-ui/textarea'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/legacy-ui/tabs'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+} from '@/components/legacy-ui/dropdown-menu'
 
 import { InspectorPanel } from '@/components/features/flows/builder/InspectorPanel'
 

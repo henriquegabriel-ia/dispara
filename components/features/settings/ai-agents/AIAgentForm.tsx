@@ -7,12 +7,12 @@
 
 import React, { useState, useEffect, useCallback } from 'react'
 import { Bot, Save, Loader2, Sparkles, SlidersHorizontal, Database, Search, AlertCircle } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
-import { Switch } from '@/components/ui/switch'
-import { Slider } from '@/components/ui/slider'
+import { Button } from '@/components/legacy-ui/button'
+import { Input } from '@/components/legacy-ui/input'
+import { Label } from '@/components/legacy-ui/label'
+import { Textarea } from '@/components/legacy-ui/textarea'
+import { Switch } from '@/components/legacy-ui/switch'
+import { Slider } from '@/components/legacy-ui/slider'
 import {
   Select,
   SelectContent,
@@ -21,7 +21,7 @@ import {
   SelectLabel,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
+} from '@/components/legacy-ui/select'
 import {
   Sheet,
   SheetContent,
@@ -29,12 +29,12 @@ import {
   SheetHeader,
   SheetTitle,
   SheetFooter,
-} from '@/components/ui/sheet'
+} from '@/components/legacy-ui/sheet'
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
-} from '@/components/ui/collapsible'
+} from '@/components/legacy-ui/collapsible'
 import type { AIAgent, EmbeddingProvider, RerankProvider } from '@/types'
 import type { CreateAIAgentParams, UpdateAIAgentParams } from '@/services/aiAgentService'
 import { DEFAULT_MODEL_ID, AI_PROVIDERS, type AIProvider } from '@/lib/ai/model'

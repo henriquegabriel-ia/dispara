@@ -10,8 +10,8 @@ import {
   CheckCircle2,
   Bell,
 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
+import { Button } from '@/components/legacy-ui/button';
+import { Checkbox } from '@/components/legacy-ui/checkbox';
 import { StepHeader } from './StepHeader';
 import { toast } from 'sonner';
 

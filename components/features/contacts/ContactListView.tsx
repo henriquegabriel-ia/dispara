@@ -9,7 +9,7 @@ import type { WorkflowSummary } from '@/services/workflowEnrollmentService';
 import { CustomFieldsSheet } from './CustomFieldsSheet';
 import { Page, PageActions, PageDescription, PageHeader, PageTitle } from '@/components/app/page';
 import { Container } from '@/components/app/container';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/components/legacy-ui/button';
 
 // Import extracted components
 import {

@@ -5,9 +5,9 @@ import { Copy, Trash2, Calendar, Play, Pause, Loader2, Users, FolderIcon } from 
 import { Campaign, CampaignStatus } from '../../../types'
 import { formatDateFull, formatDateTimeFull } from '@/lib/date-formatter'
 import { StatusBadge as DsStatusBadge } from '@/components/app/status-badge'
-import { Progress } from '@/components/ui/progress'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { Button } from '@/components/ui/button'
+import { Progress } from '@/components/legacy-ui/progress'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/legacy-ui/tooltip'
+import { Button } from '@/components/legacy-ui/button'
 import { CampaignTagList } from './CampaignTagBadge'
 
 // =============================================================================

@@ -17,8 +17,8 @@ import {
   XCircle,
   HardDrive,
 } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/legacy-ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/legacy-ui/card'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -28,8 +28,8 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
-import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
+} from '@/components/legacy-ui/alert-dialog'
+import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/legacy-ui/tooltip'
 import { cn } from '@/lib/utils'
 import type { AIKnowledgeFile, KnowledgeFileIndexingStatus } from '@/types'
 

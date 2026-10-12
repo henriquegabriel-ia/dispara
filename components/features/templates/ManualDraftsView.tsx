@@ -3,9 +3,9 @@
 import React from 'react'
 import { useRouter } from 'next/navigation'
 import { FileText, RefreshCw, Plus, Trash2, Send, Pencil } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { Button } from '@/components/legacy-ui/button'
 import { Container } from '@/components/app/container'
-import { Input } from '@/components/ui/input'
+import { Input } from '@/components/legacy-ui/input'
 import { cn } from '@/lib/utils'
 import type { ManualDraftTemplate } from '@/hooks/useManualDrafts'
 
