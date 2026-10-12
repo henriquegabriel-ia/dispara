@@ -4,7 +4,7 @@ import { useQueryClient, useMutation } from '@tanstack/react-query';
 import { templateProjectService, CreateTemplateProjectDTO } from '@/services/templateProjectService';
 import { useRealtimeQuery } from './useRealtimeQuery';
 import { REALTIME_FILTERS } from '@/lib/realtime-db-change';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { useRouter } from 'next/navigation';
 
 // --- Queries ---

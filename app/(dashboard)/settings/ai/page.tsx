@@ -28,7 +28,7 @@ import type {
   AiPromptsConfig,
   AiRoutesConfig,
 } from '@/lib/ai/ai-center-defaults'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 import { useSettingsAIController } from '@/hooks/useSettingsAI'
 
 type PromptItem = {

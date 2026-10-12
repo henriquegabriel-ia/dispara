@@ -1,7 +1,7 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from '@/lib/navigation';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { campaignService } from '../services';
 import { useCampaignRealtime } from './useCampaignRealtime';
 import { Campaign, CampaignStatus, MessageStatus, Message } from '../types';

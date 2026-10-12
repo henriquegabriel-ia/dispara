@@ -13,7 +13,7 @@ import {
 import { Button } from '@/components/legacy-ui/button';
 import { Checkbox } from '@/components/legacy-ui/checkbox';
 import { StepHeader } from './StepHeader';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 
 interface ConfigureWebhookStepProps {
   onNext: () => void;

@@ -5,7 +5,7 @@ import { HelpCircle, Eye, EyeOff, Loader2, CheckCircle2, AlertTriangle, External
 import { Input } from '@/components/legacy-ui/input'
 import { Label } from '@/components/legacy-ui/label'
 import { Button } from '@/components/legacy-ui/button'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 import { cn } from '@/lib/utils'
 import { PermissionStatusView } from './PermissionStatusView'
 import type { PermissionValidationResult } from '@/app/api/settings/validate-permissions/route'

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Workflow, Copy, Check, RefreshCw, Key } from 'lucide-react';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { SectionHeader } from '@/components/app/section-header';
 import { Alert, AlertTitle, AlertDescription } from '@/components/legacy-ui/alert';
 import { StatusBadge } from '@/components/app/status-badge';

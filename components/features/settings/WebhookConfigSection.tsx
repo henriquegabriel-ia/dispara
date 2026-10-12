@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { Webhook, RefreshCw, ExternalLink, Copy, CheckCircle2 } from 'lucide-react';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { PhoneNumber } from '../../../hooks/useSettings';
 import { Container } from '@/components/app/container';
 import { SectionHeader } from '@/components/app/section-header';

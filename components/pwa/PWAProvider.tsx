@@ -14,7 +14,7 @@ import { createContext, useContext, useEffect, useState } from 'react'
 import { Download, RefreshCw, X, Bell, BellOff } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useServiceWorker } from '@/hooks/useServiceWorker'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 
 // =============================================================================
 // Context

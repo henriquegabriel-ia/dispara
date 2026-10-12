@@ -37,7 +37,7 @@ const toastMock = vi.hoisted(() => ({
   info: vi.fn(),
   warning: vi.fn(),
 }))
-vi.mock('sonner', () => ({ toast: toastMock }))
+vi.mock('@/lib/toast', () => ({ toast: toastMock }))
 
 import {
   __resetCampaignConfirmationsForTests,

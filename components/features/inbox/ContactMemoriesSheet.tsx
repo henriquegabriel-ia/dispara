@@ -15,7 +15,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react'
 import { Brain, Trash2, Loader2, RefreshCw, AlertCircle, Sparkles, User, Mail, Tag, Calendar, FileText, Wand2 } from 'lucide-react'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 import {
   Sheet,
   SheetContent,

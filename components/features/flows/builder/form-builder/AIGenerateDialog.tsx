@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState } from 'react'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 
 import { Button } from '@/components/legacy-ui/button'
 import { Textarea } from '@/components/legacy-ui/textarea'

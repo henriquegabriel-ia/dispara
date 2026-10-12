@@ -13,7 +13,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import type { SaveState } from "@/components/flow-builder/BuilderHeader";
 import { useFlowBuilderStore } from "@/components/flow-builder/store";
 import { api } from "@/lib/builder/api-client";

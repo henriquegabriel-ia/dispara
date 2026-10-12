@@ -5,7 +5,7 @@ import { Label } from '@/components/legacy-ui/label';
 import { Trash2, Plus, Type, Loader2 } from 'lucide-react';
 import { customFieldService } from '@/services/customFieldService';
 import { CustomFieldDefinition } from '@/types';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 
 // =============================================================================
 // MEMOIZED SUBCOMPONENT - Evita re-render de todos os itens ao adicionar/remover

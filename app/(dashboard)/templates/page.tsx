@@ -28,7 +28,7 @@ import { Label } from '@/components/legacy-ui/label';
 import { FlowPublishPanel } from '@/components/features/flows/FlowPublishPanel'
 import { flowsService } from '@/services/flowsService'
 import { useQuery } from '@tanstack/react-query'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 import { LeadFormsView } from '@/components/features/lead-forms/LeadFormsView'
 
 // Strategy Badge Component

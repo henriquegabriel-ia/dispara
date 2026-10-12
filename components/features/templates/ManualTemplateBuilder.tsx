@@ -2,7 +2,7 @@
 
 import React from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 import { flowsService } from '@/services/flowsService'
 import { templateService } from '@/services/templateService'
 import { validateVideoCodecs, getCodecErrorMessage } from '@/lib/video-codec-validator'

@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from 'next'
 import localFont from 'next/font/local'
 import './globals.css'
 import { Providers } from './providers'
-import { ThemedToaster } from '@/components/app/themed-toaster'
+import { DisparaToaster } from '@/components/app/DisparaToaster'
 import { EiaThemeScript } from '@/components/eia/theme'
 import { BRAND } from '@/lib/branding'
 
@@ -74,7 +74,7 @@ export default function RootLayout({
       </head>
       <body className="eia-theme font-sans antialiased">
         <Providers>
-          <ThemedToaster />
+          <DisparaToaster />
           {children}
         </Providers>
       </body>

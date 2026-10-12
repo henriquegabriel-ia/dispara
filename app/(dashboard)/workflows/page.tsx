@@ -11,7 +11,7 @@ import {
   Star,
   Workflow as WorkflowIcon,
 } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { Page, PageActions, PageDescription, PageHeader, PageTitle } from "@/components/app/page";
 import { Button } from "@/components/legacy-ui/button";
 import { Input } from "@/components/legacy-ui/input";

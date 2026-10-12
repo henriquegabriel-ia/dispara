@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { BatchSubmission, GeneratedTemplateWithStatus } from '../types';
 import { GeneratedTemplate } from '../services/templateService';
 import { templateService } from '../services/templateService';
