@@ -1,15 +1,16 @@
 'use client'
 
 import React from 'react'
-import { Trash2, Loader2 } from 'lucide-react'
-import { Modal, ModalHeader, ModalFooter, ModalCancelButton } from './Modal'
+import { Trash2 } from 'lucide-react'
+
+import { ConfirmDialog } from '@/components/app/ConfirmDialog'
 
 export interface ConfirmDeleteModalProps {
   /** Whether the modal is open */
   isOpen: boolean
   /** Modal title */
   title: string
-  /** Description text (default: "Esta ação não pode ser desfeita") */
+  /** Description text (default: "Esta ação não pode ser desfeita.") */
   description?: string
   /** Single item name to display */
   itemName?: string
@@ -25,31 +26,35 @@ export interface ConfirmDeleteModalProps {
   onConfirm: () => void
   /** Callback when user cancels */
   onCancel: () => void
-  /** Button text (default: "Deletar" or "Deletar X" if count > 1) */
+  /** Button text (default: "Confirmar exclusão" or "Excluir X itens" if count > 1) */
   confirmText?: string
-  /** Loading button text (default: "Deletando...") */
+  /** Loading button text (default: "Excluindo…") */
   loadingText?: string
 }
 
 /**
- * Reusable delete confirmation modal.
- * Supports single item, bulk items, or custom content.
+ * Confirmação de exclusão reutilizável, sobre o ConfirmDialog (tom destrutivo).
+ * Suporta item único, lista de itens (exclusão em massa) ou conteúdo próprio.
+ *
+ * Quem chama controla o fechamento (`onCancel`/estado `isOpen`): o diálogo não
+ * fecha sozinho após `onConfirm`, para mostrar "Excluindo…" enquanto a
+ * exclusão roda. Durante `isDeleting`, Escape e "Cancelar" ficam bloqueados.
+ * Ao fechar, o ConfirmDialog congela o conteúdo (título, corpo, largura,
+ * rótulos): quem chama pode limpar item/lista no mesmo batch que fecha.
  *
  * @example
- * // Single item delete
  * <ConfirmDeleteModal
  *   isOpen={isOpen}
- *   title="Deletar Template"
+ *   title="Excluir template"
  *   itemName={template.name}
  *   onConfirm={handleDelete}
  *   onCancel={() => setIsOpen(false)}
  * />
  *
  * @example
- * // Bulk delete
  * <ConfirmDeleteModal
  *   isOpen={isOpen}
- *   title="Deletar Templates"
+ *   title="Excluir templates"
  *   itemsToDelete={['Template 1', 'Template 2']}
  *   count={2}
  *   onConfirm={handleBulkDelete}
@@ -59,7 +64,7 @@ export interface ConfirmDeleteModalProps {
 export function ConfirmDeleteModal({
   isOpen,
   title,
-  description = 'Esta ação não pode ser desfeita',
+  description = 'Esta ação não pode ser desfeita.',
   itemName,
   itemsToDelete,
   children,
@@ -68,74 +73,62 @@ export function ConfirmDeleteModal({
   onConfirm,
   onCancel,
   confirmText,
-  loadingText = 'Deletando...',
+  loadingText = 'Excluindo…',
 }: ConfirmDeleteModalProps) {
-  const buttonText = confirmText || (count > 1 ? `Deletar ${count}` : 'Confirmar Exclusão')
+  const buttonText = confirmText || (count > 1 ? `Excluir ${count} itens` : 'Confirmar exclusão')
+  const list = !children && itemsToDelete && itemsToDelete.length > 0 ? itemsToDelete : null
 
   return (
-    <Modal isOpen={isOpen} onClose={onCancel} variant="warning" closeOnBackdropClick={!isDeleting}>
-      <ModalHeader
-        icon={<Trash2 size={24} className="text-amber-300" />}
-        iconClassName="bg-amber-500/10"
-        title={title}
-        description={description}
-      />
-
-      {/* Content area */}
-      <div className="bg-[var(--ds-bg-surface)]/30 rounded-lg p-4 mb-6 border border-[var(--ds-border-subtle)]">
-        {children ? (
-          children
-        ) : itemsToDelete && itemsToDelete.length > 0 ? (
-          <>
-            <p className="text-sm text-[var(--ds-text-secondary)] mb-3">
-              Você está prestes a deletar{' '}
-              <strong className="text-amber-300">{itemsToDelete.length} item(s)</strong>:
-            </p>
-            <div className="max-h-32 overflow-y-auto space-y-1">
-              {itemsToDelete.map((item) => (
-                <div
-                  key={item}
-                  className="text-xs text-[var(--ds-text-secondary)] font-mono bg-[var(--ds-bg-surface)]/30 px-2 py-1 rounded border border-[var(--ds-border-subtle)]"
-                >
-                  {item}
-                </div>
-              ))}
-            </div>
-          </>
-        ) : itemName ? (
-          <>
-            <p className="text-[var(--ds-text-secondary)] text-sm mb-2">
-              Você está prestes a deletar:
-            </p>
-            <p className="text-[var(--ds-text-primary)] font-semibold">{itemName}</p>
-          </>
-        ) : (
-          <p className="text-[var(--ds-text-secondary)] text-sm">
-            Tem certeza que deseja continuar?
+    <ConfirmDialog
+      open={isOpen}
+      onOpenChange={(next) => {
+        if (!next) onCancel()
+      }}
+      title={title}
+      description={description}
+      tone="danger"
+      confirmLabel={buttonText}
+      loadingLabel={loadingText}
+      confirmIcon={<Trash2 />}
+      loading={isDeleting}
+      onConfirm={onConfirm}
+      closeOnConfirm={false}
+      size={list ? 'md' : 'sm'}
+    >
+      {/* Cada ramo vem num <div>: `.eia-overlay-body > p` (eia.css, sem @layer)
+          pintaria um <p> filho direto de cinza e venceria o text-eia-text do nome. */}
+      {children ? (
+        children
+      ) : list ? (
+        <div>
+          <p className="text-(length:--eia-type-control) leading-(--eia-line-body) text-eia-muted">
+            Você está prestes a excluir{' '}
+            <strong className="font-(--eia-weight-semibold) text-eia-text tabular-nums">
+              {list.length.toLocaleString('pt-BR')} {list.length === 1 ? 'item' : 'itens'}
+            </strong>
+            :
           </p>
-        )}
-      </div>
-
-      <ModalFooter>
-        <ModalCancelButton onClick={onCancel} disabled={isDeleting} />
-        <button
-          onClick={onConfirm}
-          disabled={isDeleting}
-          className="flex-1 px-4 py-3 bg-amber-500/10 text-amber-200 border border-amber-500/30 rounded-lg font-semibold hover:bg-amber-500/15 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-        >
-          {isDeleting ? (
-            <>
-              <Loader2 size={16} className="animate-spin" />
-              {loadingText}
-            </>
-          ) : (
-            <>
-              <Trash2 size={16} />
-              {buttonText}
-            </>
-          )}
-        </button>
-      </ModalFooter>
-    </Modal>
+          <ul className="mt-(--eia-space-3) max-h-32 space-y-(--eia-space-1) overflow-y-auto">
+            {list.map((item) => (
+              <li
+                key={item}
+                className="truncate rounded-(--eia-radius-small) border border-eia-border-subtle bg-eia-code px-(--eia-space-2) py-(--eia-space-1) font-mono text-(length:--eia-type-caption) text-eia-code-text"
+              >
+                {item}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : itemName ? (
+        <div>
+          <p className="text-(length:--eia-type-control) leading-(--eia-line-body) text-eia-muted">
+            Você está prestes a excluir:
+          </p>
+          <p className="mt-(--eia-space-1) break-words font-(--eia-weight-semibold) text-eia-text">
+            {itemName}
+          </p>
+        </div>
+      ) : null}
+    </ConfirmDialog>
   )
 }

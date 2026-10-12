@@ -1,11 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <defs>
-    <linearGradient id="dispara-tile" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#10b981"/>
-      <stop offset="1" stop-color="#047857"/>
-    </linearGradient>
-  </defs>
-  <rect width="64" height="64" rx="14" fill="url(#dispara-tile)"/>
-  <text x="30" y="45" font-family="Inter, -apple-system, 'SF Pro Display', sans-serif" font-size="34" font-weight="800" letter-spacing="-0.04em" text-anchor="middle" fill="#f8fafc">d</text>
-  <circle cx="44" cy="42" r="4" fill="#030712"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Dispara">
+  <rect width="64" height="64" rx="14" fill="#080a09"/>
+  <path fill="#f6f7f6" d="M27.53 48.0Q24.28 48.0 21.86 46.37Q19.43 44.73 18.09 41.92Q16.74 39.11 16.74 35.59Q16.74 32.01 18.11 29.21Q19.47 26.41 21.95 24.8Q24.43 23.18 27.78 23.18Q31.13 23.18 33.41 24.81Q35.7 26.44 36.87 29.25Q38.04 32.06 38.04 35.59Q38.04 39.11 36.86 41.92Q35.68 44.73 33.34 46.37Q31 48.0 27.53 48.0ZM28.41 43.02Q30.46 43.02 31.7 42.08Q32.94 41.15 33.5 39.47Q34.06 37.8 34.06 35.59Q34.06 33.38 33.5 31.7Q32.94 30.03 31.74 29.1Q30.53 28.17 28.61 28.17Q26.56 28.17 25.24 29.17Q23.92 30.17 23.29 31.86Q22.65 33.54 22.65 35.59Q22.65 37.66 23.27 39.34Q23.89 41.03 25.16 42.02Q26.43 43.02 28.41 43.02ZM34.06 47.35V31.04H33.37V16.0H38.99V47.35Z"/>
+  <circle cx="43.99" cy="44.08" r="3.27" fill="#0fa968"/>
 </svg>

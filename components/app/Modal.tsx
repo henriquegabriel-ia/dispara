@@ -1,7 +1,36 @@
 'use client'
 
-import React, { useEffect, useCallback } from 'react'
+import React, { createContext, useContext } from 'react'
+import { Dialog as DialogPrimitive } from '@base-ui/react/dialog'
 import { X } from 'lucide-react'
+
+import { EiaButton, EiaIconButton } from '@/components/eia'
+import {
+  Dialog,
+  DialogClose,
+  DialogDescription,
+  DialogOverlay,
+  DialogPortal,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { cn } from '@/lib/utils'
+
+/*
+ * Modal genérico do Dispara sobre a primitiva Base UI do DS (a mesma do
+ * EiaDialog), com o markup/classes do overlay do DS: portal `eia-theme
+ * eia-overlay-portal`, scrim `eia-overlay-scrim`, popup `eia-overlay
+ * eia-dialog`, corpo `eia-overlay-body`, título `eia-overlay-title`.
+ *
+ * Diferenças intencionais em relação ao EiaDialog (não editável):
+ * - sem o kicker fixo de marca (tela de produto);
+ * - o conteúdo inteiro (ModalHeader + campos + ModalFooter) vem em `children`,
+ *   como na API antiga, e fica no corpo rolável;
+ * - o botão fechar vem DEPOIS do conteúdo no DOM (posicionado no canto): o foco
+ *   inicial da Base UI cai no primeiro campo do formulário, e não no "Fechar".
+ *
+ * A11y pela Base UI: foco contido, fundo inerte, Escape, restauração do foco e
+ * `aria-labelledby` ligado ao título (prop `title` ou o título do ModalHeader).
+ */
 
 export interface ModalProps {
   /** Whether the modal is open */
@@ -14,7 +43,10 @@ export interface ModalProps {
   children: React.ReactNode
   /** Max width variant */
   maxWidth?: 'sm' | 'md' | 'lg' | 'xl' | '2xl'
-  /** Color variant for border accent */
+  /**
+   * Tom semântico. O DS não usa borda colorida em diálogos: o valor fica em
+   * `data-tone` e o estado é comunicado pelo conteúdo (texto e ação).
+   */
   variant?: 'default' | 'warning' | 'danger' | 'success'
   /** Whether to show close button */
   showCloseButton?: boolean
@@ -26,29 +58,39 @@ export interface ModalProps {
   className?: string
 }
 
-const maxWidthClasses = {
-  sm: 'max-w-sm',
-  md: 'max-w-md',
-  lg: 'max-w-lg',
-  xl: 'max-w-xl',
-  '2xl': 'max-w-2xl',
+/**
+ * Larguras: o `.eia-dialog` fixa `width` por `data-size` (380/520/800px) e não
+ * define `max-width`, então o `max-w-*` refina as larguras intermediárias da
+ * API antiga sem brigar com o CSS do DS.
+ */
+const sizeByMaxWidth = {
+  sm: { size: 'sm', className: '' },
+  md: { size: 'md', className: 'max-w-md' },
+  lg: { size: 'md', className: '' },
+  xl: { size: 'lg', className: 'max-w-xl' },
+  '2xl': { size: 'lg', className: 'max-w-2xl' },
 } as const
 
-const variantClasses = {
-  default: 'border-[var(--ds-border-subtle)]',
-  warning: 'border-amber-500/20',
-  danger: 'border-red-500/20',
-  success: 'border-green-500/20',
-} as const
+interface ModalContextValue {
+  /** O Modal já renderiza um título ligado ao popup (prop `title`). */
+  hasTitle: boolean
+  /** Há botão fechar no canto: o ModalHeader reserva espaço à direita. */
+  hasCloseButton: boolean
+}
+
+const ModalContext = createContext<ModalContextValue | null>(null)
 
 /**
  * Base Modal component with backdrop, animations, and keyboard handling.
  * Use this as a wrapper for all modal content.
  *
  * @example
- * <Modal isOpen={isOpen} onClose={handleClose} title="Confirm Action">
- *   <p>Are you sure?</p>
- *   <button onClick={handleConfirm}>Yes</button>
+ * <Modal isOpen={isOpen} onClose={handleClose} title="Excluir etapa">
+ *   <p>Esta ação não pode ser desfeita.</p>
+ *   <ModalFooter>
+ *     <ModalCancelButton onClick={handleClose} />
+ *     <ModalConfirmButton variant="danger" onClick={handleConfirm}>Excluir etapa</ModalConfirmButton>
+ *   </ModalFooter>
  * </Modal>
  */
 export function Modal({
@@ -63,80 +105,69 @@ export function Modal({
   closeOnEscape = true,
   className = '',
 }: ModalProps) {
-  // Handle Escape key
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && closeOnEscape && onClose) {
-        onClose()
+  const width = sizeByMaxWidth[maxWidth]
+  const hasCloseButton = showCloseButton && !!onClose
+
+  const handleOpenChange = (
+    next: boolean,
+    details: DialogPrimitive.Root.ChangeEventDetails,
+  ) => {
+    if (next) return
+    if (details.reason === 'escape-key') {
+      // Escape já tratado por uma camada acima (outro diálogo/menu aberto por
+      // cima deste, ou um campo que consumiu a tecla): não fecha o Modal junto.
+      if (!closeOnEscape || details.event.defaultPrevented) {
+        details.cancel()
+        return
       }
-    },
-    [closeOnEscape, onClose]
-  )
-
-  useEffect(() => {
-    if (isOpen) {
-      document.addEventListener('keydown', handleKeyDown)
-      // Prevent body scroll when modal is open
-      document.body.style.overflow = 'hidden'
     }
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown)
-      document.body.style.overflow = ''
+    if (!onClose) {
+      details.cancel()
+      return
     }
-  }, [isOpen, handleKeyDown])
-
-  if (!isOpen) return null
-
-  const handleBackdropClick = (e: React.MouseEvent) => {
-    if (e.target === e.currentTarget && closeOnBackdropClick && onClose) {
-      onClose()
-    }
+    onClose()
   }
 
   return (
-    <div
-      className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-      onClick={handleBackdropClick}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby={title ? 'modal-title' : undefined}
-    >
-      <div
-        className={`
-          bg-[var(--ds-bg-elevated)]/95 border rounded-2xl w-full p-6
-          shadow-[0_30px_80px_rgba(0,0,0,0.55)]
-          animate-in zoom-in-95 fade-in duration-200
-          ${maxWidthClasses[maxWidth]}
-          ${variantClasses[variant]}
-          ${className}
-        `}
-      >
-        {(title || showCloseButton) && (
-          <div className="flex items-center justify-between mb-4">
-            {title && (
-              <h2 id="modal-title" className="text-xl font-semibold text-[var(--ds-text-primary)]">
-                {title}
-              </h2>
-            )}
-            {showCloseButton && onClose && (
-              <button
-                onClick={onClose}
-                className="p-1.5 rounded-lg text-[var(--ds-text-secondary)] hover:text-[var(--ds-text-primary)] hover:bg-[var(--ds-bg-hover)] transition-colors"
-                aria-label="Fechar"
-              >
-                <X size={20} />
-              </button>
-            )}
-          </div>
-        )}
-        {children}
-      </div>
-    </div>
+    <Dialog open={isOpen} onOpenChange={handleOpenChange} disablePointerDismissal={!closeOnBackdropClick}>
+      <DialogPortal className="eia-theme eia-overlay-portal">
+        <DialogOverlay className="eia-overlay-scrim" />
+        <DialogPrimitive.Popup
+          data-slot="modal"
+          data-size={width.size}
+          data-tone={variant}
+          className={cn('eia-overlay eia-dialog', width.className, className)}
+        >
+          <ModalContext.Provider value={{ hasTitle: !!title, hasCloseButton }}>
+            <div className="eia-overlay-body">
+              {title && (
+                <DialogTitle
+                  className={cn('eia-overlay-title', hasCloseButton && 'pr-(--eia-space-12)')}
+                  style={{ marginBottom: 'var(--eia-space-6)' }}
+                >
+                  {title}
+                </DialogTitle>
+              )}
+              {children}
+            </div>
+          </ModalContext.Provider>
+          {hasCloseButton && (
+            <DialogClose
+              render={<EiaIconButton label="Fechar janela" className="eia-overlay-close" />}
+            >
+              <X aria-hidden="true" />
+            </DialogClose>
+          )}
+        </DialogPrimitive.Popup>
+      </DialogPortal>
+    </Dialog>
   )
 }
 
 /**
- * Modal Header component for consistent styling
+ * Cabeçalho do Modal: ícone em caixa neutra + título e descrição com a
+ * tipografia do overlay do DS. Dentro de um Modal sem `title`, o título vira o
+ * `Dialog.Title` (rótulo acessível do popup).
  */
 export function ModalHeader({
   icon,
@@ -149,23 +180,45 @@ export function ModalHeader({
   description?: string
   iconClassName?: string
 }) {
+  const modal = useContext(ModalContext)
+  const linkToDialog = !!modal && !modal.hasTitle
+
   return (
-    <div className="flex items-center gap-4 mb-6">
-      <div className={`p-3 rounded-xl ${iconClassName || 'bg-[var(--ds-bg-hover)]'}`}>
-        {icon}
-      </div>
-      <div>
-        <h3 className="text-lg font-bold text-[var(--ds-text-primary)]">{title}</h3>
-        {description && (
-          <p className="text-sm text-[var(--ds-text-secondary)]">{description}</p>
+    <div
+      className={cn(
+        'mb-(--eia-space-6) flex items-start gap-(--eia-space-4)',
+        modal?.hasCloseButton && 'pr-(--eia-space-12)',
+      )}
+    >
+      <span
+        aria-hidden="true"
+        className={cn(
+          'flex size-11 shrink-0 items-center justify-center rounded-(--eia-radius-control) border border-eia-border-subtle bg-eia-raised text-eia-muted [&_svg]:size-5',
+          iconClassName,
         )}
+      >
+        {icon}
+      </span>
+      <div className="flex min-w-0 flex-col gap-(--eia-space-2)">
+        {linkToDialog ? (
+          <DialogTitle className="eia-overlay-title">{title}</DialogTitle>
+        ) : (
+          <h3 className="eia-overlay-title">{title}</h3>
+        )}
+        {description &&
+          (linkToDialog ? (
+            <DialogDescription className="eia-overlay-description">{description}</DialogDescription>
+          ) : (
+            <p className="eia-overlay-description">{description}</p>
+          ))}
       </div>
     </div>
   )
 }
 
 /**
- * Modal Footer component for action buttons
+ * Rodapé de ações do Modal: botões em colunas iguais (layout da API antiga);
+ * rótulos longos quebram para a linha de baixo em vez de serem cortados.
  */
 export function ModalFooter({
   children,
@@ -175,14 +228,14 @@ export function ModalFooter({
   className?: string
 }) {
   return (
-    <div className={`flex gap-3 mt-6 ${className}`}>
+    <div className={cn('mt-(--eia-space-6) flex flex-wrap gap-(--eia-space-3)', className)}>
       {children}
     </div>
   )
 }
 
 /**
- * Standard Cancel button for modals
+ * Botão padrão de cancelar (EiaButton secondary).
  */
 export function ModalCancelButton({
   onClick,
@@ -194,18 +247,24 @@ export function ModalCancelButton({
   children?: React.ReactNode
 }) {
   return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className="flex-1 px-4 py-3 bg-[var(--ds-bg-surface)]/30 text-[var(--ds-text-secondary)] border border-[var(--ds-border-subtle)] rounded-lg font-medium hover:bg-[var(--ds-bg-hover)] transition-colors disabled:opacity-50"
-    >
+    <EiaButton variant="secondary" onClick={onClick} disabled={disabled} className="flex-1">
       {children}
-    </button>
+    </EiaButton>
   )
 }
 
+/** Variante do botão de confirmar → variante do EiaButton (o DS não tem botão de aviso). */
+const confirmVariants = {
+  warning: 'danger',
+  danger: 'danger',
+  primary: 'primary',
+} as const
+
 /**
- * Standard Confirm button for modals (warning/danger style)
+ * Botão padrão de confirmar (EiaButton danger ou primary, com estado de carregamento).
+ * `focusableWhenDisabled`: desabilitado/carregando vira aria-disabled em vez de
+ * disabled nativo, então o foco não cai no <body> ao confirmar (o clique segue
+ * bloqueado pela Base UI e o eia.css estiliza `.eia-button[aria-disabled]`).
  */
 export function ModalConfirmButton({
   onClick,
@@ -224,29 +283,17 @@ export function ModalConfirmButton({
   loadingText?: string
   children: React.ReactNode
 }) {
-  const variantStyles = {
-    warning: 'bg-amber-500/10 text-amber-200 border-amber-500/30 hover:bg-amber-500/15',
-    danger: 'bg-red-500/10 text-red-200 border-red-500/30 hover:bg-red-500/15',
-    primary: 'bg-primary-500/10 text-primary-200 border-primary-500/30 hover:bg-primary-500/15',
-  }
-
   return (
-    <button
+    <EiaButton
+      variant={confirmVariants[variant]}
       onClick={onClick}
-      disabled={disabled || loading}
-      className={`flex-1 px-4 py-3 border rounded-lg font-semibold transition-colors disabled:opacity-50 flex items-center justify-center gap-2 ${variantStyles[variant]}`}
+      disabled={disabled}
+      loading={loading}
+      focusableWhenDisabled
+      leadingIcon={icon}
+      className="flex-1"
     >
-      {loading ? (
-        <>
-          <span className="animate-spin">⏳</span>
-          {loadingText || 'Processando...'}
-        </>
-      ) : (
-        <>
-          {icon}
-          {children}
-        </>
-      )}
-    </button>
+      {loading ? loadingText || 'Processando…' : children}
+    </EiaButton>
   )
 }

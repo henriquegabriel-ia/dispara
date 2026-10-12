@@ -1,53 +1,60 @@
 import * as React from "react"
-import { cva, type VariantProps } from "class-variance-authority"
-import { LucideIcon } from "lucide-react"
+import { type LucideIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
 /**
- * SectionHeader - Header de seção com indicador visual de cor
+ * SectionHeader — cabeçalho de seção com indicador lateral.
  *
- * Usado para organizar seções em páginas de configuração e formulários.
- * O indicador de cor ajuda a categorizar visualmente diferentes tipos de seções.
+ * Usado para organizar seções em páginas de configuração e formulários. Tela de
+ * produto no DS Empreende IA V2 pede calma: esmeralda só pontual (ação, item
+ * ativo, indicador de estado) e nada de faixa decorativa repetida. Por isso o
+ * indicador e o ícone são neutros por padrão, e cor fica para estado real.
  *
- * Cores disponíveis:
- * - brand (emerald): Configurações principais, features ativas
- * - warning (amber): Configurações opcionais, atenção necessária
- * - info (blue): Informações, documentação
- * - neutral (slate): Seções padrão
+ * Tons (prop `color`, API preservada):
+ * - neutral (padrão) / info / brand: neutro — `brand` e `info` ficam por
+ *   compatibilidade e caem no neutro (o DS não tem azul nem esmeralda
+ *   decorativo);
+ * - warning: aviso do DS — só para estado real que pede atenção (ex.:
+ *   configuração incompleta);
+ * - error: perigo do DS — só para estado real (ex.: configuração inválida).
  *
  * @example
  * ```tsx
- * // Com indicador de cor
  * <SectionHeader
  *   title="Meta App (opcional)"
  *   description="Habilita validação forte do token"
- *   color="brand"
  *   icon={Settings}
  * />
  *
- * // Sem indicador
- * <SectionHeader
- *   title="Configurações Avançadas"
- *   showIndicator={false}
- * />
+ * <SectionHeader title="Credenciais" color={isInvalid ? "error" : "neutral"} />
  *
- * // Com ações
+ * <SectionHeader title="Configurações avançadas" showIndicator={false} />
+ *
  * <SectionHeader
  *   title="Webhooks"
  *   icon={Webhook}
- *   color="brand"
- *   actions={<Button size="sm">Configurar</Button>}
+ *   actions={<EiaButton size="sm">Configurar webhook</EiaButton>}
  * />
  * ```
  */
 
+/** Cor do indicador lateral por tom: neutro, salvo estado real (aviso/erro). */
 const indicatorColors = {
-  brand: "bg-primary-500",
-  warning: "bg-amber-500",
-  info: "bg-blue-500",
-  error: "bg-red-500",
-  neutral: "bg-slate-500",
+  brand: "bg-eia-border-control",
+  warning: "bg-eia-warning",
+  info: "bg-eia-border-control",
+  error: "bg-eia-danger",
+  neutral: "bg-eia-border-control",
+} as const
+
+/** Cor do ícone por tom: texto secundário, salvo estado real (aviso/erro). */
+const iconColors = {
+  brand: "text-eia-muted",
+  warning: "text-eia-warning",
+  info: "text-eia-muted",
+  error: "text-eia-danger",
+  neutral: "text-eia-muted",
 } as const
 
 type IndicatorColor = keyof typeof indicatorColors
@@ -55,15 +62,15 @@ type IndicatorColor = keyof typeof indicatorColors
 export interface SectionHeaderProps extends React.HTMLAttributes<HTMLDivElement> {
   /** Título da seção */
   title: string
-  /** Descrição opcional (pode ser string ou ReactNode para formatação) */
+  /** Descrição opcional (pode ser string ou ReactNode para formatação inline) */
   description?: React.ReactNode
-  /** Cor do indicador */
+  /** Tom do indicador e do ícone (padrão `neutral`; cor só para aviso/erro real) */
   color?: IndicatorColor
-  /** Se deve mostrar o indicador de cor */
+  /** Se deve mostrar o indicador lateral */
   showIndicator?: boolean
-  /** Ícone opcional */
+  /** Ícone opcional (Lucide, 20px, decorativo) */
   icon?: LucideIcon
-  /** Ações à direita (botões, etc) */
+  /** Ações à direita (botões etc.) */
   actions?: React.ReactNode
   /** Badge ou tag após o título */
   badge?: React.ReactNode
@@ -72,7 +79,7 @@ export interface SectionHeaderProps extends React.HTMLAttributes<HTMLDivElement>
 function SectionHeader({
   title,
   description,
-  color = "brand",
+  color = "neutral",
   showIndicator = true,
   icon: Icon,
   actions,
@@ -83,57 +90,55 @@ function SectionHeader({
   return (
     <div
       data-slot="section-header"
-      className={cn("flex items-start gap-3", className)}
+      data-tone={color}
+      // flex-wrap: em telas estreitas as ações descem para a linha de baixo em
+      // vez de espremer o título (o conteúdo pede ao menos 12rem antes de quebrar).
+      className={cn("flex flex-wrap items-start gap-(--eia-space-3)", className)}
       {...props}
     >
-      {/* Indicator bar */}
+      {/* Indicador lateral */}
       {showIndicator && (
         <div
           className={cn(
-            "w-1 self-stretch rounded-full flex-shrink-0",
+            "w-1 self-stretch shrink-0 rounded-(--eia-radius-pill)",
             indicatorColors[color]
           )}
           aria-hidden="true"
         />
       )}
 
-      {/* Icon */}
+      {/* Ícone */}
       {Icon && (
-        <div
-          className={cn(
-            "flex-shrink-0 mt-0.5",
-            color === "brand" && "text-primary-400",
-            color === "warning" && "text-amber-400",
-            color === "info" && "text-blue-400",
-            color === "error" && "text-red-400",
-            color === "neutral" && "text-[var(--ds-text-secondary)]"
-          )}
-        >
+        <div className={cn("mt-0.5 shrink-0", iconColors[color])} aria-hidden="true">
           <Icon size={20} />
         </div>
       )}
 
-      {/* Content */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 flex-wrap">
-          <h3 className="text-heading-4 text-[var(--ds-text-primary)]">{title}</h3>
+      {/* Conteúdo */}
+      <div className="min-w-0 flex-1 basis-48">
+        <div className="flex flex-wrap items-center gap-(--eia-space-2)">
+          <h3 className="font-(family-name:--eia-font-display) text-(length:--eia-type-lead) font-(--eia-weight-semibold) leading-(--eia-line-control) tracking-[-0.035em] text-eia-text">
+            {title}
+          </h3>
           {badge}
         </div>
         {description && (
-          <p className="text-body-small text-[var(--ds-text-secondary)] mt-1">{description}</p>
+          <p className="mt-(--eia-space-1) text-(length:--eia-type-control) leading-(--eia-line-body) text-eia-muted">
+            {description}
+          </p>
         )}
       </div>
 
-      {/* Actions */}
+      {/* Ações */}
       {actions && (
-        <div className="flex-shrink-0 flex items-center gap-2">{actions}</div>
+        <div className="flex shrink-0 items-center gap-(--eia-space-2)">{actions}</div>
       )}
     </div>
   )
 }
 
 /**
- * SectionContent - Wrapper para conteúdo de seção com padding alinhado
+ * SectionContent — wrapper para o conteúdo da seção, alinhado após o indicador.
  */
 function SectionContent({
   className,
@@ -145,8 +150,8 @@ function SectionContent({
     <div
       data-slot="section-content"
       className={cn(
-        "mt-4",
-        hasIndicator && "pl-4", // Alinha com conteúdo após o indicador
+        "mt-(--eia-space-4)",
+        hasIndicator && "pl-(--eia-space-4)", // alinha com o conteúdo após o indicador
         className
       )}
       {...props}
@@ -157,7 +162,7 @@ function SectionContent({
 }
 
 /**
- * Section - Componente completo de seção (header + content)
+ * Section — seção completa (header + conteúdo).
  */
 function Section({
   className,
@@ -167,7 +172,7 @@ function Section({
   return (
     <section
       data-slot="section"
-      className={cn("space-y-4", className)}
+      className={cn("space-y-(--eia-space-4)", className)}
       {...props}
     >
       {children}

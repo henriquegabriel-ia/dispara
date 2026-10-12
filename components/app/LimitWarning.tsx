@@ -1,7 +1,9 @@
 'use client'
 
 import React from 'react'
-import { ShieldAlert } from 'lucide-react'
+import { ArrowLeft } from 'lucide-react'
+
+import { EiaAlert, EiaButton } from '@/components/eia'
 
 export interface LimitWarningProps {
   /** Number of recipients selected */
@@ -18,11 +20,14 @@ export interface LimitWarningProps {
   backButtonText?: string
 }
 
+const formatNumber = (value: number) => value.toLocaleString('pt-BR')
+
 /**
- * Warning component displayed when recipient count exceeds daily limit.
+ * Aviso exibido quando a quantidade de destinatários passa do limite diário,
+ * sobre o EiaAlert (tom danger: bloqueia o disparo).
  *
  * @example
- * // Detailed variant (for audience selection step)
+ * // Detalhado (etapa de público)
  * <LimitWarning
  *   recipientCount={1500}
  *   currentLimit={1000}
@@ -31,7 +36,7 @@ export interface LimitWarningProps {
  * />
  *
  * @example
- * // Compact variant (for review step)
+ * // Compacto (etapa de revisão)
  * <LimitWarning
  *   recipientCount={1500}
  *   currentLimit={1000}
@@ -45,101 +50,91 @@ export function LimitWarning({
   variant = 'detailed',
   onShowUpgradeModal,
   onGoBack,
-  backButtonText = '← Voltar e ajustar destinatários',
+  backButtonText = 'Voltar e ajustar destinatários',
 }: LimitWarningProps) {
   const exceeded = recipientCount - currentLimit
-  const campaignsNeeded = Math.ceil(recipientCount / currentLimit)
+  const campaignsNeeded = currentLimit > 0 ? Math.ceil(recipientCount / currentLimit) : 0
 
-  // Compact variant - minimal info for review step
+  const strong = (value: number) => (
+    <strong className="font-(--eia-weight-semibold) text-eia-text tabular-nums">
+      {formatNumber(value)}
+    </strong>
+  )
+
+  // Compacto — informação mínima na etapa de revisão
   if (variant === 'compact') {
     return (
-      <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 flex gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
-        <ShieldAlert className="text-red-400 shrink-0 mt-0.5" size={20} />
-        <div className="flex-1">
-          <p className="font-bold text-red-400 text-sm mb-1">
-            ⛔ Não é possível disparar
-          </p>
-          <p className="text-sm text-red-200/70">
-            Você selecionou{' '}
-            <span className="font-bold text-[var(--ds-text-primary)]">{recipientCount}</span> contatos,
-            mas seu limite é{' '}
-            <span className="font-bold text-[var(--ds-text-primary)]">{currentLimit}</span>/dia.
-          </p>
-          {onGoBack && (
-            <button
+      <EiaAlert
+        tone="danger"
+        size="compact"
+        title="Não é possível disparar"
+        action={
+          onGoBack && (
+            <EiaButton
+              variant="secondary"
+              size="sm"
+              leadingIcon={<ArrowLeft />}
               onClick={onGoBack}
-              className="mt-2 text-xs text-red-400 hover:text-red-300 underline"
             >
               {backButtonText}
-            </button>
-          )}
-        </div>
-      </div>
+            </EiaButton>
+          )
+        }
+      >
+        Você selecionou {strong(recipientCount)} contatos, mas seu limite é de{' '}
+        {strong(currentLimit)} mensagens por dia.
+      </EiaAlert>
     )
   }
 
-  // Detailed variant - full stats and solutions for audience step
+  // Detalhado — números e caminhos possíveis na etapa de público
   return (
-    <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-5 space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
-      <div className="flex gap-3">
-        <ShieldAlert className="text-red-400 shrink-0 mt-0.5" size={22} />
-        <div className="flex-1">
-          <p className="font-bold text-red-400 text-base mb-1">Limite Excedido</p>
-          <p className="text-sm text-red-200/80">
-            Você selecionou <span className="font-bold text-[var(--ds-text-primary)]">{recipientCount}</span> contatos,
-            mas seu limite atual é de <span className="font-bold text-[var(--ds-text-primary)]">{currentLimit}</span> mensagens/dia.
-          </p>
-        </div>
-      </div>
+    <EiaAlert tone="danger" title="Limite diário excedido">
+      <p>
+        Você selecionou {strong(recipientCount)} contatos, mas seu limite atual é de{' '}
+        {strong(currentLimit)} mensagens por dia.
+      </p>
 
-      {/* Stats */}
-      <div className="grid grid-cols-3 gap-3 bg-black/20 rounded-lg p-3">
-        <div className="text-center">
-          <p className="text-lg font-bold text-[var(--ds-text-primary)]">{recipientCount}</p>
-          <p className="text-[10px] text-[var(--ds-text-muted)] uppercase">Selecionados</p>
+      <dl className="mt-(--eia-space-3) grid grid-cols-3 divide-x divide-eia-border-subtle rounded-(--eia-radius-small) border border-eia-border-subtle text-center">
+        <div className="px-(--eia-space-2) py-(--eia-space-3)">
+          <dt className="text-(length:--eia-type-caption) text-eia-subtle">Selecionados</dt>
+          <dd className="mt-(--eia-space-1) text-(length:--eia-type-lead) font-(--eia-weight-semibold) text-eia-text tabular-nums">
+            {formatNumber(recipientCount)}
+          </dd>
         </div>
-        <div className="text-center border-x border-[var(--ds-border-subtle)]">
-          <p className="text-lg font-bold text-primary-400">{currentLimit}</p>
-          <p className="text-[10px] text-[var(--ds-text-muted)] uppercase">Seu Limite</p>
+        <div className="px-(--eia-space-2) py-(--eia-space-3)">
+          <dt className="text-(length:--eia-type-caption) text-eia-subtle">Limite por dia</dt>
+          <dd className="mt-(--eia-space-1) text-(length:--eia-type-lead) font-(--eia-weight-semibold) text-eia-text tabular-nums">
+            {formatNumber(currentLimit)}
+          </dd>
         </div>
-        <div className="text-center">
-          <p className="text-lg font-bold text-red-400">+{exceeded}</p>
-          <p className="text-[10px] text-[var(--ds-text-muted)] uppercase">Excedente</p>
+        <div className="px-(--eia-space-2) py-(--eia-space-3)">
+          <dt className="text-(length:--eia-type-caption) text-eia-subtle">Excedente</dt>
+          <dd className="mt-(--eia-space-1) text-(length:--eia-type-lead) font-(--eia-weight-semibold) text-eia-danger tabular-nums">
+            +{formatNumber(exceeded)}
+          </dd>
         </div>
-      </div>
+      </dl>
 
-      {/* Solutions */}
-      <div className="space-y-2">
-        <p className="text-xs font-bold text-[var(--ds-text-secondary)] uppercase tracking-wider">
-          O que você pode fazer:
-        </p>
-        <div className="flex items-center gap-2 text-sm text-[var(--ds-text-secondary)]">
-          <span className="w-5 h-5 rounded-full bg-[var(--ds-bg-surface)] flex items-center justify-center text-xs">
-            1
-          </span>
-          Reduza a seleção para no máximo{' '}
-          <span className="font-bold text-primary-400">{currentLimit}</span> contatos
-        </div>
-        <div className="flex items-center gap-2 text-sm text-[var(--ds-text-secondary)]">
-          <span className="w-5 h-5 rounded-full bg-[var(--ds-bg-surface)] flex items-center justify-center text-xs">
-            2
-          </span>
-          Divida em {campaignsNeeded} campanhas menores
-        </div>
-        {onShowUpgradeModal && (
-          <div className="flex items-center gap-2 text-sm text-[var(--ds-text-secondary)]">
-            <span className="w-5 h-5 rounded-full bg-primary-500/30 flex items-center justify-center text-xs text-primary-400">
-              *
-            </span>
-            <button
-              onClick={onShowUpgradeModal}
-              className="text-primary-400 hover:text-primary-300 underline"
-            >
-              Saiba como aumentar seu limite
-            </button>
-          </div>
+      <p className="mt-(--eia-space-3) font-(--eia-weight-semibold) text-eia-text">
+        O que você pode fazer
+      </p>
+      <ol className="mt-(--eia-space-1) list-decimal space-y-(--eia-space-1) pl-(--eia-space-5)">
+        <li>
+          Reduza a seleção para no máximo {strong(currentLimit)} contatos.
+        </li>
+        {campaignsNeeded > 1 && (
+          <li>Divida o envio em {formatNumber(campaignsNeeded)} campanhas menores.</li>
         )}
-      </div>
-    </div>
+      </ol>
+
+      {onShowUpgradeModal && (
+        <div className="mt-(--eia-space-3)">
+          <EiaButton variant="secondary" size="sm" onClick={onShowUpgradeModal}>
+            Ver como aumentar o limite
+          </EiaButton>
+        </div>
+      )}
+    </EiaAlert>
   )
 }
