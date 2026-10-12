@@ -274,3 +274,54 @@ html[data-eia-theme='light'] .eia-theme {
 .eia-toast[data-tone='warning'] .eia-toast-content > .eia-feedback-icon {
   color: var(--eia-color-warning);
 }
+
+/* Kicker fixo dos overlays: EiaDialog/EiaDrawer (EiaOverlay em
+   components/eia/index.tsx) sempre renderizam
+   <span class="eia-overlay-kicker">EMPREENDER COM INTELIGÊNCIA</span> acima do
+   título, sem prop para desligar. É eyebrow de landing; telas de produto não
+   usam eyebrow (regra 10 do DS: calma). display:none tira também a leitura
+   redundante do leitor de tela (o nome do diálogo vem do título). */
+.eia-overlay .eia-overlay-kicker {
+  display: none;
+}
+
+/* .dispara-sr-label: aplicado num wrapper, esconde VISUALMENTE o rótulo que os
+   controles do DS sempre desenham, mantendo-o acessível (padrão sr-only, igual
+   a .eia-sr-only; nunca display:none). O DS exige `label` string em
+   EiaSelect/EiaSwitch/EiaCheckbox/EiaField/EiaProgress, mas não tem opção de
+   rótulo oculto — necessária em células de tabela, barras de filtro e linhas
+   compactas onde o contexto já nomeia o controle. Rótulos cobertos:
+   - .eia-field-label: EiaField, EiaSelect fora de EiaField, rótulo do grupo do
+     EiaRadioGroup e campos de extended que embutem EiaField;
+   - .eia-choice-label: EiaSwitch e EiaCheckbox (as opções do EiaRadioGroup
+     ficam visíveis: sem elas não há como escolher);
+   - .eia-progress-label: linha de rótulo + valor do EiaProgress (o <progress>
+     já tem aria-label e valor próprios). */
+.dispara-sr-label .eia-field-label,
+.dispara-sr-label .eia-choice:not(.eia-radio-option) .eia-choice-label,
+.dispara-sr-label .eia-progress-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Sem o rótulo, o bloco de texto do switch/checkbox (flex: 1) ficaria vazio e
+   empurraria o controle para a direita; sem descrição, ele sai do fluxo. */
+.dispara-sr-label .eia-choice:not(.eia-radio-option) .eia-choice-copy:not(:has(.eia-field-description)) {
+  display: contents;
+}
+
+/* Seta do EiaTooltip: o extended.css pinta só `.eia-x-tooltip > svg` com a
+   superfície, mas o Arrow da Base UI (components/ui/tooltip.tsx) é um <div>
+   aria-hidden com `bg-foreground` (= cor do texto). Sem esta regra a seta vira
+   um losango claro no tema escuro e escuro no claro, destoando do balão. Aplica
+   ao <div> a mesma superfície que o DS pretendia para a seta. */
+.eia-x-tooltip > div[aria-hidden='true'] {
+  background: var(--eia-color-surface);
+}
