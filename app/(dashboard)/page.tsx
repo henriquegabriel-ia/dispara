@@ -1,7 +1,7 @@
 import { Suspense } from 'react'
-import { getDashboardData } from './actions/dashboard'
+import { getDashboardData } from '@/app/(dashboard)/actions/dashboard'
 import { DashboardSkeleton } from '@/components/features/dashboard/DashboardSkeleton'
-import { DashboardClientLoader } from './DashboardClientLoader'
+import { DashboardClientLoader } from '@/app/(dashboard)/DashboardClientLoader'
 
 // ISR: revalida a cada 30 segundos
 export const revalidate = 30
