@@ -1,13 +1,21 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'next/navigation'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/legacy-ui/card'
-import { Label } from '@/components/legacy-ui/label'
-import { Input } from '@/components/legacy-ui/input'
-import { Button } from '@/components/legacy-ui/button'
-import { InternationalPhoneInput } from '@/components/app/international-phone-input'
 import { CircleSlash } from 'lucide-react'
+import {
+  EiaAlert,
+  EiaBadge,
+  EiaButton,
+  EiaField,
+  EiaInput,
+  EiaPanel,
+  EiaSelect,
+  EiaSkeleton,
+} from '@/components/eia'
+import { InternationalPhoneInput } from '@/components/app/international-phone-input'
+import { PageDescription, PageTitle } from '@/components/app/page'
+import { PUBLIC_FORM_COPY } from '@/components/features/lead-forms/public-form-copy'
 
 type PublicLeadForm = {
   id: string
@@ -25,6 +33,56 @@ type PublicLeadForm = {
   }>
 }
 
+/*
+ * Opção "Não informar" dos selects opcionais: o EiaSelect não volta ao
+ * placeholder depois de uma escolha, então este valor sentinela é convertido
+ * de volta para '' (o mesmo valor que o select antigo enviava sem resposta).
+ */
+const CLEAR_SELECT_VALUE = '__dispara_nao_informar__'
+
+/** Erro de carregamento: título curto + o que a pessoa pode fazer. */
+type LoadError = { title: string; description: string }
+
+/*
+ * Mensagens de erro próprias: a exceção de rede do fetch (TypeError) traz o
+ * texto cru do navegador, em inglês ("Failed to fetch"), que não orienta.
+ * A mensagem da API só é usada quando há resposta HTTP.
+ */
+const LINK_HINT = 'Confira se o link está completo ou peça um novo a quem enviou.'
+const INVALID_LINK_ERROR: LoadError = { title: 'Link inválido', description: LINK_HINT }
+const NETWORK_LOAD_ERROR: LoadError = {
+  title: 'Não foi possível carregar o formulário',
+  description: 'Verifique sua conexão e recarregue a página.',
+}
+const SERVER_LOAD_ERROR: LoadError = {
+  title: 'Não foi possível carregar o formulário',
+  description: 'Recarregue a página em alguns instantes. Se o erro continuar, avise quem enviou o link.',
+}
+const NETWORK_SUBMIT_ERROR = 'Verifique sua conexão e tente enviar de novo.'
+const SERVER_SUBMIT_ERROR = 'Tente enviar de novo em alguns instantes.'
+
+/** Mensagem `error` do corpo de uma resposta da API, se houver. */
+function apiErrorMessage(payload: unknown): string | undefined {
+  if (!payload || typeof payload !== 'object') return undefined
+  const error = (payload as { error?: unknown }).error
+  return typeof error === 'string' && error.trim() ? error : undefined
+}
+
+/** Esqueleto do formulário enquanto o schema carrega (decorativo: o título anuncia o carregamento). */
+function FormSkeleton() {
+  return (
+    <div className="flex flex-col gap-(--eia-space-5)">
+      {[0, 1, 2].map((i) => (
+        <div key={i} className="flex flex-col gap-(--eia-space-2)">
+          <EiaSkeleton variant="text" width="8rem" />
+          <EiaSkeleton height="var(--eia-control-md)" />
+        </div>
+      ))}
+      <EiaSkeleton height="var(--eia-control-md)" />
+    </div>
+  )
+}
+
 export default function PublicLeadFormPage() {
   // Em Next.js 16, páginas Client podem não receber `params` da forma tradicional.
   // `useParams()` é a forma mais confiável para obter o slug no client.
@@ -37,19 +95,23 @@ export default function PublicLeadFormPage() {
 
   const [form, setForm] = useState<PublicLeadForm | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [loadError, setLoadError] = useState<string | null>(null)
+  const [loadError, setLoadError] = useState<LoadError | null>(null)
 
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
   const [email, setEmail] = useState('')
   const [website, setWebsite] = useState('') // honeypot
-  const [customFields, setCustomFields] = useState<Record<string, any>>({})
+  const [customFields, setCustomFields] = useState<Record<string, string>>({})
 
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
 
+  const successRef = useRef<HTMLDivElement>(null)
+
   const isInactive = form?.isActive === false && !loadError
+  const collectEmail = form?.collectEmail ?? true
+  const showForm = !isLoading && !!form && form.isActive !== false && !loadError && !successMessage
 
   useEffect(() => {
     let cancelled = false
@@ -59,30 +121,37 @@ export default function PublicLeadFormPage() {
       setLoadError(null)
 
       try {
+        // fetch só rejeita sem resposta HTTP (rede/conexão): vira null aqui.
         const resp = await fetch(`/api/public/lead-forms/${encodeURIComponent(slug)}`, {
           cache: 'no-store',
-        })
+        }).catch(() => null)
+
+        if (cancelled) return
+        if (!resp) {
+          setLoadError(NETWORK_LOAD_ERROR)
+          return
+        }
 
         const payload = await resp.json().catch(() => ({}))
+        if (cancelled) return
 
         // Se estiver desativado, a API retorna 403 com um payload que inclui nome/slug.
         if (!resp.ok) {
           if (resp.status === 403 && payload && typeof payload === 'object' && payload.isActive === false) {
-            const data = payload as PublicLeadForm
-            if (cancelled) return
-            setForm(data)
+            setForm(payload as PublicLeadForm)
             return
           }
-          throw new Error(payload?.error || 'Formulário não encontrado')
+          setLoadError(
+            resp.status === 404
+              ? { title: apiErrorMessage(payload) ?? 'Formulário não encontrado', description: LINK_HINT }
+              : SERVER_LOAD_ERROR
+          )
+          return
         }
 
-        const data = payload as PublicLeadForm
-        if (cancelled) return
-
-        setForm(data)
-      } catch (e: any) {
-        if (cancelled) return
-        setLoadError(String(e?.message || 'Falha ao carregar formulário'))
+        setForm(payload as PublicLeadForm)
+      } catch {
+        if (!cancelled) setLoadError(SERVER_LOAD_ERROR)
       } finally {
         if (!cancelled) setIsLoading(false)
       }
@@ -90,7 +159,7 @@ export default function PublicLeadFormPage() {
 
     if (slug) load()
     else {
-      setLoadError('Link inválido')
+      setLoadError(INVALID_LINK_ERROR)
       setIsLoading(false)
     }
 
@@ -106,6 +175,11 @@ export default function PublicLeadFormPage() {
     }
   }, [form?.collectEmail])
 
+  // O formulário some depois do envio: o foco vai para a confirmação (senão cairia no body).
+  useEffect(() => {
+    if (successMessage) successRef.current?.focus()
+  }, [successMessage])
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
     setSubmitError(null)
@@ -115,6 +189,7 @@ export default function PublicLeadFormPage() {
 
     setIsSubmitting(true)
     try {
+      // fetch só rejeita sem resposta HTTP (rede/conexão): vira null aqui.
       const resp = await fetch(`/api/public/lead-forms/${encodeURIComponent(slug)}/submit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -125,20 +200,33 @@ export default function PublicLeadFormPage() {
           custom_fields: customFields,
           website,
         }),
-      })
+      }).catch(() => null)
+
+      if (!resp) {
+        setSubmitError(NETWORK_SUBMIT_ERROR)
+        return
+      }
 
       const payload = await resp.json().catch(() => ({}))
 
       if (!resp.ok) {
+        // Erro do servidor: a mensagem da API não orienta, então só pede nova tentativa.
+        if (resp.status >= 500) {
+          setSubmitError(SERVER_SUBMIT_ERROR)
+          return
+        }
+
         // Se vier mapa de erros do Zod, tenta mostrar algo legível.
         const zodDetails = payload?.details
         if (zodDetails && typeof zodDetails === 'object') {
           const firstKey = Object.keys(zodDetails)[0]
           const firstMsg = firstKey ? (zodDetails[firstKey]?.[0] as string | undefined) : undefined
-          throw new Error(firstMsg || payload?.error || 'Dados inválidos')
+          setSubmitError(firstMsg || apiErrorMessage(payload) || 'Confira os campos e tente enviar de novo.')
+          return
         }
 
-        throw new Error(payload?.error || 'Falha ao enviar')
+        setSubmitError(apiErrorMessage(payload) ?? SERVER_SUBMIT_ERROR)
+        return
       }
 
       setSuccessMessage(payload?.message || form.successMessage || 'Cadastro recebido! Obrigado.')
@@ -147,181 +235,193 @@ export default function PublicLeadFormPage() {
       setEmail('')
       setWebsite('')
       setCustomFields({})
-    } catch (e: any) {
-      setSubmitError(String(e?.message || 'Falha ao enviar formulário'))
+    } catch {
+      setSubmitError(SERVER_SUBMIT_ERROR)
     } finally {
       setIsSubmitting(false)
     }
   }
 
+  const setCustomField = (key: string, value: string) =>
+    setCustomFields((prev) => ({ ...prev, [key]: value }))
+
+  const description = isInactive
+    ? 'Este formulário está temporariamente indisponível.'
+    : showForm
+      ? PUBLIC_FORM_COPY.description
+      : null
+
   return (
-    <div className="min-h-[calc(100vh-0px)] bg-[var(--ds-bg-base)] px-3 py-6 text-[var(--ds-text-primary)] sm:px-4 sm:py-10">
-      <div className="mx-auto w-full max-w-2xl">
-        <Card className="gap-4 border-[var(--ds-border-default)] bg-[var(--ds-bg-elevated)] py-5 backdrop-blur sm:gap-6 sm:py-6">
-          <CardHeader className="px-4 sm:px-6">
-            <CardTitle className="text-xl sm:text-2xl">
-              <span className="inline-flex flex-wrap items-center gap-2">
-                {isLoading ? 'Carregando…' : (form?.name || 'Formulário')}
-                {isInactive ? (
-                  <span className="inline-flex items-center gap-1 rounded-full border border-[var(--ds-border-default)] bg-[var(--ds-bg-surface)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--ds-text-secondary)]">
-                    Desativado
-                  </span>
-                ) : null}
-              </span>
-            </CardTitle>
-            <CardDescription className="text-[var(--ds-text-secondary)]">
-              {isInactive
-                ? 'Este formulário está temporariamente indisponível.'
-                : 'Preencha seus dados para ser adicionado automaticamente na lista.'}
-            </CardDescription>
-          </CardHeader>
-
-          <CardContent className="px-4 sm:px-6">
+    // Página pública fora do shell (pode ser embutida): canvas chapado do DS,
+    // por isso o cartão é sólido (dense) e não vidro.
+    <main className="flex min-h-dvh items-start justify-center bg-eia-bg px-4 py-6 text-eia-text sm:items-center sm:py-12">
+      <EiaPanel
+        as="section"
+        material="dense"
+        aria-labelledby="lead-form-title"
+        aria-busy={isLoading || undefined}
+        className="w-full max-w-xl"
+      >
+        <header className="mb-(--eia-space-6)">
+          <div className="flex flex-wrap items-center gap-(--eia-space-3)">
+            <PageTitle id="lead-form-title">
+              {isLoading ? 'Carregando formulário…' : (form?.name || 'Formulário')}
+            </PageTitle>
             {isInactive ? (
-              <div className="space-y-3 sm:space-y-4">
-                <div className="flex items-start gap-3">
-                  <div className="mt-0.5 rounded-full border border-[var(--ds-border-default)] bg-[var(--ds-bg-surface)] p-2">
-                    <CircleSlash className="h-5 w-5 text-[var(--ds-text-secondary)]" />
-                  </div>
-                  <p className="text-sm text-[var(--ds-text-secondary)]">
-                    Se você recebeu este link, solicite um novo ou confirme se foi reativado pelo responsável.
-                  </p>
-                </div>
+              <EiaBadge tone="neutral">
+                <CircleSlash aria-hidden="true" />
+                Desativado
+              </EiaBadge>
+            ) : null}
+          </div>
+          {description ? <PageDescription>{description}</PageDescription> : null}
+        </header>
 
-                <p className="text-xs text-[var(--ds-text-muted)]">
-                  Quando reativado, esta página se atualiza automaticamente.
-                </p>
-              </div>
+        {isLoading ? <FormSkeleton /> : null}
+
+        {loadError ? (
+          <EiaAlert tone="danger" title={loadError.title}>
+            {loadError.description}
+          </EiaAlert>
+        ) : null}
+
+        {isInactive ? (
+          <EiaAlert tone="info" icon={<CircleSlash />}>
+            Se você recebeu este link, peça um novo ou confirme com o responsável se o formulário
+            foi reativado. Depois, recarregue esta página.
+          </EiaAlert>
+        ) : null}
+
+        {successMessage ? (
+          <EiaAlert ref={successRef} tabIndex={-1} tone="success" className="outline-none">
+            {successMessage}
+          </EiaAlert>
+        ) : null}
+
+        {showForm ? (
+          <form onSubmit={onSubmit} className="flex flex-col gap-(--eia-space-5)">
+            <EiaField label={PUBLIC_FORM_COPY.nameLabel} htmlFor="name" required>
+              <EiaInput
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder={PUBLIC_FORM_COPY.namePlaceholder}
+                autoComplete="name"
+                required
+              />
+            </EiaField>
+
+            {/*
+             * Telefone com o campo internacional de components/app (o
+             * EiaPhoneInput do DS cobre só 7 países). Ele não lê o contexto do
+             * EiaField, então o id vai explícito: o <label for> nomeia o campo e
+             * o `required` faz o leitor de tela anunciar "obrigatório".
+             */}
+            <EiaField label={PUBLIC_FORM_COPY.phoneLabel} htmlFor="phone" required>
+              <InternationalPhoneInput
+                id="phone"
+                required
+                value={phone}
+                onChange={setPhone}
+                // Importante: manter SSR/CSR determinístico para evitar hydration mismatch
+                // (erro 418 do React em produção).
+                defaultCountry="br"
+                preferredCountries={['br', 'us', 'pt', 'mx', 'ar', 'cl', 'co', 'es']}
+              />
+            </EiaField>
+
+            {collectEmail ? (
+              <EiaField
+                label={PUBLIC_FORM_COPY.emailLabel}
+                htmlFor="email"
+                description={PUBLIC_FORM_COPY.emailDescription}
+              >
+                <EiaInput
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder={PUBLIC_FORM_COPY.emailPlaceholder}
+                  autoComplete="email"
+                />
+              </EiaField>
             ) : null}
 
-            {loadError ? (
-              <div className="rounded-xl border border-[var(--ds-status-error)]/40 bg-[var(--ds-status-error-bg)] p-4 text-sm text-[var(--ds-status-error-text)]">
-                {loadError}
-              </div>
-            ) : null}
+            {(form.fields || []).map((f) => {
+              const key = f.key
+              const fieldId = `cf_${key}`
+              const value = customFields[key] ?? ''
 
-            {successMessage ? (
-              <div className="rounded-xl border border-[var(--ds-status-success)]/40 bg-[var(--ds-status-success-bg)] p-4 text-sm text-[var(--ds-status-success-text)]">
-                {successMessage}
-              </div>
-            ) : null}
-
-            {!loadError && !successMessage && (form?.isActive ?? true) ? (
-              <form onSubmit={onSubmit} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="name">Nome</Label>
-                  <Input
-                    id="name"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="Seu nome"
-                    className="bg-[var(--ds-bg-surface)] border-[var(--ds-border-default)]"
-                    required
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Telefone (WhatsApp)</Label>
-                  <InternationalPhoneInput
-                    value={phone}
-                    onChange={setPhone}
-                    // Importante: manter SSR/CSR determinístico para evitar hydration mismatch
-                    // (React error #418 em produção).
-                    defaultCountry="br"
-                    preferredCountries={["br", "us", "pt", "mx", "ar", "cl", "co", "es"]}
-                  />
-                </div>
-
-                {(form?.collectEmail ?? true) ? (
-                  <div className="space-y-2">
-                    <Label htmlFor="email">Email (opcional)</Label>
-                    <Input
-                      id="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="voce@exemplo.com"
-                      className="bg-[var(--ds-bg-surface)] border-[var(--ds-border-default)]"
-                      type="email"
-                    />
-                  </div>
-                ) : null}
-
-                {(form?.fields || []).length > 0 ? (
-                  <div className="space-y-4">
-                    {(form?.fields || []).map((f) => {
-                      const key = f.key
-                      const value = customFields?.[key] ?? ''
-
-                      if (f.type === 'select') {
-                        return (
-                          <div key={key} className="space-y-2">
-                            <Label>
-                              {f.label}{f.required ? ' *' : ''}
-                            </Label>
-                            <select
-                              className="h-10 w-full rounded-md border border-[var(--ds-border-default)] bg-[var(--ds-bg-surface)] px-3 text-sm text-[var(--ds-text-primary)]"
-                              value={String(value)}
-                              onChange={(e) =>
-                                setCustomFields((prev) => ({ ...prev, [key]: e.target.value }))
-                              }
-                              required={!!f.required}
-                            >
-                              <option value="">Selecionar…</option>
-                              {(f.options || []).map((opt) => (
-                                <option key={opt} value={opt}>
-                                  {opt}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                        )
+              if (f.type === 'select') {
+                // '' = sem seleção no EiaSelect: não pode virar opção; repetidas saem.
+                const choices = Array.from(new Set((f.options || []).filter((opt) => opt !== '')))
+                const options = [
+                  ...(f.required ? [] : [{ value: CLEAR_SELECT_VALUE, label: 'Não informar' }]),
+                  ...choices.map((opt) => ({ value: opt, label: opt })),
+                ]
+                return (
+                  <EiaField key={key} label={f.label} htmlFor={fieldId} required={!!f.required}>
+                    <EiaSelect
+                      label={f.label}
+                      name={fieldId}
+                      value={value}
+                      onValueChange={(next) =>
+                        setCustomField(key, next === CLEAR_SELECT_VALUE ? '' : next)
                       }
+                      options={options}
+                      required={!!f.required}
+                    />
+                  </EiaField>
+                )
+              }
 
-                      const inputType = f.type === 'number' ? 'number' : f.type === 'date' ? 'date' : 'text'
+              const inputType = f.type === 'number' ? 'number' : f.type === 'date' ? 'date' : 'text'
 
-                      return (
-                        <div key={key} className="space-y-2">
-                          <Label htmlFor={`cf_${key}`}>
-                            {f.label}{f.required ? ' *' : ''}
-                          </Label>
-                          <Input
-                            id={`cf_${key}`}
-                            value={String(value)}
-                            onChange={(e) => setCustomFields((prev) => ({ ...prev, [key]: e.target.value }))}
-                            className="bg-[var(--ds-bg-surface)] border-[var(--ds-border-default)]"
-                            type={inputType}
-                            required={!!f.required}
-                          />
-                        </div>
-                      )
-                    })}
-                  </div>
-                ) : null}
+              return (
+                <EiaField key={key} label={f.label} htmlFor={fieldId} required={!!f.required}>
+                  <EiaInput
+                    value={value}
+                    onChange={(e) => setCustomField(key, e.target.value)}
+                    type={inputType}
+                    required={!!f.required}
+                  />
+                </EiaField>
+              )
+            })}
 
-                {/* Honeypot anti-spam (não mostrar) */}
-                <div style={{ display: 'none' }}>
-                  <Label htmlFor="website">Website</Label>
-                  <Input id="website" value={website} onChange={(e) => setWebsite(e.target.value)} />
-                </div>
+            {/* Honeypot anti-spam (não mostrar) */}
+            <div className="hidden" aria-hidden="true">
+              <EiaField label="Website" htmlFor="website">
+                <EiaInput
+                  value={website}
+                  onChange={(e) => setWebsite(e.target.value)}
+                  tabIndex={-1}
+                  autoComplete="off"
+                />
+              </EiaField>
+            </div>
 
-                {submitError ? (
-                  <div className="rounded-xl border border-[var(--ds-status-error)]/40 bg-[var(--ds-status-error-bg)] p-3 text-sm text-[var(--ds-status-error-text)]">
-                    {submitError}
-                  </div>
-                ) : null}
-
-                <Button type="submit" className="w-full" disabled={isSubmitting || isLoading || !form}>
-                  {isSubmitting ? 'Enviando…' : 'Enviar'}
-                </Button>
-
-                <p className="text-xs text-[var(--ds-text-muted)]">
-                  Ao enviar, você concorda em receber mensagens relacionadas ao conteúdo/curso.
-                </p>
-              </form>
+            {submitError ? (
+              <EiaAlert tone="danger" size="compact" title="Não foi possível enviar o cadastro">
+                {submitError}
+              </EiaAlert>
             ) : null}
-          </CardContent>
-        </Card>
-      </div>
-    </div>
+
+            <div className="flex flex-col gap-(--eia-space-3)">
+              {/* EiaButton não estica por className (eia.css sem @layer): largura via style. */}
+              <EiaButton
+                type="submit"
+                size="lg"
+                loading={isSubmitting}
+                disabled={isLoading || !form}
+                style={{ width: '100%' }}
+              >
+                {isSubmitting ? PUBLIC_FORM_COPY.submitting : PUBLIC_FORM_COPY.submit}
+              </EiaButton>
+
+              <p className="text-(length:--eia-type-label) text-eia-muted">{PUBLIC_FORM_COPY.consent}</p>
+            </div>
+          </form>
+        ) : null}
+      </EiaPanel>
+    </main>
   )
 }
