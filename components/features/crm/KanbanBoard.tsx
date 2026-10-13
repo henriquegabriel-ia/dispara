@@ -3,7 +3,7 @@
 import React, { useState } from 'react'
 import type { Opportunity, OpportunityStatus } from '@/services/crmService'
 import type { StageColumn } from '@/hooks/useCrm'
-import { KanbanColumn } from './KanbanColumn'
+import { KanbanColumn } from '@/components/features/crm/KanbanColumn'
 
 export interface KanbanBoardProps {
   columns: StageColumn[]
@@ -18,6 +18,7 @@ export interface KanbanBoardProps {
  * Quadro kanban com drag and drop nativo (HTML5).
  * O estado do drag (card arrastado + coluna alvo) vive aqui;
  * a mutação de mover é delegada ao controller via onMoveOpportunity.
+ * Sem mouse, o mesmo movimento fica no menu do cartão ("Mover para").
  */
 export function KanbanBoard({
   columns,
@@ -30,6 +31,8 @@ export function KanbanBoard({
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [draggingStageId, setDraggingStageId] = useState<string | null>(null)
   const [dragOverStageId, setDragOverStageId] = useState<string | null>(null)
+
+  const stages = columns.map((column) => column.stage)
 
   const handleDragStart = (e: React.DragEvent, opportunity: Opportunity) => {
     e.dataTransfer.setData('text/plain', opportunity.id)
@@ -69,13 +72,28 @@ export function KanbanBoard({
     onMoveOpportunity(id, stageId)
   }
 
+  // "Mover para" do menu: o cartão só lista as outras etapas, então nunca é a mesma coluna
+  const handleMoveFromMenu = (opportunity: Opportunity, stageId: string) => {
+    if (opportunity.stageId === stageId) return
+    onMoveOpportunity(opportunity.id, stageId)
+  }
+
   return (
-    <div className="flex-1 min-h-0 overflow-x-auto overflow-y-hidden">
-      <div className="flex h-full gap-4 pb-2">
+    // Região rolável na horizontal: focável para rolar pelo teclado (setas).
+    // `relative` contém os textos .eia-sr-only (absolutos) dos cartões: sem ele,
+    // eles escapam da rolagem e alargam a página no celular.
+    <div
+      role="region"
+      aria-label="Quadro de oportunidades"
+      tabIndex={0}
+      className="relative min-h-0 flex-1 overflow-x-auto overflow-y-hidden rounded-eia-panel focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-eia-focus"
+    >
+      <div className="flex h-full gap-(--eia-space-3) pb-(--eia-space-2)">
         {columns.map((column) => (
           <KanbanColumn
             key={column.stage.id}
             column={column}
+            stages={stages}
             isDragOver={dragOverStageId === column.stage.id && draggingStageId !== column.stage.id}
             draggingId={draggingId}
             onDragStartCard={handleDragStart}
@@ -83,6 +101,7 @@ export function KanbanBoard({
             onDragOver={(e) => handleDragOver(e, column.stage.id)}
             onDragLeave={(e) => handleDragLeave(e, column.stage.id)}
             onDrop={(e) => handleDrop(e, column.stage.id)}
+            onMoveOpportunity={handleMoveFromMenu}
             onAddOpportunity={onAddOpportunity}
             onChangeStatus={onChangeStatus}
             onEditOpportunity={onEditOpportunity}

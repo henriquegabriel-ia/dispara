@@ -40,6 +40,13 @@ export interface InternationalPhoneInputProps {
   className?: string
   inputClassName?: string
 
+  /** id do <input type="tel">: liga o rótulo (<label for> / EiaField htmlFor) ao campo. */
+  id?: string
+  /** Marca o número como obrigatório (validação nativa e anúncio no leitor de tela). */
+  required?: boolean
+  /** Ids extras de descrição/erro para o <input type="tel">. */
+  "aria-describedby"?: string
+
   /** Placeholder strategy. */
   placeholderMode?: "example" | "none"
 }
@@ -132,6 +139,9 @@ export function InternationalPhoneInput({
   className,
   inputClassName,
   placeholderMode = "example",
+  id,
+  required,
+  "aria-describedby": ariaDescribedBy,
 }: InternationalPhoneInputProps) {
   const localeCountry = React.useMemo(() => getLocaleCountryIso2(), [])
   const smartDefaultCountry = defaultCountry ?? localeCountry ?? "us"
@@ -289,7 +299,10 @@ export function InternationalPhoneInput({
 
         <input
           ref={inputRef}
+          id={id}
           type="tel"
+          required={required}
+          aria-describedby={ariaDescribedBy}
           value={inputValue}
           onChange={handlePhoneValueChange}
           disabled={disabled}

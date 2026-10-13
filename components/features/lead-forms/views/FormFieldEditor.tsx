@@ -1,13 +1,17 @@
 'use client'
 
-import type { LeadFormField } from '@/types'
-import { Button } from '@/components/legacy-ui/button'
-import { Input } from '@/components/legacy-ui/input'
-import { Label } from '@/components/legacy-ui/label'
-import { Switch } from '@/components/legacy-ui/switch'
-import { Textarea } from '@/components/legacy-ui/textarea'
-import { Container } from '@/components/app/container'
-import { ArrowDown, ArrowUp } from 'lucide-react'
+import { useId, useState } from 'react'
+import { ArrowDown, ArrowUp, Trash2 } from 'lucide-react'
+import type { LeadFormField, LeadFormFieldType } from '@/types'
+import {
+  EiaField,
+  EiaIconButton,
+  EiaInput,
+  EiaSelect,
+  EiaSwitch,
+  EiaTextarea,
+  type EiaSelectOption,
+} from '@/components/eia'
 
 export interface FormFieldEditorProps {
   field: LeadFormField
@@ -21,6 +25,25 @@ export interface FormFieldEditorProps {
   onMoveDown: (index: number) => void
 }
 
+const FIELD_TYPE_OPTIONS: EiaSelectOption[] = [
+  { value: 'text', label: 'Texto' },
+  { value: 'number', label: 'Número' },
+  { value: 'date', label: 'Data' },
+  { value: 'select', label: 'Lista de opções' },
+]
+
+function isFieldType(value: string): value is LeadFormFieldType {
+  return value === 'text' || value === 'number' || value === 'date' || value === 'select'
+}
+
+/** Uma opção por linha, sem espaços nas pontas e sem linhas vazias. */
+function parseOptions(text: string): string[] {
+  return text
+    .split('\n')
+    .map((x) => x.trim())
+    .filter(Boolean)
+}
+
 export function FormFieldEditor({
   field,
   index,
@@ -32,78 +55,106 @@ export function FormFieldEditor({
   onMoveUp,
   onMoveDown,
 }: FormFieldEditorProps) {
+  const baseId = useId()
+  const position = index + 1
+  const fieldName = field.label?.trim() || `campo ${position}`
+
+  // Texto das opções guardado localmente: derivar o textarea direto de
+  // `field.options` (já limpas) engolia o espaço e a quebra de linha no fim
+  // enquanto a pessoa digitava ("Turma A" virava "TurmaA"). Se as opções
+  // mudarem por fora (campo trocou de posição), o texto local é refeito.
+  const savedOptions = (field.options || []).join('\n')
+  const [optionsText, setOptionsText] = useState(savedOptions)
+  if (parseOptions(optionsText).join('\n') !== parseOptions(savedOptions).join('\n')) {
+    setOptionsText(savedOptions)
+  }
+
   return (
-    <Container variant="subtle" padding="sm">
-      <div className="mb-2 flex items-center justify-between">
-        <p className="text-xs text-slate-500">Ordem do campo</p>
-        <div className="flex items-center gap-2">
-          <Button
-            type="button"
-            variant="secondary"
-            className="h-8 border-slate-700 bg-slate-900 px-2"
+    <article
+      aria-label={`Campo extra ${position}`}
+      className="@container rounded-eia-control border border-eia-border-subtle bg-eia-bg p-4"
+    >
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <p className="min-w-0 truncate text-(length:--eia-type-label) font-(--eia-weight-medium) text-eia-muted">
+          Campo {position}
+        </p>
+        <div className="flex shrink-0 items-center gap-1">
+          <EiaIconButton
+            size="sm"
+            label={`Mover ${fieldName} para cima`}
             onClick={() => onMoveUp(index)}
             disabled={disabled || isFirst}
-            title="Mover para cima"
           >
-            <ArrowUp className="h-4 w-4" />
-          </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            className="h-8 border-slate-700 bg-slate-900 px-2"
+            <ArrowUp size={16} />
+          </EiaIconButton>
+          <EiaIconButton
+            size="sm"
+            label={`Mover ${fieldName} para baixo`}
             onClick={() => onMoveDown(index)}
             disabled={disabled || isLast}
-            title="Mover para baixo"
           >
-            <ArrowDown className="h-4 w-4" />
-          </Button>
+            <ArrowDown size={16} />
+          </EiaIconButton>
+          <EiaIconButton
+            size="sm"
+            label={`Remover ${fieldName}`}
+            onClick={() => onRemove(index)}
+            disabled={disabled}
+          >
+            <Trash2 size={16} />
+          </EiaIconButton>
         </div>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2">
-        <div className="space-y-1">
-          <Label>Label</Label>
-          <Input
+      <div className="grid gap-4 @sm:grid-cols-2">
+        <EiaField label="Rótulo" htmlFor={`${baseId}-label`} required>
+          <EiaInput
+            controlSize="sm"
             value={field.label}
             onChange={(e) => onUpdate(index, { label: e.target.value })}
-            className="bg-slate-900 border-slate-800"
-            placeholder="Ex: Qual sua turma?"
+            placeholder="Ex.: Qual é a sua turma?"
+            maxLength={80}
+            autoComplete="off"
+            required
             disabled={disabled}
           />
-        </div>
+        </EiaField>
 
-        <div className="space-y-1">
-          <Label>Key (salvo em custom_fields)</Label>
-          <Input
+        <EiaField
+          label="Chave"
+          htmlFor={`${baseId}-key`}
+          required
+          description="Nome salvo no contato: letras minúsculas, números e _, começando por letra."
+        >
+          <EiaInput
+            controlSize="sm"
             value={field.key}
             onChange={(e) => onUpdate(index, { key: e.target.value })}
-            className="bg-slate-900 border-slate-800"
-            placeholder="Ex: turma"
+            placeholder="Ex.: turma"
+            maxLength={50}
+            autoComplete="off"
+            spellCheck={false}
+            required
             disabled={disabled}
           />
-        </div>
+        </EiaField>
 
-        <div className="space-y-1">
-          <Label>Tipo</Label>
-          <select
-            className="h-10 w-full rounded-md border border-slate-800 bg-slate-900 px-3 text-sm"
-            value={field.type}
-            onChange={(e) => onUpdate(index, { type: e.target.value as LeadFormField['type'] })}
-            disabled={disabled}
-          >
-            <option value="text">Texto</option>
-            <option value="number">Número</option>
-            <option value="date">Data</option>
-            <option value="select">Lista (select)</option>
-          </select>
-        </div>
+        <EiaSelect
+          label="Tipo"
+          size="sm"
+          value={field.type}
+          onValueChange={(value) => {
+            if (isFieldType(value)) onUpdate(index, { type: value })
+          }}
+          options={FIELD_TYPE_OPTIONS}
+          disabled={disabled}
+        />
 
-        <div className="flex items-center justify-between rounded-md border border-slate-800 bg-[var(--ds-bg-elevated)] px-3">
-          <div>
-            <p className="text-sm">Obrigatorio</p>
-            <p className="text-xs text-slate-500">Exige preenchimento</p>
-          </div>
-          <Switch
+        {/* Alinha a chave com o seletor de tipo (altura de controle sm) */}
+        <div className="flex min-h-(--eia-control-sm) items-center self-end">
+          <EiaSwitch
+            className="w-full"
+            label="Obrigatório"
             checked={!!field.required}
             onCheckedChange={(checked) => onUpdate(index, { required: checked })}
             disabled={disabled}
@@ -112,30 +163,24 @@ export function FormFieldEditor({
       </div>
 
       {field.type === 'select' ? (
-        <div className="mt-3 space-y-1">
-          <Label>Opções (uma por linha)</Label>
-          <Textarea
-            value={(field.options || []).join('\n')}
-            onChange={(e) =>
-              onUpdate(index, {
-                options: e.target.value
-                  .split('\n')
-                  .map((x) => x.trim())
-                  .filter(Boolean),
-              })
-            }
-            className="min-h-22.5 bg-slate-900 border-slate-800"
-            placeholder="Ex:\nTurma A\nTurma B\nTurma C"
+        <EiaField
+          className="mt-4"
+          label="Opções"
+          htmlFor={`${baseId}-options`}
+          description="Uma opção por linha."
+        >
+          <EiaTextarea
+            value={optionsText}
+            onChange={(e) => {
+              setOptionsText(e.target.value)
+              onUpdate(index, { options: parseOptions(e.target.value) })
+            }}
+            placeholder={'Ex.:\nTurma A\nTurma B\nTurma C'}
+            rows={4}
             disabled={disabled}
           />
-        </div>
+        </EiaField>
       ) : null}
-
-      <div className="mt-3 flex justify-end">
-        <Button type="button" variant="destructive" onClick={() => onRemove(index)} disabled={disabled}>
-          Remover campo
-        </Button>
-      </div>
-    </Container>
+    </article>
   )
 }

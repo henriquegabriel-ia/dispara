@@ -2,7 +2,7 @@
 
 import { useSubmissionsController } from '@/hooks/useSubmissions'
 import { SubmissionsView } from '@/components/features/submissions/SubmissionsView'
-import type { SubmissionsInitialData } from './actions'
+import type { SubmissionsInitialData } from '@/app/(dashboard)/submissions/actions'
 
 interface SubmissionsClientWrapperProps {
   initialData: SubmissionsInitialData | null
@@ -21,16 +21,18 @@ export function SubmissionsClientWrapper({
     initialData: initialData ?? undefined,
   })
 
-  // Ajusta título/descrição baseado nos filtros
+  // Ajusta título/descrição baseado nos filtros (mesmos termos do menu: Submissões, MiniApps)
   const title = campaignId
-    ? 'Submissões da Campanha'
+    ? 'Submissões da campanha'
     : flowId
-      ? 'Submissões do Flow'
-      : 'Todas as Submissões'
+      ? 'Submissões do MiniApp'
+      : 'Submissões'
 
-  const description = campaignId || flowId
-    ? 'Respostas filtradas por campanha ou flow'
-    : 'Todas as respostas dos formulários MiniApp'
+  const description = campaignId
+    ? 'Respostas dos formulários MiniApp enviadas nesta campanha.'
+    : flowId
+      ? 'Respostas deste formulário MiniApp.'
+      : 'Respostas de todos os formulários MiniApp.'
 
   return (
     <SubmissionsView

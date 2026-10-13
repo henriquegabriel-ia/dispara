@@ -6,8 +6,16 @@ import { useDashboardController } from '@/hooks/useDashboard'
 import { DashboardView } from '@/components/features/dashboard/DashboardView'
 import { campaignService } from '@/services/campaignService'
 import { templateService } from '@/services/templateService'
+import type { DashboardStats } from '@/services/dashboardService'
+import type { Campaign } from '@/types'
 
-const DEFAULT_STATS = {
+/** Dados que a página (RSC) busca no servidor e entrega como initialData. */
+export interface DashboardInitialData {
+    stats: DashboardStats
+    recentCampaigns: Campaign[]
+}
+
+const DEFAULT_STATS: DashboardStats = {
     sent24h: '0',
     deliveryRate: '0%',
     activeCampaigns: '0',
@@ -15,8 +23,8 @@ const DEFAULT_STATS = {
     chartData: []
 }
 
-export function DashboardClientWrapper({ initialData }: { initialData?: any }) {
-    const { stats, recentCampaigns, isLoading } = useDashboardController(initialData)
+export function DashboardClientWrapper({ initialData }: { initialData?: DashboardInitialData }) {
+    const { stats, recentCampaigns, isLoading, isError, isFetching, refetch } = useDashboardController(initialData)
     const queryClient = useQueryClient()
 
     // Prefetch outras páginas em background após o dashboard carregar
@@ -47,6 +55,12 @@ export function DashboardClientWrapper({ initialData }: { initialData?: any }) {
             stats={stats ?? DEFAULT_STATS}
             recentCampaigns={recentCampaigns ?? []}
             isLoading={showLoading}
+            isError={isError}
+            hasData={Boolean(stats)}
+            isRetrying={isError && isFetching}
+            onRetry={() => {
+                void refetch()
+            }}
         />
     )
 }

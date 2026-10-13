@@ -1,7 +1,7 @@
 'use client'
 
-import { DashboardClientWrapper } from './DashboardClientWrapper'
+import { DashboardClientWrapper, type DashboardInitialData } from '@/app/(dashboard)/DashboardClientWrapper'
 
-export function DashboardClientLoader({ initialData }: { initialData?: any }) {
+export function DashboardClientLoader({ initialData }: { initialData?: DashboardInitialData }) {
   return <DashboardClientWrapper initialData={initialData} />
 }

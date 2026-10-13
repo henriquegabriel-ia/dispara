@@ -1,4 +1,4 @@
-import { CrmClientWrapper } from './CrmClientWrapper'
+import { CrmClientWrapper } from '@/app/(dashboard)/crm/CrmClientWrapper'
 
 /**
  * CRM Page — kanban de pipelines de oportunidades.

@@ -1,10 +1,7 @@
 'use client'
 
-import React, { useEffect, useState } from 'react'
-import { KanbanSquare, Loader2, Pencil } from 'lucide-react'
-import { Modal, ModalCancelButton, ModalFooter, ModalHeader } from '@/components/app/Modal'
-import { Input } from '@/components/legacy-ui/input'
-import { Label } from '@/components/legacy-ui/label'
+import React, { useEffect, useId, useRef, useState } from 'react'
+import { EiaButton, EiaDialog, EiaField, EiaInput } from '@/components/eia'
 
 export interface PipelineFormModalProps {
   isOpen: boolean
@@ -20,7 +17,7 @@ export interface PipelineFormModalProps {
 const DEFAULT_STAGES = ['Novo lead', 'Em conversa', 'Fechado']
 
 /**
- * Modal de criação/renomeação de pipeline.
+ * Diálogo de criação/renomeação de pipeline.
  * Na criação, o backend gera as etapas padrão automaticamente.
  */
 export function PipelineFormModal({
@@ -32,6 +29,9 @@ export function PipelineFormModal({
   onClose,
 }: PipelineFormModalProps) {
   const [name, setName] = useState(initialName)
+  const formId = useId()
+  const nameId = useId()
+  const nameRef = useRef<HTMLInputElement>(null)
 
   // Ressincroniza o campo ao abrir (criação limpa, renomeação preenchida)
   useEffect(() => {
@@ -46,70 +46,53 @@ export function PipelineFormModal({
     if (canSubmit) onSubmit(trimmed)
   }
 
-  return (
-    <Modal isOpen={isOpen} onClose={onClose} maxWidth="md" showCloseButton>
-      <ModalHeader
-        icon={
-          mode === 'create' ? (
-            <KanbanSquare size={24} className="text-primary-600 legacy-dark:text-primary-400" />
-          ) : (
-            <Pencil size={24} className="text-primary-600 legacy-dark:text-primary-400" />
-          )
-        }
-        iconClassName="bg-primary-500/10"
-        title={mode === 'create' ? 'Novo pipeline' : 'Renomear pipeline'}
-        description={
-          mode === 'create'
-            ? 'Organize suas oportunidades em um novo funil'
-            : 'Altere o nome do pipeline atual'
-        }
-      />
+  const isCreate = mode === 'create'
 
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="space-y-2">
-          <Label htmlFor="pipeline-name">Nome do pipeline</Label>
-          <Input
-            id="pipeline-name"
+  return (
+    <EiaDialog
+      open={isOpen}
+      onOpenChange={(next) => {
+        if (!next) onClose()
+      }}
+      size="sm"
+      title={isCreate ? 'Novo pipeline' : 'Renomear pipeline'}
+      description={
+        isCreate ? 'Organize suas oportunidades em um novo funil.' : 'Altere o nome do pipeline atual.'
+      }
+      // O X do DS vem antes do corpo: o foco inicial vai direto para o campo
+      initialFocus={nameRef}
+      footer={
+        <>
+          <EiaButton variant="secondary" onClick={onClose} disabled={isSaving}>
+            Cancelar
+          </EiaButton>
+          <EiaButton type="submit" form={formId} loading={isSaving} disabled={!trimmed}>
+            {isSaving ? 'Salvando…' : isCreate ? 'Criar pipeline' : 'Salvar nome'}
+          </EiaButton>
+        </>
+      }
+    >
+      <form id={formId} onSubmit={handleSubmit} className="flex flex-col gap-(--eia-space-5)">
+        <EiaField label="Nome do pipeline" htmlFor={nameId} required>
+          <EiaInput
+            ref={nameRef}
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Ex.: Vendas WhatsApp"
-            autoFocus
             maxLength={80}
+            autoComplete="off"
+            aria-required="true"
           />
-        </div>
+        </EiaField>
 
-        {mode === 'create' && (
-          <div className="rounded-lg border border-[var(--ds-border-subtle)] bg-[var(--ds-bg-surface)]/30 p-3">
-            <p className="text-xs text-[var(--ds-text-secondary)]">
-              O pipeline será criado com as etapas padrão:{' '}
-              <span className="font-medium text-[var(--ds-text-primary)]">
-                {DEFAULT_STAGES.join(' → ')}
-              </span>
-              . Você pode renomear ou adicionar etapas depois.
-            </p>
-          </div>
+        {isCreate && (
+          <p className="text-(length:--eia-type-label) leading-(--eia-line-body) text-eia-muted">
+            O pipeline começa com as etapas{' '}
+            <span className="font-(--eia-weight-medium) text-eia-text">{DEFAULT_STAGES.join(' → ')}</span>.
+            Você pode renomear ou adicionar etapas depois.
+          </p>
         )}
-
-        <ModalFooter className="mt-2">
-          <ModalCancelButton onClick={onClose} disabled={isSaving} />
-          <button
-            type="submit"
-            disabled={!canSubmit}
-            className="flex-1 px-4 py-3 bg-primary-600 text-white rounded-lg font-semibold hover:bg-primary-500 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-          >
-            {isSaving ? (
-              <>
-                <Loader2 size={16} className="animate-spin" />
-                Salvando...
-              </>
-            ) : mode === 'create' ? (
-              'Criar pipeline'
-            ) : (
-              'Salvar'
-            )}
-          </button>
-        </ModalFooter>
       </form>
-    </Modal>
+    </EiaDialog>
   )
 }

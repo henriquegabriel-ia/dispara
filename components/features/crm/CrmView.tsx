@@ -1,34 +1,41 @@
 'use client'
 
 import React from 'react'
-import { KanbanSquare, Loader2, MoreVertical, Pencil, Plus, SlidersHorizontal, Trash2 } from 'lucide-react'
-import { Button } from '@/components/legacy-ui/button'
-import { Container } from '@/components/app/container'
+import { Ellipsis, KanbanSquare, Pencil, Plus, SlidersHorizontal, Trash2 } from 'lucide-react'
+import {
+  EiaButton,
+  EiaEmpty,
+  EiaIconButton,
+  EiaMenu,
+  EiaPanel,
+  EiaSelect,
+  EiaSpinner,
+} from '@/components/eia'
 import { ConfirmDeleteModal } from '@/components/app/ConfirmDeleteModal'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/legacy-ui/dropdown-menu'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/legacy-ui/select'
-import { PageDescription, PageTitle } from '@/components/app/page'
+import { PageActions, PageDescription, PageHeader, PageTitle } from '@/components/app/page'
 import type { CrmController } from '@/hooks/useCrm'
-import { KanbanBoard } from './KanbanBoard'
-import { PipelineFormModal } from './PipelineFormModal'
-import { ManageStagesModal } from './ManageStagesModal'
-import { NewOpportunityModal } from './NewOpportunityModal'
-import { EditOpportunityModal } from './EditOpportunityModal'
+import { KanbanBoard } from '@/components/features/crm/KanbanBoard'
+import { PipelineFormModal } from '@/components/features/crm/PipelineFormModal'
+import { ManageStagesModal } from '@/components/features/crm/ManageStagesModal'
+import { NewOpportunityModal } from '@/components/features/crm/NewOpportunityModal'
+import { EditOpportunityModal } from '@/components/features/crm/EditOpportunityModal'
 
 export interface CrmViewProps {
   controller: CrmController
+}
+
+/** Carregamento centralizado: spinner do DS + texto (o spinner já anuncia o rótulo). */
+function CrmLoading({ label }: { label: string }) {
+  return (
+    <div className="flex min-h-0 flex-1 items-center justify-center">
+      <div className="flex flex-col items-center gap-(--eia-space-3)">
+        <EiaSpinner size="lg" label={label} />
+        <p aria-hidden="true" className="text-(length:--eia-type-control) text-eia-muted">
+          {label}
+        </p>
+      </div>
+    </div>
+  )
 }
 
 /**
@@ -52,109 +59,106 @@ export function CrmView({ controller }: CrmViewProps) {
   // --- Loading inicial ---
   if (isLoadingPipelines) {
     return (
-      <div className="h-full flex items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <Loader2 className="h-8 w-8 animate-spin text-primary-500" />
-          <p className="text-sm text-[var(--ds-text-muted)]">Carregando CRM...</p>
-        </div>
+      <div className="flex h-full flex-col">
+        <CrmLoading label="Carregando CRM…" />
       </div>
     )
   }
 
+  const hasPipelines = pipelines.length > 0
+
   return (
-    <div className="h-full flex flex-col gap-6">
+    <div className="flex h-full flex-col gap-(--eia-space-6)">
       {/* Header da página */}
-      <div className="shrink-0 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+      <PageHeader className="shrink-0">
         <div>
           <PageTitle>CRM</PageTitle>
-          <PageDescription>
-            Acompanhe suas oportunidades por etapa do funil
-          </PageDescription>
+          <PageDescription>Acompanhe suas oportunidades por etapa do funil.</PageDescription>
         </div>
 
-        <div className="flex items-center gap-3">
-          {pipelines.length > 0 && (
-            <>
-              <Select
-                value={selectedPipelineId ?? undefined}
-                onValueChange={(value) => setSelectedPipelineId(value)}
-              >
-                <SelectTrigger className="w-56" aria-label="Selecionar pipeline">
-                  <SelectValue placeholder="Selecione um pipeline" />
-                </SelectTrigger>
-                <SelectContent>
-                  {pipelines.map((pipeline) => (
-                    <SelectItem key={pipeline.id} value={pipeline.id}>
-                      {pipeline.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-
-              {/* Menu do pipeline atual */}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="icon" aria-label="Ações do pipeline">
-                    <MoreVertical className="w-4 h-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-52">
-                  <DropdownMenuItem onClick={() => controller.setIsRenamePipelineOpen(true)}>
-                    <Pencil />
-                    Renomear pipeline
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => controller.setIsManageStagesOpen(true)}>
-                    <SlidersHorizontal />
-                    Gerenciar etapas
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    variant="destructive"
-                    onClick={() => controller.setIsDeletePipelineOpen(true)}
-                  >
-                    <Trash2 />
-                    Excluir pipeline
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </>
-          )}
-
-          <Button variant="brand" onClick={() => controller.setIsNewPipelineOpen(true)}>
-            <Plus className="w-4 h-4 mr-1.5" />
-            Novo pipeline
-          </Button>
-        </div>
-      </div>
-
-      {/* Conteúdo: empty state ou kanban */}
-      {pipelines.length === 0 ? (
-        <div className="flex-1 flex items-center justify-center">
-          <Container padding="xl" className="max-w-md text-center">
-            <div className="mx-auto w-12 h-12 rounded-xl bg-primary-500/10 flex items-center justify-center mb-4">
-              <KanbanSquare className="w-6 h-6 text-primary-600 legacy-dark:text-primary-400" />
+        {/* Sem pipelines, a ação de criar fica no estado vazio (um só chamado por tela) */}
+        {hasPipelines && (
+          <PageActions>
+            {/* O rótulo "Pipeline" fica só para leitores de tela: o contexto já o nomeia.
+                No celular o seletor ocupa a linha inteira; menu e botão vão para a de baixo. */}
+            <div className="dispara-sr-label w-56 max-sm:w-full">
+              <EiaSelect
+                label="Pipeline"
+                placeholder="Selecione um pipeline"
+                value={selectedPipelineId ?? ''}
+                onValueChange={(value) => {
+                  if (value) setSelectedPipelineId(value)
+                }}
+                options={pipelines.map((pipeline) => ({ value: pipeline.id, label: pipeline.name }))}
+              />
             </div>
-            <h2 className="text-lg font-semibold text-[var(--ds-text-primary)]">
-              Crie seu primeiro pipeline
-            </h2>
-            <p className="mt-2 text-sm text-[var(--ds-text-secondary)]">
-              Organize suas oportunidades em etapas e acompanhe cada negociação do primeiro
-              contato ao fechamento.
-            </p>
-            <Button
-              variant="brand"
-              className="mt-5"
+
+            <EiaMenu
+              label="Ações do pipeline"
+              trigger={
+                <EiaIconButton variant="secondary" label="Ações do pipeline">
+                  <Ellipsis size={18} />
+                </EiaIconButton>
+              }
+              groups={[
+                {
+                  id: 'edit',
+                  items: [
+                    {
+                      label: 'Renomear pipeline',
+                      icon: <Pencil size={16} />,
+                      onSelect: () => controller.setIsRenamePipelineOpen(true),
+                    },
+                    {
+                      label: 'Gerenciar etapas',
+                      icon: <SlidersHorizontal size={16} />,
+                      onSelect: () => controller.setIsManageStagesOpen(true),
+                    },
+                  ],
+                },
+                {
+                  id: 'danger',
+                  items: [
+                    {
+                      label: 'Excluir pipeline',
+                      icon: <Trash2 size={16} />,
+                      danger: true,
+                      onSelect: () => controller.setIsDeletePipelineOpen(true),
+                    },
+                  ],
+                },
+              ]}
+            />
+
+            <EiaButton
+              variant="secondary"
+              leadingIcon={<Plus />}
               onClick={() => controller.setIsNewPipelineOpen(true)}
             >
-              <Plus className="w-4 h-4 mr-1.5" />
-              Novo pipeline
-            </Button>
-          </Container>
+              Criar pipeline
+            </EiaButton>
+          </PageActions>
+        )}
+      </PageHeader>
+
+      {/* Conteúdo: estado vazio ou kanban */}
+      {!hasPipelines ? (
+        <div className="flex min-h-0 flex-1 items-center justify-center">
+          <EiaPanel material="dense" className="w-full max-w-md">
+            <EiaEmpty
+              icon={<KanbanSquare />}
+              title="Crie seu primeiro pipeline"
+              description="Organize suas oportunidades em etapas e acompanhe cada negociação do primeiro contato ao fechamento."
+              action={
+                <EiaButton leadingIcon={<Plus />} onClick={() => controller.setIsNewPipelineOpen(true)}>
+                  Criar pipeline
+                </EiaButton>
+              }
+            />
+          </EiaPanel>
         </div>
       ) : isLoadingOpportunities ? (
-        <div className="flex-1 flex items-center justify-center">
-          <Loader2 className="h-6 w-6 animate-spin text-primary-500" />
-        </div>
+        <CrmLoading label="Carregando oportunidades…" />
       ) : (
         <KanbanBoard
           columns={columns}
@@ -166,7 +170,7 @@ export function CrmView({ controller }: CrmViewProps) {
         />
       )}
 
-      {/* Modais */}
+      {/* Diálogos */}
       <PipelineFormModal
         isOpen={controller.isNewPipelineOpen}
         mode="create"
@@ -206,7 +210,7 @@ export function CrmView({ controller }: CrmViewProps) {
         onConfirm={controller.onDeletePipeline}
         onCancel={() => controller.setIsDeletePipelineOpen(false)}
         confirmText="Excluir pipeline"
-        loadingText="Excluindo..."
+        loadingText="Excluindo…"
       />
 
       <NewOpportunityModal
@@ -231,8 +235,8 @@ export function CrmView({ controller }: CrmViewProps) {
         isDeleting={controller.isDeletingOpportunity}
         onConfirm={controller.onConfirmDeleteOpportunity}
         onCancel={() => controller.setDeletingOpportunity(null)}
-        confirmText="Excluir"
-        loadingText="Excluindo..."
+        confirmText="Excluir oportunidade"
+        loadingText="Excluindo…"
       />
     </div>
   )

@@ -1,8 +1,11 @@
 'use client'
 
+import { useId } from 'react'
+import { FileText, Plus } from 'lucide-react'
 import type { LeadForm } from '@/types'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/legacy-ui/card'
-import { FormCard } from './FormCard'
+import { EiaAlert, EiaButton, EiaEmpty, EiaPanel } from '@/components/eia'
+import { FormCardSkeletonList } from '@/components/features/lead-forms/FormsSkeleton'
+import { FormCard } from '@/components/features/lead-forms/views/FormCard'
 
 export interface FormListProps {
   forms: LeadForm[]
@@ -10,11 +13,20 @@ export interface FormListProps {
   isLoading: boolean
   error?: string
   deleteError?: string
-  isCopied: boolean
-  isDeleting: boolean
+  /** Id do formulário com exclusão em andamento (ou null) */
+  deletingId?: string | null
   onCopyLink: (url: string) => void
   onEdit: (form: LeadForm) => void
-  onDelete: (id: string) => void
+  onDelete: (form: LeadForm) => void
+  /** Abre a criação (ação do estado vazio) */
+  onCreate?: () => void
+}
+
+const numberFormat = new Intl.NumberFormat('pt-BR')
+
+/** Mensagem da API como frase (sem ponto duplicado antes da orientação). */
+function asSentence(message: string) {
+  return `${message.trim().replace(/[.!]+$/, '')}.`
 }
 
 export function FormList({
@@ -23,50 +35,83 @@ export function FormList({
   isLoading,
   error,
   deleteError,
-  isCopied,
-  isDeleting,
+  deletingId = null,
   onCopyLink,
   onEdit,
   onDelete,
+  onCreate,
 }: FormListProps) {
+  const headingId = useId()
+  const count = forms.length
+
   return (
-    <Card className="border-slate-800 bg-[var(--ds-bg-elevated)]">
-      <CardHeader>
-        <CardTitle className="text-white">Seus formularios</CardTitle>
-        <CardDescription className="text-slate-400">
-          Copie o link e compartilhe com os alunos.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        {error ? (
-          <div className="rounded-lg border border-red-900/50 bg-red-950/30 p-3 text-sm text-red-200">{error}</div>
+    <section aria-labelledby={headingId} className="space-y-4">
+      <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-1">
+        <div className="min-w-0">
+          <h2
+            id={headingId}
+            className="font-(family-name:--eia-font-display) text-(length:--eia-type-lead) font-(--eia-weight-semibold) leading-(--eia-line-control) tracking-(--eia-tracking-tight) text-eia-text"
+          >
+            Seus formulários
+          </h2>
+          <p className="mt-1 text-(length:--eia-type-control) leading-(--eia-line-body) text-eia-muted">
+            Copie o link e compartilhe com seus contatos.
+          </p>
+        </div>
+        {!isLoading && count > 0 ? (
+          <p className="text-(length:--eia-type-label) text-eia-muted tabular-nums">
+            {numberFormat.format(count)} {count === 1 ? 'formulário' : 'formulários'}
+          </p>
         ) : null}
+      </div>
 
-        {deleteError ? (
-          <div className="mb-3 rounded-lg border border-red-900/50 bg-red-950/30 p-3 text-sm text-red-200">{deleteError}</div>
-        ) : null}
+      {error ? (
+        <EiaAlert tone="danger" title="Não foi possível carregar os formulários">
+          {asSentence(error)} Recarregue a página para tentar de novo.
+        </EiaAlert>
+      ) : null}
 
-        {isLoading ? (
-          <div className="text-sm text-slate-400">Carregando...</div>
-        ) : forms.length === 0 ? (
-          <div className="text-sm text-slate-400">Nenhum formulario ainda.</div>
-        ) : (
-          <div className="space-y-3">
-            {forms.map((form) => (
+      {deleteError ? (
+        <EiaAlert tone="danger" title="Não foi possível excluir o formulário">
+          {asSentence(deleteError)} Tente excluir de novo.
+        </EiaAlert>
+      ) : null}
+
+      {isLoading ? (
+        <FormCardSkeletonList />
+      ) : count === 0 ? (
+        error ? null : (
+          <EiaPanel material="dense">
+            <EiaEmpty
+              icon={<FileText size={24} />}
+              title="Nenhum formulário ainda"
+              description="Crie um formulário para captar contatos por um link público e aplicar uma tag automaticamente."
+              action={
+                onCreate ? (
+                  <EiaButton size="sm" leadingIcon={<Plus size={16} />} onClick={onCreate}>
+                    Criar formulário
+                  </EiaButton>
+                ) : undefined
+              }
+            />
+          </EiaPanel>
+        )
+      ) : (
+        <ul className="space-y-3">
+          {forms.map((form) => (
+            <li key={form.id}>
               <FormCard
-                key={form.id}
                 form={form}
                 publicBaseUrl={publicBaseUrl}
-                isCopied={isCopied}
-                isDeleting={isDeleting}
+                isDeleting={deletingId === form.id}
                 onCopyLink={onCopyLink}
                 onEdit={onEdit}
                 onDelete={onDelete}
               />
-            ))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   )
 }

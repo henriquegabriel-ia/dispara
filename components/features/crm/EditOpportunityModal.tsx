@@ -1,10 +1,7 @@
 'use client'
 
-import React, { useEffect, useState } from 'react'
-import { Loader2, Pencil } from 'lucide-react'
-import { Modal, ModalCancelButton, ModalFooter, ModalHeader } from '@/components/app/Modal'
-import { Input } from '@/components/legacy-ui/input'
-import { Label } from '@/components/legacy-ui/label'
+import React, { useEffect, useId, useRef, useState } from 'react'
+import { EiaButton, EiaDialog, EiaField, EiaInput } from '@/components/eia'
 import type { Opportunity } from '@/services/crmService'
 
 export interface EditOpportunityModalProps {
@@ -15,7 +12,7 @@ export interface EditOpportunityModalProps {
   onClose: () => void
 }
 
-/** Modal de edição de oportunidade (nome e valor). */
+/** Diálogo de edição de oportunidade (nome e valor). */
 export function EditOpportunityModal({
   opportunity,
   isSaving,
@@ -24,6 +21,10 @@ export function EditOpportunityModal({
 }: EditOpportunityModalProps) {
   const [name, setName] = useState('')
   const [valueInput, setValueInput] = useState('')
+  const formId = useId()
+  const nameId = useId()
+  const valueId = useId()
+  const nameRef = useRef<HTMLInputElement>(null)
 
   // Preenche o formulário quando uma oportunidade é selecionada para edição
   useEffect(() => {
@@ -44,30 +45,50 @@ export function EditOpportunityModal({
   }
 
   return (
-    <Modal isOpen={!!opportunity} onClose={onClose} maxWidth="md" showCloseButton>
-      <ModalHeader
-        icon={<Pencil size={24} className="text-primary-600 legacy-dark:text-primary-400" />}
-        iconClassName="bg-primary-500/10"
-        title="Editar oportunidade"
-      />
-
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="space-y-2">
-          <Label htmlFor="edit-opportunity-name">Nome da oportunidade</Label>
-          <Input
-            id="edit-opportunity-name"
+    <EiaDialog
+      open={!!opportunity}
+      onOpenChange={(next) => {
+        if (!next) onClose()
+      }}
+      title="Editar oportunidade"
+      description="Altere o nome ou o valor desta oportunidade."
+      // O X do DS vem antes do corpo: o foco inicial vai direto para o nome
+      initialFocus={nameRef}
+      footer={
+        <>
+          <EiaButton variant="secondary" onClick={onClose} disabled={isSaving}>
+            Cancelar
+          </EiaButton>
+          <EiaButton
+            type="submit"
+            form={formId}
+            loading={isSaving}
+            disabled={!opportunity || !name.trim() || isValueInvalid}
+          >
+            {isSaving ? 'Salvando…' : 'Salvar alterações'}
+          </EiaButton>
+        </>
+      }
+    >
+      <form id={formId} onSubmit={handleSubmit} className="flex flex-col gap-(--eia-space-5)">
+        <EiaField label="Nome da oportunidade" htmlFor={nameId} required>
+          <EiaInput
+            ref={nameRef}
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Nome da oportunidade"
-            autoFocus
+            placeholder="Ex.: Proposta plano anual"
             maxLength={120}
+            autoComplete="off"
+            aria-required="true"
           />
-        </div>
+        </EiaField>
 
-        <div className="space-y-2">
-          <Label htmlFor="edit-opportunity-value">Valor (R$, opcional)</Label>
-          <Input
-            id="edit-opportunity-value"
+        <EiaField
+          label="Valor (R$, opcional)"
+          htmlFor={valueId}
+          error={isValueInvalid ? 'Informe um valor igual ou maior que zero.' : undefined}
+        >
+          <EiaInput
             type="number"
             inputMode="decimal"
             step="0.01"
@@ -75,31 +96,9 @@ export function EditOpportunityModal({
             value={valueInput}
             onChange={(e) => setValueInput(e.target.value)}
             placeholder="Ex.: 1500,00"
-            aria-invalid={isValueInvalid}
           />
-          {isValueInvalid && (
-            <p className="text-xs text-red-600 legacy-dark:text-red-400">Informe um valor válido.</p>
-          )}
-        </div>
-
-        <ModalFooter className="mt-2">
-          <ModalCancelButton onClick={onClose} disabled={isSaving} />
-          <button
-            type="submit"
-            disabled={!canSubmit}
-            className="flex-1 px-4 py-3 bg-primary-600 text-white rounded-lg font-semibold hover:bg-primary-500 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-          >
-            {isSaving ? (
-              <>
-                <Loader2 size={16} className="animate-spin" />
-                Salvando...
-              </>
-            ) : (
-              'Salvar'
-            )}
-          </button>
-        </ModalFooter>
+        </EiaField>
       </form>
-    </Modal>
+    </EiaDialog>
   )
 }

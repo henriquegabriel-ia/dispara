@@ -1,15 +1,9 @@
 'use client'
 
-import type { CreateLeadFormDTO, LeadFormField } from '@/types'
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/legacy-ui/dialog'
-import { Button } from '@/components/legacy-ui/button'
-import { Input } from '@/components/legacy-ui/input'
-import { Label } from '@/components/legacy-ui/label'
-import { Switch } from '@/components/legacy-ui/switch'
-import { Textarea } from '@/components/legacy-ui/textarea'
-import { LeadFormPreview } from './LeadFormPreview'
-import { FormFieldsSection } from './FormFieldsSection'
-import { slugify, normalizeFieldOrder, moveItem, createDefaultField } from './utils'
+import { useRef } from 'react'
+import type { CreateLeadFormDTO } from '@/types'
+import { EiaButton, EiaDialog } from '@/components/eia'
+import { FormDraftEditor } from '@/components/features/lead-forms/views/FormDraftEditor'
 
 export interface CreateFormDialogProps {
   isOpen: boolean
@@ -21,9 +15,13 @@ export interface CreateFormDialogProps {
   createError?: string
   publicBaseUrl: string
   sortedTags: string[]
-  hideTrigger?: boolean
 }
 
+/**
+ * Diálogo de criação de formulário (EiaDialog lg, controlado).
+ * O DS não tem gatilho embutido: quem abre é o botão "Criar formulário" da
+ * página (LeadFormsView) ou da aba Forms em /templates.
+ */
 export function CreateFormDialog({
   isOpen,
   setIsOpen,
@@ -34,167 +32,43 @@ export function CreateFormDialog({
   createError,
   publicBaseUrl,
   sortedTags,
-  hideTrigger = false,
 }: CreateFormDialogProps) {
-  const fields = draft.fields || []
-
-  const addField = () => {
-    const next = createDefaultField(fields.length)
-    setDraft({ ...draft, fields: normalizeFieldOrder([...fields, next]) })
-  }
-
-  const updateField = (index: number, patch: Partial<LeadFormField>) => {
-    const next = fields.map((f, i) => (i === index ? { ...f, ...patch } : f))
-    setDraft({ ...draft, fields: next })
-  }
-
-  const removeField = (index: number) => {
-    const next = normalizeFieldOrder(fields.filter((_, i) => i !== index))
-    setDraft({ ...draft, fields: next })
-  }
-
-  const moveFieldUp = (index: number) => {
-    const next = normalizeFieldOrder(moveItem(fields, index, index - 1))
-    setDraft({ ...draft, fields: next })
-  }
-
-  const moveFieldDown = (index: number) => {
-    const next = normalizeFieldOrder(moveItem(fields, index, index + 1))
-    setDraft({ ...draft, fields: next })
-  }
+  const nameRef = useRef<HTMLInputElement>(null)
 
   return (
-    <Dialog open={isOpen} onOpenChange={setIsOpen}>
-      {!hideTrigger && (
-        <DialogTrigger asChild>
-          <Button>Criar formulario</Button>
-        </DialogTrigger>
-      )}
-      <DialogContent className="border-slate-800 bg-slate-950 text-slate-100 sm:max-w-275 max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Novo formulario</DialogTitle>
-          <DialogDescription className="text-slate-400">
-            Defina um nome, um slug (URL) e a tag que sera aplicada a quem preencher.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="grid gap-4 lg:grid-cols-2">
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>Nome</Label>
-              <Input
-                value={draft.name}
-                onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-                placeholder="Ex: Lista de espera - Turma Janeiro"
-                className="bg-slate-900 border-slate-800"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>Slug (URL)</Label>
-              <Input
-                value={draft.slug}
-                onChange={(e) => setDraft({ ...draft, slug: slugify(e.target.value) })}
-                placeholder="ex: lista-espera-janeiro"
-                className="bg-slate-900 border-slate-800"
-              />
-              <p className="text-xs text-slate-500">
-                Link publico:{' '}
-                <span className="text-slate-300">
-                  {(publicBaseUrl || '...').replace(/\/$/, '')}/f/{draft.slug || 'seu-slug'}
-                </span>
-              </p>
-            </div>
-
-            <div className="space-y-2">
-              <Label>Tag</Label>
-              <div className="grid gap-2 sm:grid-cols-2">
-                <Input
-                  value={draft.tag}
-                  onChange={(e) => setDraft({ ...draft, tag: e.target.value })}
-                  placeholder="Ex: alunos-turma-jan"
-                  className="bg-slate-900 border-slate-800"
-                />
-                <select
-                  className="h-10 rounded-md border border-slate-800 bg-slate-900 px-3 text-sm"
-                  value={draft.tag || ''}
-                  onChange={(e) => setDraft({ ...draft, tag: e.target.value })}
-                >
-                  <option value="">Selecionar tag existente...</option>
-                  {sortedTags.map((t) => (
-                    <option key={t} value={t}>
-                      {t}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <p className="text-xs text-slate-500">
-                Dica: campanhas podem filtrar por tag, entao nomeie do jeito que voce ja usa.
-              </p>
-            </div>
-
-            <div className="flex items-center justify-between rounded-lg border border-slate-800 bg-[var(--ds-bg-elevated)] p-3">
-              <div>
-                <p className="text-sm font-medium">Ativo</p>
-                <p className="text-xs text-slate-500">Quando desligado, o link publico retorna 404.</p>
-              </div>
-              <Switch
-                checked={draft.isActive ?? true}
-                onCheckedChange={(checked) => setDraft({ ...draft, isActive: checked })}
-              />
-            </div>
-
-            <div className="flex items-center justify-between rounded-lg border border-slate-800 bg-[var(--ds-bg-elevated)] p-3">
-              <div>
-                <p className="text-sm font-medium">Coletar email</p>
-                <p className="text-xs text-slate-500">Mostra o campo de email no formulario publico.</p>
-              </div>
-              <Switch
-                checked={draft.collectEmail ?? true}
-                onCheckedChange={(checked) => setDraft({ ...draft, collectEmail: checked })}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>Mensagem de sucesso (opcional)</Label>
-              <Textarea
-                value={draft.successMessage ?? ''}
-                onChange={(e) => setDraft({ ...draft, successMessage: e.target.value })}
-                placeholder="Ex: Cadastro confirmado! Em breve voce recebera uma mensagem no WhatsApp."
-                className="min-h-22.5 bg-slate-900 border-slate-800"
-              />
-            </div>
-
-            <FormFieldsSection
-              fields={fields}
-              collectEmail={draft.collectEmail ?? true}
-              onAddField={addField}
-              onUpdateField={updateField}
-              onRemoveField={removeField}
-              onMoveFieldUp={moveFieldUp}
-              onMoveFieldDown={moveFieldDown}
-            />
-
-            {createError ? (
-              <div className="rounded-lg border border-red-900/50 bg-red-950/30 p-3 text-sm text-red-200">
-                {createError}
-              </div>
-            ) : null}
-
-            <Button onClick={onCreate} disabled={isCreating} className="w-full">
-              {isCreating ? 'Criando...' : 'Criar'}
-            </Button>
-          </div>
-
-          <div className="lg:sticky lg:top-2">
-            <LeadFormPreview
-              title={draft.name}
-              collectEmail={draft.collectEmail ?? true}
-              fields={fields}
-            />
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
+    <EiaDialog
+      open={isOpen}
+      onOpenChange={(open) => {
+        // Não fecha no meio do envio (Escape/clique fora); o rascunho fica no controller.
+        if (!open && isCreating) return
+        setIsOpen(open)
+      }}
+      size="lg"
+      // O X do DS vem antes do corpo: o foco inicial vai direto para o Nome
+      initialFocus={nameRef}
+      title="Novo formulário"
+      description="Defina o nome, o link e a tag aplicada a quem preencher."
+      footer={
+        <>
+          <EiaButton variant="secondary" onClick={() => setIsOpen(false)} disabled={isCreating}>
+            Cancelar
+          </EiaButton>
+          <EiaButton onClick={onCreate} loading={isCreating} focusableWhenDisabled>
+            {isCreating ? 'Criando…' : 'Criar formulário'}
+          </EiaButton>
+        </>
+      }
+    >
+      <FormDraftEditor
+        draft={draft}
+        setDraft={setDraft}
+        publicBaseUrl={publicBaseUrl}
+        sortedTags={sortedTags}
+        disabled={isCreating}
+        error={createError}
+        errorTitle="Não foi possível criar o formulário"
+        nameInputRef={nameRef}
+      />
+    </EiaDialog>
   )
 }

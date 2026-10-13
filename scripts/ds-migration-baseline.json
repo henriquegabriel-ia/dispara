@@ -1,12 +1,12 @@
 {
-  "legacyUiImports": 323,
+  "legacyUiImports": 282,
   "radixImports": 19,
   "sonnerImports": 0,
   "nextThemesImports": 0,
   "darkVariant": 0,
-  "legacyDarkVariant": 331,
-  "dsVariables": 5391,
-  "paletteClasses": 3234,
-  "hexColors": 142,
-  "rawControls": 701
+  "legacyDarkVariant": 311,
+  "dsVariables": 5220,
+  "paletteClasses": 3019,
+  "hexColors": 135,
+  "rawControls": 682
 }
