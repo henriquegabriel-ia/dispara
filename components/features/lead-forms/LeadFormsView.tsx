@@ -1,12 +1,16 @@
 'use client'
 
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { Plus } from 'lucide-react'
 import type { CreateLeadFormDTO, LeadForm } from '@/types'
-import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
-import { CreateFormDialog } from './views/CreateFormDialog'
-import { EditFormDialog } from './views/EditFormDialog'
-import { FormList } from './views/FormList'
-import { slugify } from './views/utils'
+import { EiaButton } from '@/components/eia'
+import { ConfirmDeleteModal } from '@/components/app/ConfirmDeleteModal'
+import { Page, PageActions, PageDescription, PageHeader, PageTitle } from '@/components/app/page'
+import { CreateFormDialog } from '@/components/features/lead-forms/views/CreateFormDialog'
+import { EditFormDialog } from '@/components/features/lead-forms/views/EditFormDialog'
+import { FormList } from '@/components/features/lead-forms/views/FormList'
+import { slugify } from '@/components/features/lead-forms/views/utils'
+import { toast } from '@/lib/toast'
 
 export interface LeadFormsViewProps {
   forms: LeadForm[]
@@ -42,6 +46,19 @@ export interface LeadFormsViewProps {
   hideHeader?: boolean
 }
 
+/** Copia o link público e confirma por toast (ou explica como copiar à mão). */
+async function copyPublicLink(url: string) {
+  try {
+    if (!navigator.clipboard?.writeText) throw new Error('Área de transferência indisponível')
+    await navigator.clipboard.writeText(url)
+    toast.success('Link copiado', { description: url })
+  } catch {
+    toast.error('Não foi possível copiar o link', {
+      description: `Selecione e copie manualmente: ${url}`,
+    })
+  }
+}
+
 export function LeadFormsView(props: LeadFormsViewProps) {
   const {
     forms,
@@ -72,7 +89,16 @@ export function LeadFormsView(props: LeadFormsViewProps) {
     hideHeader = false,
   } = props
 
-  const { copyToClipboard, isCopied } = useCopyToClipboard()
+  // Formulário aguardando confirmação de exclusão
+  const [pendingDelete, setPendingDelete] = useState<LeadForm | null>(null)
+
+  // Fecha a confirmação quando a exclusão pedida termina (sucesso ou erro; o
+  // erro aparece na lista). Estado anterior guardado em state, não em effect.
+  const [wasDeleting, setWasDeleting] = useState(isDeleting)
+  if (wasDeleting !== isDeleting) {
+    setWasDeleting(isDeleting)
+    if (wasDeleting && !isDeleting) setPendingDelete(null)
+  }
 
   // Auto-sugerir slug a partir do nome (se slug ainda estiver vazio)
   useEffect(() => {
@@ -81,51 +107,41 @@ export function LeadFormsView(props: LeadFormsViewProps) {
     setCreateDraft({ ...createDraft, slug: slugify(createDraft.name) })
   }, [createDraft.name, createDraft.slug, setCreateDraft])
 
-  const sortedTags = useMemo(() => [...tags].sort((a, b) => a.localeCompare(b)), [tags])
+  const sortedTags = useMemo(() => [...tags].sort((a, b) => a.localeCompare(b, 'pt-BR')), [tags])
+
+  const openCreate = () => setIsCreateOpen(true)
 
   return (
-    <div className="space-y-6">
-      {/* Header with Create Button - hidden when parent page provides header */}
+    <Page>
+      {/* Cabeçalho próprio só em /forms; na aba Forms de /templates a página já tem o seu */}
       {!hideHeader && (
-        <div className="flex items-start justify-between gap-4">
+        <PageHeader>
           <div>
-            <h1 className="text-2xl font-semibold text-white">Formularios</h1>
-            <p className="text-sm text-slate-400">
-              Crie um link publico (tipo Google Forms) para captar contatos automaticamente com uma tag.
-            </p>
+            <PageTitle>Formulários</PageTitle>
+            <PageDescription>
+              Crie um link público para captar contatos e aplicar uma tag automaticamente.
+            </PageDescription>
           </div>
-
-          <CreateFormDialog
-            isOpen={isCreateOpen}
-            setIsOpen={setIsCreateOpen}
-            draft={createDraft}
-            setDraft={setCreateDraft}
-            onCreate={onCreate}
-            isCreating={isCreating}
-            createError={createError}
-            publicBaseUrl={publicBaseUrl}
-            sortedTags={sortedTags}
-          />
-        </div>
+          <PageActions>
+            <EiaButton leadingIcon={<Plus size={16} />} onClick={openCreate}>
+              Criar formulário
+            </EiaButton>
+          </PageActions>
+        </PageHeader>
       )}
 
-      {/* Create Dialog - always rendered (controlled by isCreateOpen) */}
-      {hideHeader && (
-        <CreateFormDialog
-          isOpen={isCreateOpen}
-          setIsOpen={setIsCreateOpen}
-          draft={createDraft}
-          setDraft={setCreateDraft}
-          onCreate={onCreate}
-          isCreating={isCreating}
-          createError={createError}
-          publicBaseUrl={publicBaseUrl}
-          sortedTags={sortedTags}
-          hideTrigger
-        />
-      )}
+      <CreateFormDialog
+        isOpen={isCreateOpen}
+        setIsOpen={setIsCreateOpen}
+        draft={createDraft}
+        setDraft={setCreateDraft}
+        onCreate={onCreate}
+        isCreating={isCreating}
+        createError={createError}
+        publicBaseUrl={publicBaseUrl}
+        sortedTags={sortedTags}
+      />
 
-      {/* Edit Dialog */}
       <EditFormDialog
         isOpen={isEditOpen}
         onClose={onCloseEdit}
@@ -138,19 +154,31 @@ export function LeadFormsView(props: LeadFormsViewProps) {
         sortedTags={sortedTags}
       />
 
-      {/* Forms List */}
       <FormList
         forms={forms}
         publicBaseUrl={publicBaseUrl}
         isLoading={isLoading}
         error={error}
         deleteError={deleteError}
-        isCopied={isCopied}
-        isDeleting={isDeleting}
-        onCopyLink={copyToClipboard}
+        deletingId={isDeleting ? (pendingDelete?.id ?? null) : null}
+        onCopyLink={copyPublicLink}
         onEdit={onEdit}
-        onDelete={onDelete}
+        onDelete={setPendingDelete}
+        onCreate={openCreate}
       />
-    </div>
+
+      <ConfirmDeleteModal
+        isOpen={pendingDelete !== null}
+        title="Excluir formulário"
+        description="O link público deixa de funcionar. Os contatos já captados continuam na sua base."
+        itemName={pendingDelete?.name}
+        confirmText="Excluir formulário"
+        isDeleting={isDeleting}
+        onConfirm={() => {
+          if (pendingDelete) onDelete(pendingDelete.id)
+        }}
+        onCancel={() => setPendingDelete(null)}
+      />
+    </Page>
   )
 }

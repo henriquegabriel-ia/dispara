@@ -1,8 +1,10 @@
 'use client'
 
+import { useId } from 'react'
+import { Plus } from 'lucide-react'
 import type { LeadFormField } from '@/types'
-import { Button } from '@/components/legacy-ui/button'
-import { FormFieldEditor } from './FormFieldEditor'
+import { EiaBadge, EiaButton } from '@/components/eia'
+import { FormFieldEditor } from '@/components/features/lead-forms/views/FormFieldEditor'
 
 export interface FormFieldsSectionProps {
   fields: LeadFormField[]
@@ -25,62 +27,77 @@ export function FormFieldsSection({
   onMoveFieldUp,
   onMoveFieldDown,
 }: FormFieldsSectionProps) {
+  const headingId = useId()
+
   return (
-    <div className="rounded-xl border border-slate-800 bg-[var(--ds-bg-elevated)] p-3">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="text-sm font-medium">Campos do formulario</p>
-          <p className="text-xs text-slate-500">
-            Estes campos abaixo sempre aparecem no formulario publico. Voce pode adicionar campos extras (ex: curso, turma, cidade).
+    <section aria-labelledby={headingId} className="space-y-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1 basis-56">
+          <h3
+            id={headingId}
+            className="text-(length:--eia-type-body) font-(--eia-weight-semibold) leading-(--eia-line-control) text-eia-text"
+          >
+            Campos do formulário
+          </h3>
+          <p className="mt-1 text-(length:--eia-type-label) leading-(--eia-line-body) text-eia-muted">
+            Nome e telefone sempre aparecem. Adicione campos extras, como curso, turma ou cidade.
           </p>
         </div>
-        <Button
-          type="button"
+        <EiaButton
           variant="secondary"
-          className="border-slate-700 bg-slate-900"
+          size="sm"
+          leadingIcon={<Plus size={16} />}
           onClick={onAddField}
           disabled={disabled}
         >
           Adicionar campo
-        </Button>
+        </EiaButton>
       </div>
 
-      <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950/30 p-3">
-        <p className="text-xs font-medium text-slate-300">Campos padrão (fixos)</p>
-        <ul className="mt-2 space-y-1 text-xs text-slate-400">
-          <li>
-            <span className="text-slate-200">Nome</span> <span className="text-slate-500">- obrigatório</span>
+      {/* Campos fixos do formulário público (não editáveis) */}
+      <div className="rounded-eia-control border border-eia-border-subtle bg-eia-bg px-4 py-3">
+        <p className="text-(length:--eia-type-label) font-(--eia-weight-medium) text-eia-muted">Campos padrão</p>
+        <ul className="mt-2 space-y-2 text-(length:--eia-type-control) text-eia-text">
+          <li className="flex items-center justify-between gap-3">
+            Nome
+            <EiaBadge size="sm">Obrigatório</EiaBadge>
           </li>
-          <li>
-            <span className="text-slate-200">Telefone (WhatsApp)</span> <span className="text-slate-500">- obrigatório</span>
+          <li className="flex items-center justify-between gap-3">
+            Telefone (WhatsApp)
+            <EiaBadge size="sm">Obrigatório</EiaBadge>
           </li>
-          <li>
-            <span className="text-slate-200">Email</span>{' '}
-            <span className="text-slate-500">- {collectEmail ? 'opcional' : 'oculto'}</span>
+          <li className="flex items-center justify-between gap-3">
+            E-mail
+            <EiaBadge size="sm">{collectEmail ? 'Opcional' : 'Oculto'}</EiaBadge>
           </li>
         </ul>
       </div>
 
       {fields.length === 0 ? (
-        <p className="mt-3 text-xs text-slate-500">Nenhum campo extra por enquanto.</p>
+        <p className="text-(length:--eia-type-label) leading-(--eia-line-body) text-eia-muted">
+          Nenhum campo extra por enquanto.
+        </p>
       ) : (
-        <div className="mt-4 space-y-3">
+        <ol className="space-y-3" aria-label="Campos extras">
           {fields.map((f, idx) => (
-            <FormFieldEditor
-              key={`${f.key}-${idx}`}
-              field={f}
-              index={idx}
-              isFirst={idx === 0}
-              isLast={idx === fields.length - 1}
-              disabled={disabled}
-              onUpdate={onUpdateField}
-              onRemove={onRemoveField}
-              onMoveUp={onMoveFieldUp}
-              onMoveDown={onMoveFieldDown}
-            />
+            // Chave pela posição: com `f.key` na chave, cada tecla digitada no
+            // campo "Chave" remontava o editor e o foco saía do input.
+            <li key={idx}>
+              <FormFieldEditor
+                field={f}
+                index={idx}
+                isFirst={idx === 0}
+                isLast={idx === fields.length - 1}
+                disabled={disabled}
+                onUpdate={onUpdateField}
+                onRemove={onRemoveField}
+                onMoveUp={onMoveFieldUp}
+                onMoveDown={onMoveFieldDown}
+              />
+            </li>
           ))}
-        </div>
+        </ol>
       )}
-    </div>
+    </section>
   )
 }
