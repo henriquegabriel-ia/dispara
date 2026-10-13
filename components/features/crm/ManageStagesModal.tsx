@@ -1,10 +1,9 @@
 'use client'
 
-import React, { useState } from 'react'
-import { Check, Layers, Loader2, Pencil, Plus, Trash2, X } from 'lucide-react'
-import { Modal, ModalHeader } from '@/components/app/Modal'
+import React, { useEffect, useId, useRef, useState } from 'react'
+import { Check, Pencil, Plus, Trash2, X } from 'lucide-react'
+import { EiaButton, EiaDialog, EiaField, EiaIconButton, EiaInput } from '@/components/eia'
 import { ConfirmDeleteModal } from '@/components/app/ConfirmDeleteModal'
-import { Input } from '@/components/legacy-ui/input'
 import type { PipelineStage } from '@/services/crmService'
 
 export interface ManageStagesModalProps {
@@ -21,7 +20,7 @@ export interface ManageStagesModalProps {
 }
 
 /**
- * Modal de gerenciamento de etapas do pipeline:
+ * Diálogo de gerenciamento de etapas do pipeline:
  * renomear inline, excluir (com aviso de cascata) e adicionar etapa.
  */
 export function ManageStagesModal({
@@ -41,7 +40,21 @@ export function ManageStagesModal({
   const [newStageName, setNewStageName] = useState('')
   const [stageToDelete, setStageToDelete] = useState<PipelineStage | null>(null)
 
+  const newStageId = useId()
+  const singleStageHintId = useId()
+  /** Botões "Renomear" por etapa: o foco volta para eles ao sair da edição inline */
+  const renameButtonRefs = useRef(new Map<string, HTMLButtonElement>())
+  const restoreFocusToStageRef = useRef<string | null>(null)
+
   const sortedStages = [...stages].sort((a, b) => a.position - b.position)
+  const isSingleStage = sortedStages.length <= 1
+
+  useEffect(() => {
+    if (editingStageId === null && restoreFocusToStageRef.current) {
+      renameButtonRefs.current.get(restoreFocusToStageRef.current)?.focus()
+      restoreFocusToStageRef.current = null
+    }
+  }, [editingStageId])
 
   const startEditing = (stage: PipelineStage) => {
     setEditingStageId(stage.id)
@@ -49,6 +62,7 @@ export function ManageStagesModal({
   }
 
   const cancelEditing = () => {
+    restoreFocusToStageRef.current = editingStageId
     setEditingStageId(null)
     setEditingName('')
   }
@@ -78,118 +92,150 @@ export function ManageStagesModal({
 
   return (
     <>
-      <Modal isOpen={isOpen} onClose={onClose} maxWidth="lg" showCloseButton>
-        <ModalHeader
-          icon={<Layers size={24} className="text-primary-600 legacy-dark:text-primary-400" />}
-          iconClassName="bg-primary-500/10"
-          title="Gerenciar etapas"
-          description={`Etapas do pipeline "${pipelineName}"`}
-        />
-
+      <EiaDialog
+        open={isOpen}
+        onOpenChange={(next) => {
+          if (!next) onClose()
+        }}
+        title="Gerenciar etapas"
+        description={`Etapas do pipeline “${pipelineName}”. As mudanças valem na hora.`}
+        footer={
+          <EiaButton variant="secondary" onClick={onClose}>
+            Concluir
+          </EiaButton>
+        }
+      >
         {/* Lista de etapas com renomear inline e excluir */}
-        <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-          {sortedStages.map((stage, index) => (
-            <div
-              key={stage.id}
-              className="flex items-center gap-2 rounded-lg border border-[var(--ds-border-subtle)] bg-[var(--ds-bg-surface)]/30 px-3 py-2"
-            >
-              <span className="shrink-0 inline-flex items-center justify-center w-6 h-6 rounded-md bg-[var(--ds-bg-hover)] text-xs font-medium text-[var(--ds-text-muted)]">
-                {index + 1}
-              </span>
+        {sortedStages.length > 0 ? (
+          <ol aria-label="Etapas do pipeline" className="flex flex-col gap-(--eia-space-2)">
+            {sortedStages.map((stage, index) => (
+              <li
+                key={stage.id}
+                className="flex min-h-(--eia-control-md) items-center gap-(--eia-space-2) rounded-eia-control border border-eia-border-subtle bg-(--eia-material-dense) py-(--eia-space-1) pr-(--eia-space-1) pl-(--eia-space-3)"
+              >
+                <span
+                  aria-hidden="true"
+                  className="inline-flex size-6 shrink-0 items-center justify-center rounded-eia-small bg-eia-raised text-(length:--eia-type-caption) font-(--eia-weight-medium) text-eia-muted tabular-nums"
+                >
+                  {index + 1}
+                </span>
 
-              {editingStageId === stage.id ? (
-                <>
-                  <Input
-                    value={editingName}
-                    onChange={(e) => setEditingName(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault()
-                        confirmRename()
-                      }
-                      if (e.key === 'Escape') cancelEditing()
-                    }}
-                    className="h-8 flex-1"
-                    autoFocus
-                    maxLength={80}
-                  />
-                  <button
-                    onClick={confirmRename}
-                    disabled={!editingName.trim() || isRenaming}
-                    className="shrink-0 p-1.5 rounded-md text-primary-600 legacy-dark:text-primary-400 hover:bg-primary-500/10 transition-colors disabled:opacity-50"
-                    aria-label="Confirmar renomeação"
-                  >
-                    <Check className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={cancelEditing}
-                    className="shrink-0 p-1.5 rounded-md text-[var(--ds-text-muted)] hover:bg-[var(--ds-bg-hover)] transition-colors"
-                    aria-label="Cancelar renomeação"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </>
-              ) : (
-                <>
-                  <span className="flex-1 text-sm text-[var(--ds-text-primary)] truncate">
-                    {stage.name}
-                  </span>
-                  <button
-                    onClick={() => startEditing(stage)}
-                    className="shrink-0 p-1.5 rounded-md text-[var(--ds-text-muted)] hover:bg-[var(--ds-bg-hover)] hover:text-[var(--ds-text-primary)] transition-colors"
-                    aria-label={`Renomear etapa ${stage.name}`}
-                  >
-                    <Pencil className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => setStageToDelete(stage)}
-                    disabled={sortedStages.length <= 1}
-                    className="shrink-0 p-1.5 rounded-md text-[var(--ds-text-muted)] hover:bg-red-500/10 hover:text-red-600 legacy-dark:hover:text-red-400 transition-colors disabled:opacity-40 disabled:pointer-events-none"
-                    aria-label={`Excluir etapa ${stage.name}`}
-                    title={
-                      sortedStages.length <= 1
-                        ? 'O pipeline precisa ter ao menos uma etapa'
-                        : 'Excluir etapa'
-                    }
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </>
-              )}
-            </div>
-          ))}
+                {editingStageId === stage.id ? (
+                  <>
+                    <EiaInput
+                      controlSize="sm"
+                      aria-label={`Novo nome da etapa ${stage.name}`}
+                      value={editingName}
+                      onChange={(e) => setEditingName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          confirmRename()
+                        }
+                        if (e.key === 'Escape') {
+                          // Esc cancela só a edição: não deixa a tecla chegar ao diálogo
+                          e.preventDefault()
+                          e.stopPropagation()
+                          cancelEditing()
+                        }
+                      }}
+                      className="flex-1"
+                      autoFocus
+                      maxLength={80}
+                    />
+                    <EiaIconButton
+                      size="sm"
+                      label="Salvar nome da etapa"
+                      onClick={confirmRename}
+                      disabled={!editingName.trim() || isRenaming}
+                    >
+                      <Check size={16} />
+                    </EiaIconButton>
+                    <EiaIconButton size="sm" label="Cancelar renomeação" onClick={cancelEditing}>
+                      <X size={16} />
+                    </EiaIconButton>
+                  </>
+                ) : (
+                  <>
+                    {/* Nome inteiro (até 80 caracteres): quebra linha em vez de cortar */}
+                    <span className="min-w-0 flex-1 [overflow-wrap:anywhere] text-(length:--eia-type-control) text-eia-text">
+                      {stage.name}
+                    </span>
+                    <EiaIconButton
+                      ref={(node: HTMLButtonElement | null) => {
+                        if (node) renameButtonRefs.current.set(stage.id, node)
+                        else renameButtonRefs.current.delete(stage.id)
+                      }}
+                      size="sm"
+                      label={`Renomear etapa ${stage.name}`}
+                      onClick={() => startEditing(stage)}
+                    >
+                      <Pencil size={16} />
+                    </EiaIconButton>
+                    <EiaIconButton
+                      size="sm"
+                      label={`Excluir etapa ${stage.name}`}
+                      onClick={() => setStageToDelete(stage)}
+                      disabled={isSingleStage}
+                      // Continua no Tab quando desabilitado: o leitor de tela anuncia
+                      // "indisponível" e lê a explicação abaixo da lista.
+                      focusableWhenDisabled
+                      aria-describedby={isSingleStage ? singleStageHintId : undefined}
+                    >
+                      <Trash2 size={16} />
+                    </EiaIconButton>
+                  </>
+                )}
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <p className="py-(--eia-space-4) text-center text-(length:--eia-type-control) text-eia-muted">
+            Nenhuma etapa neste pipeline. Adicione a primeira abaixo.
+          </p>
+        )}
 
-          {sortedStages.length === 0 && (
-            <p className="text-sm text-[var(--ds-text-muted)] text-center py-4">
-              Nenhuma etapa neste pipeline. Adicione a primeira abaixo.
-            </p>
-          )}
-        </div>
+        {sortedStages.length === 1 && (
+          <p
+            id={singleStageHintId}
+            className="mt-(--eia-space-2) text-(length:--eia-type-label) text-eia-muted"
+          >
+            O pipeline precisa de ao menos uma etapa. Adicione outra antes de excluir esta.
+          </p>
+        )}
 
         {/* Adicionar etapa */}
-        <form onSubmit={handleAddStage} className="mt-4 flex items-center gap-2">
-          <Input
-            value={newStageName}
-            onChange={(e) => setNewStageName(e.target.value)}
-            placeholder="Nome da nova etapa"
-            maxLength={80}
-          />
-          <button
+        <form
+          onSubmit={handleAddStage}
+          className="mt-(--eia-space-6) flex items-end gap-(--eia-space-3) max-sm:flex-col max-sm:items-stretch"
+        >
+          <EiaField label="Nova etapa" htmlFor={newStageId} className="flex-1">
+            <EiaInput
+              value={newStageName}
+              onChange={(e) => setNewStageName(e.target.value)}
+              placeholder="Ex.: Proposta enviada"
+              maxLength={80}
+              autoComplete="off"
+            />
+          </EiaField>
+          <EiaButton
             type="submit"
-            disabled={!newStageName.trim() || isAdding}
-            className="shrink-0 inline-flex items-center gap-1.5 px-3 h-9 rounded-lg bg-primary-600 text-white text-sm font-medium hover:bg-primary-500 transition-colors disabled:opacity-50"
+            variant="secondary"
+            leadingIcon={<Plus />}
+            loading={isAdding}
+            disabled={!newStageName.trim()}
           >
-            {isAdding ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Plus className="w-4 h-4" />
-            )}
-            Adicionar etapa
-          </button>
+            {isAdding ? 'Adicionando…' : 'Adicionar etapa'}
+          </EiaButton>
         </form>
-      </Modal>
+      </EiaDialog>
 
-      {/* Confirmação de exclusão de etapa (cascata) */}
+      {/*
+        Confirmação de exclusão (cascata) como irmã do diálogo: assim o scrim dela
+        escurece o "Gerenciar etapas" por baixo (aninhada, a Base UI não desenha o
+        scrim). O Esc é tratado dentro do alertdialog e não chega ao diálogo de
+        baixo; clique fora não fecha nenhum dos dois.
+      */}
       <ConfirmDeleteModal
         isOpen={!!stageToDelete}
         title="Excluir etapa"
@@ -199,7 +245,7 @@ export function ManageStagesModal({
         onConfirm={handleConfirmDelete}
         onCancel={() => setStageToDelete(null)}
         confirmText="Excluir etapa"
-        loadingText="Excluindo..."
+        loadingText="Excluindo…"
       />
     </>
   )

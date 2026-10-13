@@ -1,10 +1,16 @@
 'use client'
 
-import React, { useEffect, useState } from 'react'
-import { CircleUser, Loader2, Search, Target, X } from 'lucide-react'
-import { Modal, ModalCancelButton, ModalFooter, ModalHeader } from '@/components/app/Modal'
-import { Input } from '@/components/legacy-ui/input'
-import { Label } from '@/components/legacy-ui/label'
+import React, { useEffect, useId, useRef, useState } from 'react'
+import { Phone, Search, X } from 'lucide-react'
+import {
+  EiaButton,
+  EiaDialog,
+  EiaField,
+  EiaIconButton,
+  EiaInput,
+  EiaSpinner,
+} from '@/components/eia'
+import { EiaAvatar } from '@/components/eia/extended'
 import { formatPhoneNumberDisplay } from '@/lib/phone-formatter'
 import { useContactSearch, type NewOpportunityForm } from '@/hooks/useCrm'
 import type { ContactSearchResult, PipelineStage } from '@/services/crmService'
@@ -18,8 +24,24 @@ export interface NewOpportunityModalProps {
   onClose: () => void
 }
 
+/** Avatar do contato (só apoio visual: nome e telefone vêm escritos ao lado). */
+function ContactAvatar({ contact }: { contact: ContactSearchResult }) {
+  return (
+    <span aria-hidden="true" className="inline-flex shrink-0">
+      {contact.name ? (
+        <EiaAvatar name={contact.name} size="sm" />
+      ) : (
+        // Mesmo diâmetro do EiaAvatar size="sm" (30px no extended.css)
+        <span className="inline-flex size-[30px] items-center justify-center rounded-full border border-eia-border bg-eia-raised text-eia-muted">
+          <Phone className="size-3.5" />
+        </span>
+      )}
+    </span>
+  )
+}
+
 /**
- * Modal de criação de oportunidade:
+ * Diálogo de criação de oportunidade:
  * busca de contato com debounce + nome (prefill = nome do contato) + valor opcional.
  */
 export function NewOpportunityModal({
@@ -34,6 +56,17 @@ export function NewOpportunityModal({
   const [name, setName] = useState('')
   const [valueInput, setValueInput] = useState('')
 
+  const formId = useId()
+  const contactId = useId()
+  const contactLabelId = useId()
+  const resultsId = useId()
+  const nameId = useId()
+  const valueId = useId()
+  const searchRef = useRef<HTMLInputElement>(null)
+  const nameRef = useRef<HTMLInputElement>(null)
+  /** Ao remover o contato escolhido, o foco volta para a busca (que reaparece) */
+  const focusSearchAfterRemoveRef = useRef(false)
+
   const { results, isSearching, hasSearched } = useContactSearch(searchTerm)
 
   // Limpa o formulário sempre que o modal abre
@@ -46,6 +79,13 @@ export function NewOpportunityModal({
     }
   }, [isOpen])
 
+  useEffect(() => {
+    if (!selectedContact && focusSearchAfterRemoveRef.current) {
+      focusSearchAfterRemoveRef.current = false
+      searchRef.current?.focus()
+    }
+  }, [selectedContact])
+
   const handleSelectContact = (contact: ContactSearchResult) => {
     setSelectedContact(contact)
     setSearchTerm('')
@@ -53,6 +93,13 @@ export function NewOpportunityModal({
     if (!name.trim()) {
       setName(contact.name || formatPhoneNumberDisplay(contact.phone))
     }
+    // O botão do resultado some da tela: o próximo passo natural é o nome
+    nameRef.current?.focus()
+  }
+
+  const handleRemoveContact = () => {
+    focusSearchAfterRemoveRef.current = true
+    setSelectedContact(null)
   }
 
   const parsedValue = valueInput.trim() === '' ? null : Number(valueInput.replace(',', '.'))
@@ -72,106 +119,153 @@ export function NewOpportunityModal({
   }
 
   const showResults = !selectedContact && searchTerm.trim().length >= 2
+  const resultsCount = results.length
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} maxWidth="md" showCloseButton>
-      <ModalHeader
-        icon={<Target size={24} className="text-primary-600 legacy-dark:text-primary-400" />}
-        iconClassName="bg-primary-500/10"
-        title="Nova oportunidade"
-        description={stage ? `Será criada na etapa "${stage.name}"` : undefined}
-      />
-
-      <form onSubmit={handleSubmit} className="space-y-4">
-        {/* Busca de contato */}
-        <div className="space-y-2">
-          <Label htmlFor="opportunity-contact">Contato (opcional)</Label>
-          {selectedContact ? (
-            <div className="flex items-center gap-2 rounded-lg border border-[var(--ds-border-default)] bg-[var(--ds-bg-surface)]/30 px-3 py-2">
-              <CircleUser className="w-4 h-4 shrink-0 text-primary-600 legacy-dark:text-primary-400" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-[var(--ds-text-primary)] truncate">
+    <EiaDialog
+      open={isOpen}
+      onOpenChange={(next) => {
+        if (!next) onClose()
+      }}
+      title="Nova oportunidade"
+      description={stage ? `Será criada na etapa “${stage.name}”.` : undefined}
+      // O X do DS vem antes do corpo: o foco inicial vai para o primeiro campo
+      initialFocus={() => searchRef.current ?? nameRef.current ?? true}
+      footer={
+        <>
+          <EiaButton variant="secondary" onClick={onClose} disabled={isSaving}>
+            Cancelar
+          </EiaButton>
+          <EiaButton
+            type="submit"
+            form={formId}
+            loading={isSaving}
+            disabled={!stage || !name.trim() || isValueInvalid}
+          >
+            {isSaving ? 'Criando…' : 'Criar oportunidade'}
+          </EiaButton>
+        </>
+      }
+    >
+      <form id={formId} onSubmit={handleSubmit} className="flex flex-col gap-(--eia-space-5)">
+        {/* Contato: escolhido (cartão com remover) ou busca com resultados logo abaixo */}
+        {selectedContact ? (
+          <div className="flex flex-col gap-(--eia-space-2)">
+            <p
+              id={contactLabelId}
+              className="text-(length:--eia-type-control) leading-(--eia-line-control) font-(--eia-weight-medium) text-eia-text"
+            >
+              Contato
+            </p>
+            <div
+              role="group"
+              aria-labelledby={contactLabelId}
+              className="flex items-center gap-(--eia-space-3) rounded-eia-control border border-eia-border-subtle bg-(--eia-material-dense) py-(--eia-space-2) pr-(--eia-space-2) pl-(--eia-space-3)"
+            >
+              <ContactAvatar contact={selectedContact} />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-(length:--eia-type-control) font-(--eia-weight-medium) text-eia-text">
                   {selectedContact.name || 'Sem nome'}
                 </p>
-                <p className="text-xs text-[var(--ds-text-muted)]">
+                <p className="text-(length:--eia-type-label) text-eia-muted tabular-nums">
                   {formatPhoneNumberDisplay(selectedContact.phone)}
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => setSelectedContact(null)}
-                className="shrink-0 p-1 rounded-md text-[var(--ds-text-muted)] hover:bg-[var(--ds-bg-hover)] hover:text-[var(--ds-text-primary)] transition-colors"
-                aria-label="Remover contato selecionado"
-              >
-                <X className="w-4 h-4" />
-              </button>
+              <EiaIconButton size="sm" label="Remover contato selecionado" onClick={handleRemoveContact}>
+                <X size={16} />
+              </EiaIconButton>
             </div>
-          ) : (
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--ds-text-muted)] pointer-events-none" />
-              <Input
-                id="opportunity-contact"
+          </div>
+        ) : (
+          <div className="flex flex-col gap-(--eia-space-2)">
+            <EiaField
+              label="Contato (opcional)"
+              htmlFor={contactId}
+              description="Digite ao menos 2 caracteres do nome ou do telefone."
+            >
+              <EiaInput
+                ref={searchRef}
+                leadingIcon={<Search />}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Buscar por nome ou telefone..."
-                className="pl-9"
+                placeholder="Buscar por nome ou telefone"
                 autoComplete="off"
+                aria-controls={showResults ? resultsId : undefined}
               />
+            </EiaField>
 
-              {showResults && (
-                <div className="absolute z-10 mt-1 w-full rounded-lg border border-[var(--ds-border-default)] bg-[var(--ds-bg-elevated)] shadow-lg max-h-56 overflow-y-auto">
-                  {isSearching ? (
-                    <div className="flex items-center gap-2 px-3 py-3 text-sm text-[var(--ds-text-muted)]">
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Buscando contatos...
-                    </div>
-                  ) : results.length > 0 ? (
-                    results.map((contact) => (
-                      <button
-                        key={contact.id}
-                        type="button"
-                        onClick={() => handleSelectContact(contact)}
-                        className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-[var(--ds-bg-hover)] transition-colors"
-                      >
-                        <CircleUser className="w-4 h-4 shrink-0 text-[var(--ds-text-muted)]" />
-                        <span className="flex-1 min-w-0">
-                          <span className="block text-sm text-[var(--ds-text-primary)] truncate">
-                            {contact.name || 'Sem nome'}
+            {showResults && (
+              <div
+                id={resultsId}
+                className="max-h-56 overflow-y-auto rounded-eia-control border border-eia-border-subtle bg-(--eia-material-dense) p-(--eia-space-1)"
+              >
+                {isSearching ? (
+                  <div className="flex items-center gap-(--eia-space-2) px-(--eia-space-3) py-(--eia-space-3) text-(length:--eia-type-label) text-eia-muted">
+                    <EiaSpinner size="sm" tone="neutral" label="Buscando contatos…" />
+                    <span aria-hidden="true">Buscando contatos…</span>
+                  </div>
+                ) : resultsCount > 0 ? (
+                  <ul aria-label="Contatos encontrados" className="flex flex-col">
+                    {results.map((contact) => (
+                      <li key={contact.id} className="flex">
+                        <EiaButton
+                          variant="ghost"
+                          onClick={() => handleSelectContact(contact)}
+                          // Linha de resultado: ocupa a largura e alinha à esquerda
+                          // (largura/alinhamento do .eia-button vêm do DS sem @layer)
+                          style={{ width: '100%', justifyContent: 'flex-start', paddingInline: 'var(--eia-space-3)' }}
+                          className="[&_.eia-button-label]:min-w-0 [&_.eia-button-label]:gap-(--eia-space-3)"
+                        >
+                          <ContactAvatar contact={contact} />
+                          <span className="flex min-w-0 flex-col items-start text-left">
+                            <span className="max-w-full truncate font-(--eia-weight-medium) text-eia-text">
+                              {contact.name || 'Sem nome'}
+                            </span>
+                            <span className="text-(length:--eia-type-label) font-(--eia-weight-regular) text-eia-muted tabular-nums">
+                              {formatPhoneNumberDisplay(contact.phone)}
+                            </span>
                           </span>
-                          <span className="block text-xs text-[var(--ds-text-muted)]">
-                            {formatPhoneNumberDisplay(contact.phone)}
-                          </span>
-                        </span>
-                      </button>
-                    ))
-                  ) : hasSearched ? (
-                    <p className="px-3 py-3 text-sm text-[var(--ds-text-muted)]">
-                      Nenhum contato encontrado.
-                    </p>
-                  ) : null}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
+                        </EiaButton>
+                      </li>
+                    ))}
+                  </ul>
+                ) : hasSearched ? (
+                  <p className="px-(--eia-space-3) py-(--eia-space-3) text-(length:--eia-type-label) text-eia-muted">
+                    Nenhum contato encontrado. Confira a grafia ou crie a oportunidade sem contato.
+                  </p>
+                ) : null}
+              </div>
+            )}
 
-        {/* Nome da oportunidade */}
-        <div className="space-y-2">
-          <Label htmlFor="opportunity-name">Nome da oportunidade</Label>
-          <Input
-            id="opportunity-name"
+            {/* Anuncia o resultado da busca para leitores de tela */}
+            <p role="status" className="eia-sr-only">
+              {showResults && !isSearching && hasSearched
+                ? resultsCount > 0
+                  ? `${resultsCount.toLocaleString('pt-BR')} ${resultsCount === 1 ? 'contato encontrado' : 'contatos encontrados'}`
+                  : 'Nenhum contato encontrado'
+                : ''}
+            </p>
+          </div>
+        )}
+
+        <EiaField label="Nome da oportunidade" htmlFor={nameId} required>
+          <EiaInput
+            ref={nameRef}
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Ex.: Proposta plano anual"
             maxLength={120}
+            autoComplete="off"
+            aria-required="true"
           />
-        </div>
+        </EiaField>
 
-        {/* Valor opcional */}
-        <div className="space-y-2">
-          <Label htmlFor="opportunity-value">Valor (R$, opcional)</Label>
-          <Input
-            id="opportunity-value"
+        <EiaField
+          label="Valor (R$, opcional)"
+          htmlFor={valueId}
+          error={isValueInvalid ? 'Informe um valor igual ou maior que zero.' : undefined}
+        >
+          <EiaInput
             type="number"
             inputMode="decimal"
             step="0.01"
@@ -179,31 +273,9 @@ export function NewOpportunityModal({
             value={valueInput}
             onChange={(e) => setValueInput(e.target.value)}
             placeholder="Ex.: 1500,00"
-            aria-invalid={isValueInvalid}
           />
-          {isValueInvalid && (
-            <p className="text-xs text-red-600 legacy-dark:text-red-400">Informe um valor válido.</p>
-          )}
-        </div>
-
-        <ModalFooter className="mt-2">
-          <ModalCancelButton onClick={onClose} disabled={isSaving} />
-          <button
-            type="submit"
-            disabled={!canSubmit}
-            className="flex-1 px-4 py-3 bg-primary-600 text-white rounded-lg font-semibold hover:bg-primary-500 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-          >
-            {isSaving ? (
-              <>
-                <Loader2 size={16} className="animate-spin" />
-                Criando...
-              </>
-            ) : (
-              'Criar oportunidade'
-            )}
-          </button>
-        </ModalFooter>
+        </EiaField>
       </form>
-    </Modal>
+    </EiaDialog>
   )
 }
