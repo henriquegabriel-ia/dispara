@@ -22,6 +22,7 @@ import {
   publishFlow,
   resetWorkflowCaches,
   routes,
+  seedPublishedFlow,
   setupWorkflowTest,
   steps,
   teardownWorkflowTest,
@@ -70,9 +71,10 @@ function editInStore(flow: Flow, message: string): Flow {
 describe('RT-01 salvar pela tela grava a árvore e o grafo', () => {
   it('rascunho: o PATCH do autosave grava tree/nodes/edges na versão ativa e o GET devolve', async () => {
     const flow = makeFlow({ id: 'wf-draft', name: 'Rascunho', trigger: triggers.keywords(['oi']), root: chain(steps.whatsapp({ id: 'w1', message: 'A' })) })
-    // cria o registro como a lista de fluxos ("Novo fluxo") via GET (ensureWorkflowRecord)
-    const created = await routes.getWorkflow('wf-draft')
-    expect(created.status).toBe(200)
+    // GET de id inexistente responde 404 (fix ghost-workflow): o registro nasce
+    // como no "Novo fluxo" (createWorkflowRecord), ainda rascunho.
+    expect((await routes.getWorkflow('wf-draft')).status).toBe(404)
+    await seedPublishedFlow(h.db, flow, { workflowId: 'wf-draft', publish: false })
     const edited = editInStore(flow, 'Rascunho editado')
     const res = await routes.patchWorkflow('wf-draft', autosaveBody(edited))
     expect(res.status).toBe(200)
