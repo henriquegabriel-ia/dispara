@@ -111,6 +111,9 @@ tests/*
 # Helpers de teste são necessários no CI
 !tests/helpers/
 !tests/helpers/**
+# E2E da tela do builder (Playwright + backend falso; segredos gerados em memória)
+!tests/e2e-builder/
+!tests/e2e-builder/**
 
 # Legacy (can be removed)
 # vite.config.ts
