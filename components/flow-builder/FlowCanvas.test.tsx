@@ -203,12 +203,22 @@ describe('FC-02 atalhos de teclado', () => {
     expect(store().flow!.name).toBe('C')
   })
 
-  // BUG(redo-undo): o atalho de "refazer" (Ctrl/Cmd+Shift+Z) também desfaz, porque o
-  // handler só testa e.key.toLowerCase() === 'z' sem olhar shiftKey (FlowCanvas.tsx:69).
-  // Quem tenta refazer perde mais um passo.
-  it.fails('Ctrl+Shift+Z não desfaz', () => {
+  // redo-undo: Ctrl/Cmd+Shift+Z refaz (não desfaz mais um passo); Ctrl+Y também.
+  it('Ctrl+Shift+Z não desfaz', () => {
     mounted()
     fireEvent.keyDown(window, { key: 'Z', ctrlKey: true, shiftKey: true })
+    expect(store().flow!.name).toBe('C')
+  })
+
+  it('Ctrl+Z desfaz e Ctrl+Shift+Z / Ctrl+Y refazem', () => {
+    mounted()
+    fireEvent.keyDown(window, { key: 'z', ctrlKey: true })
+    const undone = store().flow!.name
+    expect(undone).not.toBe('C')
+    fireEvent.keyDown(window, { key: 'Z', metaKey: true, shiftKey: true })
+    expect(store().flow!.name).toBe('C')
+    fireEvent.keyDown(window, { key: 'z', ctrlKey: true })
+    fireEvent.keyDown(window, { key: 'y', ctrlKey: true })
     expect(store().flow!.name).toBe('C')
   })
 })

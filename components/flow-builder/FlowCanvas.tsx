@@ -58,17 +58,25 @@ export default function FlowCanvas() {
     return () => window.clearTimeout(t);
   }, []);
 
-  // Atalhos: Esc fecha picker/cancela goto-pick; Cmd/Ctrl+Z desfaz.
+  // Atalhos: Esc fecha picker/cancela goto-pick; Cmd/Ctrl+Z desfaz;
+  // Cmd/Ctrl+Shift+Z (e Ctrl+Y) refaz.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       const typing =
         target.tagName === "INPUT" ||
         target.tagName === "TEXTAREA" ||
+        target.tagName === "SELECT" ||
         target.isContentEditable;
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z" && !typing) {
+      const mod = (e.metaKey || e.ctrlKey) && !e.altKey;
+      const key = e.key.toLowerCase();
+      if (mod && !typing && key === "z") {
         e.preventDefault();
-        useFlowBuilderStore.getState().undo();
+        if (e.shiftKey) useFlowBuilderStore.getState().redo();
+        else useFlowBuilderStore.getState().undo();
+      } else if (mod && !typing && !e.shiftKey && key === "y") {
+        e.preventDefault();
+        useFlowBuilderStore.getState().redo();
       }
       if (e.key === "Escape") {
         const st = useFlowBuilderStore.getState();

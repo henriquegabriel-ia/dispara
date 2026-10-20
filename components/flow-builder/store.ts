@@ -9,6 +9,7 @@
 //     Timeout) — sem suporte no executor v1; a pergunta fica só botões + else.
 //   - updateStep no-op não empurra snapshot de undo (identidade preservada
 //     pelas operations).
+//   - undo/redo por snapshots (past/future); qualquer mutação nova limpa o redo.
 
 import { create } from "zustand";
 import {
@@ -40,6 +41,8 @@ export interface PickerState {
 interface FlowBuilderStore {
   flow: Flow | null;
   past: Flow[]; // undo por snapshot, até 50
+  /** redo: snapshots desfeitos (qualquer mutação nova limpa) */
+  future: Flow[];
   /** bump a cada mutação persistível — o hook de autosave observa isto */
   rev: number;
   saveMode: SaveMode;
@@ -70,6 +73,7 @@ interface FlowBuilderStore {
   cancelGotoPick: () => void;
   chooseGotoTarget: (targetId: string) => void;
   undo: () => void;
+  redo: () => void;
 }
 
 const pushPast = (past: Flow[], flow: Flow): Flow[] => [
@@ -80,6 +84,7 @@ const pushPast = (past: Flow[], flow: Flow): Flow[] => [
 export const useFlowBuilderStore = create<FlowBuilderStore>((set, get) => ({
   flow: null,
   past: [],
+  future: [],
   rev: 0,
   saveMode: "config",
   selectedStepId: null,
@@ -90,6 +95,7 @@ export const useFlowBuilderStore = create<FlowBuilderStore>((set, get) => ({
     set({
       flow,
       past: [],
+      future: [],
       rev: 0,
       selectedStepId: null,
       picker: null,
@@ -100,6 +106,7 @@ export const useFlowBuilderStore = create<FlowBuilderStore>((set, get) => ({
     set({
       flow: null,
       past: [],
+      future: [],
       rev: 0,
       selectedStepId: null,
       picker: null,
@@ -133,6 +140,7 @@ export const useFlowBuilderStore = create<FlowBuilderStore>((set, get) => ({
     set({
       flow: nextFlow,
       past: pushPast(past, flow),
+      future: [],
       rev: rev + 1,
       saveMode: "structural",
       picker: null,
@@ -142,10 +150,11 @@ export const useFlowBuilderStore = create<FlowBuilderStore>((set, get) => ({
 
   removeStep: (id) => {
     const { flow, past, rev, selectedStepId } = get();
-    if (!flow) return;
+    if (!flow || !findStep(flow, id)) return; // id inexistente: nada a desfazer/salvar
     set({
       flow: deleteStep(flow, id),
       past: pushPast(past, flow),
+      future: [],
       rev: rev + 1,
       saveMode: "structural",
       selectedStepId: selectedStepId === id ? null : selectedStepId,
@@ -160,6 +169,7 @@ export const useFlowBuilderStore = create<FlowBuilderStore>((set, get) => ({
     set({
       flow: next,
       past: pushPast(past, flow),
+      future: [],
       rev: rev + 1,
       saveMode: "config",
     });
@@ -173,6 +183,7 @@ export const useFlowBuilderStore = create<FlowBuilderStore>((set, get) => ({
     set({
       flow: next,
       past: pushPast(past, flow),
+      future: [],
       rev: rev + 1,
       saveMode: "config",
     });
@@ -180,10 +191,11 @@ export const useFlowBuilderStore = create<FlowBuilderStore>((set, get) => ({
 
   addBranchTo: (id) => {
     const { flow, past, rev } = get();
-    if (!flow) return;
+    if (!flow || !findStep(flow, id)?.branches?.length) return; // sem branches: no-op
     set({
       flow: addBranch(flow, id),
       past: pushPast(past, flow),
+      future: [],
       rev: rev + 1,
       saveMode: "structural",
     });
@@ -195,6 +207,7 @@ export const useFlowBuilderStore = create<FlowBuilderStore>((set, get) => ({
     set({
       flow: { ...flow, name },
       past: pushPast(past, flow),
+      future: [],
       rev: rev + 1,
       saveMode: "config",
     });
@@ -209,6 +222,7 @@ export const useFlowBuilderStore = create<FlowBuilderStore>((set, get) => ({
     set({
       flow: setGotoTarget(flow, pickingGotoId, targetId),
       past: pushPast(past, flow),
+      future: [],
       rev: rev + 1,
       saveMode: "structural",
       pickingGotoId: null,
@@ -216,17 +230,38 @@ export const useFlowBuilderStore = create<FlowBuilderStore>((set, get) => ({
   },
 
   undo: () => {
-    const { past, rev, selectedStepId } = get();
-    if (past.length === 0) return;
+    const { flow, past, future, rev, selectedStepId } = get();
+    if (past.length === 0 || !flow) return;
     const prev = past[past.length - 1];
     set({
       flow: prev,
       past: past.slice(0, -1),
+      future: [...future.slice(-(MAX_HISTORY - 1)), flow],
       rev: rev + 1,
       saveMode: "structural",
       selectedStepId:
         selectedStepId &&
         (selectedStepId === TRIGGER_SELECTION_ID || findStep(prev, selectedStepId))
+          ? selectedStepId
+          : null,
+      picker: null,
+      pickingGotoId: null,
+    });
+  },
+
+  redo: () => {
+    const { flow, past, future, rev, selectedStepId } = get();
+    if (future.length === 0 || !flow) return;
+    const next = future[future.length - 1];
+    set({
+      flow: next,
+      past: pushPast(past, flow),
+      future: future.slice(0, -1),
+      rev: rev + 1,
+      saveMode: "structural",
+      selectedStepId:
+        selectedStepId &&
+        (selectedStepId === TRIGGER_SELECTION_ID || findStep(next, selectedStepId))
           ? selectedStepId
           : null,
       picker: null,

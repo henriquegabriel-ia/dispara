@@ -333,19 +333,37 @@ describe('ST-06 undo: seleção e limite de 50', () => {
 // ─── Mutações que não mudam nada ───────────────────────────────────────────────
 
 describe('mutações estruturais sem efeito', () => {
-  // BUG(noop-structural-undo): removeStep/addBranchTo com id inexistente (ou num passo
-  // sem branches) devolvem um CLONE (operations.ts:335-351, 400-403) e o store empurra
-  // snapshot de undo + save estrutural sem nada ter mudado. Latente: a UI só chama
-  // com ids válidos e addBranchTo não está ligado à tela hoje.
-  it.fails('removeStep de id inexistente não gera undo nem save', () => {
+  // noop-structural-undo: removeStep/addBranchTo com id inexistente (ou num passo sem
+  // branches) não empurram snapshot de undo nem save estrutural.
+  it('removeStep de id inexistente não gera undo nem save', () => {
     store().loadFlow(sampleFlow())
     store().removeStep('nao-existe')
     expect(counters()).toEqual({ rev: 0, past: 0, saveMode: 'config' })
   })
 
-  it.fails('addBranchTo num passo sem branches não gera undo nem save', () => {
+  it('addBranchTo num passo sem branches não gera undo nem save', () => {
     store().loadFlow(sampleFlow())
     store().addBranchTo('A')
     expect(counters()).toEqual({ rev: 0, past: 0, saveMode: 'config' })
+  })
+})
+
+describe('redo', () => {
+  it('desfazer e refazer voltam ao mesmo estado; mutação nova limpa o redo', () => {
+    store().loadFlow(sampleFlow())
+    store().renameFlow('n1')
+    store().renameFlow('n2')
+    store().undo()
+    expect(store().flow!.name).toBe('n1')
+    store().redo()
+    expect(store().flow!.name).toBe('n2')
+    expect(store().saveMode).toBe('structural')
+    store().undo()
+    store().renameFlow('outro')
+    expect(store().future).toEqual([])
+    const rev = store().rev
+    store().redo()
+    expect(store().rev).toBe(rev)
+    expect(store().flow!.name).toBe('outro')
   })
 })
