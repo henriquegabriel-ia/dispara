@@ -307,11 +307,9 @@ describe('TP-09 nome da campanha quando a lista não está disponível', () => {
     replyFilter: '',
   }
 
-  // BUG(campaign-name-wipe): campaignName = selectedCampaign?.name ?? '' (ConfigPanel.tsx:147-148).
-  // Com a lista de campanhas carregando/falhando (ou a campanha já excluída), salvar
-  // apaga o nome mas mantém o campaignId: o card passa a dizer "Resposta a qualquer
-  // disparo" enquanto o webhook filtra só pela campanha c1.
-  it.fails('salvar com a lista ainda carregando mantém "Black Friday"', () => {
+  // campaign-name-wipe: com a lista de campanhas carregando/falhando (ou a campanha já
+  // excluída), salvar mantém o nome salvo — o card continua coerente com o filtro.
+  it('salvar com a lista ainda carregando mantém "Black Friday"', () => {
     services.campaigns.mockReturnValue(new Promise(() => {}))
     const { panel, panelRoot } = renderTriggerPanel(flowWith(saved))
     fireEvent.change(filterInput(panelRoot), { target: { value: 'quero' } })
@@ -319,7 +317,7 @@ describe('TP-09 nome da campanha quando a lista não está disponível', () => {
     expect(store().flow!.trigger).toMatchObject({ campaignId: 'c1', campaignName: 'Black Friday', replyFilter: 'quero' })
   })
 
-  it.fails('salvar com erro ao carregar as campanhas mantém "Black Friday"', async () => {
+  it('salvar com erro ao carregar as campanhas mantém "Black Friday"', async () => {
     services.campaigns.mockRejectedValue(new Error('500'))
     const { panel, panelRoot } = renderTriggerPanel(flowWith(saved))
     await waitFor(() => expect(campaignSelect(panelRoot)).not.toBeDisabled())
@@ -328,21 +326,22 @@ describe('TP-09 nome da campanha quando a lista não está disponível', () => {
     expect(store().flow!.trigger).toMatchObject({ campaignId: 'c1', campaignName: 'Black Friday' })
   })
 
-  it('caracterização: hoje o nome some e o card mente', () => {
-    services.campaigns.mockReturnValue(new Promise(() => {}))
-    const { panel, canvas, panelRoot } = renderTriggerPanel(flowWith(saved))
-    expect(canvas.getByText('Campanha: Black Friday')).toBeInTheDocument()
-    fireEvent.change(filterInput(panelRoot), { target: { value: 'quero' } })
+  it('campanha excluída: o select mostra o nome salvo e o card não muda', async () => {
+    const { panel, canvas, panelRoot } = renderTriggerPanel(flowWith({ ...saved, campaignId: 'c-old', campaignName: 'Dia das Mães' }))
+    await waitFor(() => expect(campaignSelect(panelRoot)).not.toBeDisabled())
+    expect(campaignSelect(panelRoot).value).toBe('c-old')
+    expect(panel.getByRole('option', { name: 'Dia das Mães (campanha removida?)' })).toBeInTheDocument()
+    fireEvent.change(filterInput(panelRoot), { target: { value: 'sim' } })
     fireEvent.click(panel.getByRole('button', { name: 'Salvar gatilho' }))
-    expect(store().flow!.trigger).toMatchObject({ campaignId: 'c1', campaignName: '' })
-    expect(canvas.getByText('Resposta a qualquer disparo · contém "quero"')).toBeInTheDocument()
+    expect(store().flow!.trigger).toMatchObject({ campaignId: 'c-old', campaignName: 'Dia das Mães' })
+    expect(canvas.getByText(/Dia das Mães/)).toBeInTheDocument()
   })
 })
 
 describe('TP-10 "Salvar gatilho" sem mudanças', () => {
-  // BUG(trigger-noop): ver OPS-09. Pela tela: abrir o gatilho de um fluxo novo e clicar
-  // "Salvar gatilho" sem mudar nada cria uma entrada de undo e dispara autosave.
-  it.fails('fluxo novo: salvar sem mudanças não gera undo nem rev', () => {
+  // trigger-noop: ver OPS-09. Abrir o gatilho de um fluxo novo e clicar "Salvar gatilho"
+  // sem mudar nada é no-op (sem undo nem autosave).
+  it('fluxo novo: salvar sem mudanças não gera undo nem rev', () => {
     const { panel } = renderTriggerPanel(createEmptyFlow({ id: 'wf', name: 'Fluxo' }))
     fireEvent.click(panel.getByRole('button', { name: 'Salvar gatilho' }))
     expect(store()).toMatchObject({ rev: 0, past: [] })
@@ -354,5 +353,49 @@ describe('TP-10 "Salvar gatilho" sem mudanças', () => {
     const rev = store().rev
     fireEvent.click(panel.getByRole('button', { name: 'Salvar gatilho' }))
     expect(store().rev).toBe(rev)
+  })
+})
+
+// ─── TP-11 ─────────────────────────────────────────────────────────────────────
+
+describe('TP-11 rascunho do gatilho não some em silêncio', () => {
+  let confirmSpy: ReturnType<typeof vi.spyOn>
+  beforeEach(() => {
+    confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+  })
+  afterEach(() => confirmSpy.mockRestore())
+
+  // trigger-draft-discard: fechar (X, canvas, outro nó) com alteração não salva pergunta.
+  it('fechar com rascunho pergunta; "Cancelar" mantém o painel e o rascunho', () => {
+    const { panel, panelRoot } = renderTriggerPanel(createEmptyFlow({ id: 'wf', name: 'Fluxo' }))
+    fireEvent.click(optionButton(panel, 'Palavra-chave'))
+    fireEvent.change(textarea(panelRoot), { target: { value: 'quero' } })
+    fireEvent.click(panel.getByRole('button', { name: 'Fechar painel' }))
+    expect(confirmSpy).toHaveBeenCalledWith('Descartar as alterações não salvas deste painel?')
+    expect(store().selectedStepId).toBe(TRIGGER_SELECTION_ID)
+    expect(textarea(panelRoot).value).toBe('quero')
+
+    confirmSpy.mockReturnValueOnce(true)
+    act(() => store().select(null))
+    expect(store().selectedStepId).toBeNull()
+  })
+
+  it('sem alteração, fechar não pergunta; depois de salvar também não', () => {
+    const { panel, panelRoot } = renderTriggerPanel(createEmptyFlow({ id: 'wf', name: 'Fluxo' }))
+    fireEvent.click(optionButton(panel, 'Palavra-chave'))
+    fireEvent.change(textarea(panelRoot), { target: { value: 'quero' } })
+    fireEvent.click(panel.getByRole('button', { name: 'Salvar gatilho' }))
+    fireEvent.click(panel.getByRole('button', { name: 'Fechar painel' }))
+    expect(confirmSpy).not.toHaveBeenCalled()
+    expect(store().selectedStepId).toBeNull()
+  })
+
+  it('palavra-chave sem nenhuma palavra fica marcada no painel', () => {
+    const { panel, panelRoot } = renderTriggerPanel(createEmptyFlow({ id: 'wf', name: 'Fluxo' }))
+    fireEvent.click(optionButton(panel, 'Palavra-chave'))
+    expect(textarea(panelRoot)).toHaveAttribute('aria-invalid', 'true')
+    expect(panel.getByText(/Informe ao menos uma palavra-chave/)).toBeInTheDocument()
+    fireEvent.change(textarea(panelRoot), { target: { value: 'oi' } })
+    expect(textarea(panelRoot)).toHaveAttribute('aria-invalid', 'false')
   })
 })

@@ -82,6 +82,20 @@ const nameInput = (panel: ReturnType<typeof within>) => panel.getByLabelText('No
 
 const TEMPLATES = [
   { id: 't1', name: 'promo', language: 'en_US', category: 'MARKETING', status: 'APPROVED', content: '', preview: '', lastUpdated: '' },
+  {
+    id: 't4',
+    name: 'pedido',
+    language: 'pt_BR',
+    category: 'UTILIDADE',
+    status: 'APPROVED',
+    content: '',
+    preview: '',
+    lastUpdated: '',
+    components: [
+      { type: 'HEADER', format: 'IMAGE' },
+      { type: 'BODY', text: 'Olá {{1}}, seu pedido {{2}} saiu. {{1}}, obrigado!' },
+    ],
+  },
   { id: 't2', name: 'boas_vindas', language: 'pt_BR', category: 'UTILIDADE', status: 'APPROVED', content: '', preview: '', lastUpdated: '' },
   { id: 't3', name: 'pendente', language: 'pt_BR', category: 'MARKETING', status: 'PENDING', content: '', preview: '', lastUpdated: '' },
 ]
@@ -106,7 +120,7 @@ afterEach(() => {
 // ─── SP-01 WhatsApp ────────────────────────────────────────────────────────────
 
 describe('SP-01 painel WhatsApp', () => {
-  it('só templates APPROVED viram opção; salvar grava template, mídia e mensagem', async () => {
+  it('só templates APPROVED viram opção; salvar grava template + idioma', async () => {
     const { panel, root } = renderPanel(flowOf(wa('A', null, { template: '', mediaUrl: '', message: '' })), 'A')
     await waitFor(() => expect(panel.getByRole('option', { name: 'promo (en_US) - MARKETING' })).toBeInTheDocument())
     expect(panel.getByRole('option', { name: 'boas_vindas (pt_BR) - UTILIDADE' })).toBeInTheDocument()
@@ -115,15 +129,16 @@ describe('SP-01 painel WhatsApp', () => {
     expect(panel.getByText('Somente templates aprovados na Meta aparecem aqui.')).toBeInTheDocument()
 
     const select = root.querySelector('select') as HTMLSelectElement
-    fireEvent.change(select, { target: { value: 'boas_vindas' } })
-    fireEvent.change(panel.getByPlaceholderText('https://...'), { target: { value: 'https://cdn/x.jpg' } })
-    fireEvent.change(panel.getByPlaceholderText('Digite a mensagem a ser enviada...'), { target: { value: 'Olá {{var.nome}}!' } })
+    fireEvent.change(select, { target: { value: 'boas_vindas::pt_BR' } })
+    // com template, a mensagem livre e o Media URL somem (o template manda)
+    expect(panel.queryByPlaceholderText('Digite a mensagem a ser enviada...')).not.toBeInTheDocument()
+    expect(panel.queryByPlaceholderText('https://...')).not.toBeInTheDocument()
     // nada vai pro store antes de salvar
     expect(findStep(store().flow!, 'A')!.config).toEqual({ template: '', mediaUrl: '', message: '' })
     expect(store().rev).toBe(0)
 
     fireEvent.click(saveBtn(panel))
-    expect(findStep(store().flow!, 'A')!.config).toEqual({ template: 'boas_vindas', mediaUrl: 'https://cdn/x.jpg', message: 'Olá {{var.nome}}!' })
+    expect(findStep(store().flow!, 'A')!.config).toEqual({ template: 'boas_vindas', templateLanguage: 'pt_BR', mediaUrl: '', message: '' })
     expect(store()).toMatchObject({ rev: 1, saveMode: 'config' })
     expect(subtitleOf('A')).toBe('boas_vindas')
     expect(compiledNode('A')!.data.config).toMatchObject({ actionType: 'whatsapp/send-template', templateName: 'boas_vindas', language: 'pt_BR' })
@@ -180,27 +195,72 @@ describe('SP-01 painel WhatsApp', () => {
     expect(compiledNode('A')!.data.config).toMatchObject({ mediaUrl: 'https://cdn/x.jpg', caption: 'legenda', mediaType: 'image' })
   })
 
-  // BUG(template-language): o select mostra "nome (idioma)" mas grava só o nome, e o
-  // compile fixa language 'pt_BR' (compile.ts:225-231). Um template aprovado só em
-  // en_US é enviado como pt_BR e a Meta recusa (132001 — template inexistente no idioma).
-  it.fails('template en_US é enviado com language en_US', async () => {
+  // template-language: o select guarda nome + idioma (option value "nome::idioma");
+  // o compile envia o idioma aprovado.
+  it('template en_US é enviado com language en_US', async () => {
     const { panel, root } = renderPanel(flowOf(wa('A', null, { template: '', mediaUrl: '', message: '' })), 'A')
     await waitFor(() => expect(panel.getByRole('option', { name: 'promo (en_US) - MARKETING' })).toBeInTheDocument())
-    fireEvent.change(root.querySelector('select') as HTMLSelectElement, { target: { value: 'promo' } })
+    fireEvent.change(root.querySelector('select') as HTMLSelectElement, { target: { value: 'promo::en_US' } })
     fireEvent.click(saveBtn(panel))
+    expect(findStep(store().flow!, 'A')!.config).toMatchObject({ template: 'promo', templateLanguage: 'en_US' })
     expect(compiledNode('A')!.data.config).toMatchObject({ templateName: 'promo', language: 'en_US' })
   })
 
-  // BUG(template-media-dropped): a dica do campo diz "Substitui a mídia aprovada na Meta
-  // no momento do disparo", mas com template selecionado o compile descarta o mediaUrl
-  // (compile.ts:225-231): o contato recebe a mídia antiga do template.
-  it.fails('template + Media URL leva a mídia para o nó compilado', async () => {
+  // template-params + template-media-dropped: template com {{n}} e cabeçalho de mídia
+  // mostra um campo por variável e o da mídia do cabeçalho (obrigatórios).
+  it('template com variáveis e cabeçalho de imagem: campos para preencher', async () => {
     const { panel, root } = renderPanel(flowOf(wa('A', null, { template: '', mediaUrl: '', message: '' })), 'A')
-    await waitFor(() => expect(panel.getByRole('option', { name: 'boas_vindas (pt_BR) - UTILIDADE' })).toBeInTheDocument())
-    fireEvent.change(root.querySelector('select') as HTMLSelectElement, { target: { value: 'boas_vindas' } })
-    fireEvent.change(panel.getByPlaceholderText('https://...'), { target: { value: 'https://cdn/novo.jpg' } })
+    await waitFor(() => expect(panel.getByRole('option', { name: 'pedido (pt_BR) - UTILIDADE' })).toBeInTheDocument())
+    fireEvent.change(root.querySelector('select') as HTMLSelectElement, { target: { value: 'pedido::pt_BR' } })
+    const v1 = panel.getByLabelText('Valor de {{1}}') as HTMLInputElement
+    const v2 = panel.getByLabelText('Valor de {{2}}') as HTMLInputElement
+    const header = panel.getByLabelText('Mídia do cabeçalho') as HTMLInputElement
+    expect(panel.queryByLabelText('Valor de {{3}}')).not.toBeInTheDocument()
+    expect(v1).toHaveAttribute('aria-invalid', 'true')
+    expect(header).toHaveAttribute('aria-invalid', 'true')
+    expect(panel.getByText('Mídia do cabeçalho (imagem)')).toBeInTheDocument()
+
+    fireEvent.change(v1, { target: { value: '{{var.nome}}' } })
+    fireEvent.change(v2, { target: { value: '#123' } })
+    fireEvent.change(header, { target: { value: 'https://cdn/novo.jpg' } })
     fireEvent.click(saveBtn(panel))
+    expect(findStep(store().flow!, 'A')!.config).toMatchObject({
+      template: 'pedido',
+      templateLanguage: 'pt_BR',
+      templateBodyParams: ['{{var.nome}}', '#123'],
+      templateHeaderMediaType: 'image',
+      templateHeaderMediaUrl: 'https://cdn/novo.jpg',
+    })
     expect(JSON.stringify(compiledNode('A')!.data.config)).toContain('https://cdn/novo.jpg')
+  })
+
+  it('passo antigo (template sem idioma + Media URL): ao salvar vira idioma + mídia do cabeçalho', async () => {
+    const { panel } = renderPanel(flowOf(wa('A', null, { template: 'pedido', mediaUrl: 'https://cdn/antiga.jpg', message: '' })), 'A')
+    await waitFor(() => expect(panel.getByLabelText('Mídia do cabeçalho')).toHaveValue('https://cdn/antiga.jpg'))
+    fireEvent.change(panel.getByLabelText('Valor de {{1}}'), { target: { value: 'Ana' } })
+    fireEvent.change(panel.getByLabelText('Valor de {{2}}'), { target: { value: '1' } })
+    fireEvent.click(saveBtn(panel))
+    expect(findStep(store().flow!, 'A')!.config).toMatchObject({
+      template: 'pedido',
+      templateLanguage: 'pt_BR',
+      mediaUrl: '',
+      templateHeaderMediaUrl: 'https://cdn/antiga.jpg',
+      templateBodyParams: ['Ana', '1'],
+    })
+  })
+
+  it('voltar para "mensagem livre" limpa os campos do template', async () => {
+    const { panel, root } = renderPanel(
+      flowOf(wa('A', null, { template: 'promo', templateLanguage: 'en_US', templateBodyParams: ['x'], mediaUrl: '', message: 'oi' })),
+      'A'
+    )
+    await waitFor(() => expect(panel.getByRole('option', { name: 'promo (en_US) - MARKETING' })).toBeInTheDocument())
+    expect((root.querySelector('select') as HTMLSelectElement).value).toBe('promo::en_US')
+    fireEvent.change(root.querySelector('select') as HTMLSelectElement, { target: { value: '' } })
+    fireEvent.click(saveBtn(panel))
+    const cfg = findStep(store().flow!, 'A')!.config
+    expect(cfg).toEqual({ template: '', mediaUrl: '', message: 'oi' })
+    expect(Object.keys(JSON.parse(JSON.stringify(cfg)))).not.toContain('templateBodyParams') // o que vai para o servidor
   })
 })
 
@@ -335,10 +395,22 @@ describe('SP-03 painel Condição: branches', () => {
     expect(confirmSpy).not.toHaveBeenCalled()
   })
 
-  // BUG(cond-empty-value): uma branch com valor vazio compila como
-  // `.includes("")` (sempre verdadeiro, compile.ts:490-499): a 1ª branch sempre ganha e o
-  // None nunca roda. Nem o painel, nem o compile, nem o validateTree barram isso.
-  it.fails('condição "contém" com valor vazio não deve compilar em silêncio', () => {
+  // cond-empty-value: valor vazio aparece em vermelho no painel, é pendência do
+  // lintFlow (barra o Publicar) e o compile recusa.
+  it('valor vazio fica marcado no painel', () => {
+    const flow = flowOf({
+      ...simple('C', 'condition', {}, null, 'Condição'),
+      branches: [br('b0', 'Branch 1', null, { field: 'Replied message', operator: 'contains', value: 'x' }), br('bn', 'None', null, { locked: true })],
+    })
+    const { panel } = renderPanel(flow, 'C')
+    const value = panel.getByPlaceholderText('Valor (ex.: Confirmar Presença)')
+    expect(value).toHaveAttribute('aria-invalid', 'false')
+    fireEvent.change(value, { target: { value: '  ' } })
+    expect(value).toHaveAttribute('aria-invalid', 'true')
+    expect(panel.getByText(/Informe o valor/)).toBeInTheDocument()
+  })
+
+  it('condição "contém" com valor vazio não deve compilar em silêncio', () => {
     const flow = flowOf({
       ...simple('C', 'condition', {}, null, 'Condição'),
       branches: [br('b0', 'Branch 1', wa('W0'), { field: 'Replied message', operator: 'contains', value: '' }), br('bn', 'None', null, { locked: true })],
@@ -362,7 +434,7 @@ describe('SP-04 painel Perguntar: botões', () => {
 
   const buttonInputs = (root: HTMLElement) => [...root.querySelectorAll('input[maxlength="20"]')] as HTMLInputElement[]
 
-  it('pergunta + até 3 botões (≤20 chars, contador), remover desabilitado com 1', () => {
+  it('pergunta + botões (≤20 chars, contador); acima de 3 vira lista; máx. 10', () => {
     const { flow, id } = insertedInteractive()
     const { panel, root } = renderPanel(flow, id)
     expect(panel.getByText('Perguntar (aguardar resposta)')).toBeInTheDocument()
@@ -375,9 +447,15 @@ describe('SP-04 painel Perguntar: botões', () => {
     fireEvent.click(add)
     fireEvent.click(add)
     expect(buttonInputs(root).map((i) => i.value)).toEqual(['Botão 1', 'Botão 2', 'Botão 3'])
-    expect(add).toBeDisabled()
-    expect(add).toHaveTextContent('(máx. 3)')
+    expect(panel.getByText(/Enviados como botões do WhatsApp \(até 3\)/)).toBeInTheDocument()
     fireEvent.click(add)
+    expect(panel.getByText(/4 opções: enviadas como lista do WhatsApp/)).toBeInTheDocument()
+    for (let i = 0; i < 10; i += 1) fireEvent.click(add)
+    expect(buttonInputs(root)).toHaveLength(10)
+    expect(add).toBeDisabled()
+    expect(add).toHaveTextContent('(máx. 10)')
+    // volta a 3 opções (remove as 7 últimas)
+    for (let i = 0; i < 7; i += 1) fireEvent.click(panel.getAllByRole('button', { name: 'Remover botão' }).at(-1)!)
     expect(buttonInputs(root)).toHaveLength(3)
 
     fireEvent.change(buttonInputs(root)[0], { target: { value: 'Sim' } })
@@ -414,12 +492,9 @@ describe('SP-04 painel Perguntar: botões', () => {
     expect(buttonInputs(root)).toHaveLength(2)
   })
 
-  // BUG(interactive-locked-dup): o estado local já inclui as branches locked (o
-  // InteractiveForm as preserva) e o save ainda anexa `keptLocked` (ConfigPanel.tsx:351-359):
-  // num Perguntar criado pelo operations.addStep (dados antigos/importados), a locked
-  // "Not Delivered" com sub-árvore entra 2 vezes com o mesmo id → validateTree reprova,
-  // o PATCH responde 400 "Invalid tree" e todo save seguinte falha.
-  it.fails('Perguntar legado com branch locked + filho: "Salvar ação" sem mudar nada mantém a árvore válida', () => {
+  // interactive-locked-dup: num Perguntar legado (com branches locked), a locked com
+  // sub-árvore entra UMA vez no save — ids únicos, validateTree ok, PATCH aceito.
+  it('Perguntar legado com branch locked + filho: "Salvar ação" sem mudar nada mantém a árvore válida', () => {
     const base = addStep(flowOf(null), { type: 'interactive', slot: { kind: 'root' } })
     const id = base.stepId
     const notDeliveredIdx = findStep(base.flow, id)!.branches!.findIndex((b) => b.label === 'Not Delivered')
@@ -431,17 +506,14 @@ describe('SP-04 painel Perguntar: botões', () => {
     expect(validateTree(store().flow!).issues).toEqual([])
   })
 
-  it('caracterização do BUG(interactive-locked-dup): hoje a branch locked aparece duplicada', () => {
-    const base = addStep(flowOf(null), { type: 'interactive', slot: { kind: 'root' } })
-    const id = base.stepId
-    const idx = findStep(base.flow, id)!.branches!.findIndex((b) => b.label === 'Not Delivered')
-    const withChild = addStep(base.flow, { type: 'tag', slot: { kind: 'branch', stepId: id, branchIndex: idx } }).flow
-    const { panel } = renderPanel(withChild, id)
-    fireEvent.change(panel.getByPlaceholderText('Texto da pergunta enviada ao contato...'), { target: { value: 'Quer?' } })
-    fireEvent.click(saveBtn(panel))
-    const labels = findStep(store().flow!, id)!.branches!.map((b) => b.label)
-    expect(labels.filter((l) => l === 'Not Delivered')).toHaveLength(2)
-    expect(validateTree(store().flow!).valid).toBe(false)
+  it('botão vazio ou repetido fica marcado no painel', () => {
+    const { flow, id } = insertedInteractive()
+    const { panel, root } = renderPanel(flow, id)
+    fireEvent.click(panel.getByRole('button', { name: /Adicionar botão/ }))
+    fireEvent.change(buttonInputs(root)[1], { target: { value: 'botão 1' } })
+    expect(panel.getByText('Já existe um botão com este texto.')).toBeInTheDocument()
+    fireEvent.change(buttonInputs(root)[1], { target: { value: '' } })
+    expect(panel.getByText('Escreva o texto do botão.')).toBeInTheDocument()
   })
 })
 
@@ -663,20 +735,19 @@ describe('SP-09 renomear e excluir pelo painel; troca de passo', () => {
     expect(nameInput(panel).value).toBe('W A')
   })
 
-  // BUG(empty-step-name): o BuilderHeader e o StepNode fazem trim e ignoram nome vazio,
-  // mas o painel grava name '' (ConfigPanel.tsx:344-347): o card fica sem título e o nó
-  // compilado sem label.
-  it.fails('nome vazio (ou só espaços) mantém o nome anterior', () => {
+  // empty-step-name: como o header e o card, nome vazio mantém o anterior (e o input
+  // volta a mostrá-lo).
+  it('nome vazio (ou só espaços) mantém o nome anterior', () => {
     const { panel } = renderPanel(flowOf(wa('A')), 'A')
     fireEvent.change(nameInput(panel), { target: { value: '   ' } })
     fireEvent.click(saveBtn(panel))
     expect(findStep(store().flow!, 'A')!.name).toBe('W A')
+    expect(nameInput(panel).value).toBe('W A')
   })
 
-  // BUG(panel-edits-lost): qualquer mutação clona o Flow inteiro, e o re-sync por
-  // identidade (ConfigPanel.tsx:331-337) apaga o rascunho do passo aberto quando OUTRO
-  // passo muda (ex.: deletar pelo menu "…" do card).
-  it.fails('rascunho do passo A sobrevive a deletar o passo B pelo card', () => {
+  // panel-edits-lost: o re-sync é por conteúdo do passo — mexer em OUTRO passo (ex.:
+  // deletar pelo menu "…" do card) não apaga o rascunho do passo aberto.
+  it('rascunho do passo A sobrevive a deletar o passo B pelo card', () => {
     const { panel } = renderPanel(flowOf(wa('A', wa('B'))), 'A')
     const msg = panel.getByPlaceholderText('Digite a mensagem a ser enviada...') as HTMLTextAreaElement
     fireEvent.change(msg, { target: { value: 'rascunho importante' } })

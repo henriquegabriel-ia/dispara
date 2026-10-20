@@ -4,22 +4,27 @@
 // re-skin dark + forms reais do v1):
 //   - whatsapp: template REAL (React Query ['templates'], aprovados), media URL,
 //     mensagem com hint {{var.nome}} — sem select de telefone (single-tenant).
-//   - interactive: "Perguntar (aguardar resposta)" — pergunta + botões (1..3,
-//     ≤20 chars); branches locked (Not Delivered/Timeout) não aparecem no v1.
+//   - interactive: "Perguntar (aguardar resposta)" — pergunta + opções (1..10,
+//     ≤20 chars; até 3 = botões, acima = lista); branches locked (Not
+//     Delivered/Timeout) não aparecem no v1.
 //   - condition: campo fixo "Mensagem recebida" + operador + valor.
 //   - wait: minutos com CAP de 5 (esperas longas = fase 2); modo "até resposta" oculto.
 //   - trigger: keywords (uma por linha).
 //   - split/tag/goto: estado "Em breve".
-// Estado local + commit no "Salvar" (autosave dispara via store.patchStep).
+// Estado local + commit no "Salvar" (autosave dispara via store.patchStep);
+// fechar/trocar de painel com edição não salva pede confirmação (panelDirty).
+// Campos obrigatórios vazios aparecem em vermelho (mesmas regras do lintFlow,
+// que barra o Publicar).
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Hand, MessageCircleReply, Plus, Trash2, X, Zap } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   CONDITION_OPERATORS,
   STEP_META,
   WAIT_UNITS,
 } from "@/lib/builder/flow/meta";
+import { conditionFieldLabel } from "@/lib/builder/flow/layout";
 import { findStep } from "@/lib/builder/flow/operations";
 import {
   triggerTypeOf,
@@ -49,10 +54,31 @@ function Hint({ children }: { children: React.ReactNode }) {
   return <p className="mt-1 text-[11px] leading-snug text-[var(--ds-text-muted)]">{children}</p>;
 }
 
+/** Mensagem de validação inline (campo obrigatório vazio etc.). */
+function FieldError({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="mt-1 text-[12px] font-medium text-red-600 legacy-dark:text-red-400" role="alert">
+      {children}
+    </p>
+  );
+}
+
+/** Informa ao store que o painel tem edição não salva (confirmação ao fechar). */
+function usePanelDirty(dirty: boolean) {
+  useEffect(() => {
+    useFlowBuilderStore.getState().setPanelDirty(dirty);
+  }, [dirty]);
+  useEffect(() => () => useFlowBuilderStore.getState().setPanelDirty(false), []);
+}
+
+const invalidCls = "border-red-400 focus:border-red-500 focus:ring-red-500/20";
+
 const inputCls =
   "w-full rounded-lg border border-border bg-[var(--ds-bg-surface)]/60 px-2.5 py-1.5 text-[13px] text-[var(--ds-text-primary)] outline-none placeholder:text-[var(--ds-text-muted)] focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 disabled:cursor-not-allowed disabled:opacity-50";
 
-const MAX_BUTTONS = 3;
+/** Até 3 opções o Perguntar envia botões do WhatsApp; de 4 a 10, uma lista. */
+const MAX_REPLY_BUTTONS = 3;
+const MAX_BUTTONS = 10;
 const MAX_BUTTON_CHARS = 20;
 const MAX_WAIT_MINUTES = 5;
 
@@ -67,7 +93,7 @@ export default function ConfigPanel() {
 
   return (
     <div
-      className={`absolute top-0 right-0 z-30 flex h-full w-[400px] transform flex-col border-l border-border bg-card shadow-2xl transition-transform duration-300 ${
+      className={`absolute top-0 right-0 z-30 flex h-full w-full transform flex-col border-l border-border bg-card shadow-2xl transition-transform duration-300 sm:w-[400px] ${
         open ? "translate-x-0" : "translate-x-full"
       }`}
     >
@@ -117,11 +143,17 @@ function TriggerPanelBody({ flow }: { flow: Flow }) {
   const [campaignId, setCampaignId] = useState(flow.trigger.campaignId ?? "");
   const [replyFilter, setReplyFilter] = useState(flow.trigger.replyFilter ?? "");
 
-  // O Flow inteiro é clonado a cada mutação — re-sincroniza quando o trigger
-  // muda por fora do form (undo etc.).
+  // O Flow inteiro é clonado a cada mutação — re-sincroniza só quando o
+  // CONTEÚDO do trigger muda por fora do form (undo etc.); mexer em um passo
+  // não apaga o rascunho do gatilho.
   const [syncedTrigger, setSyncedTrigger] = useState(flow.trigger);
   if (flow.trigger !== syncedTrigger) {
     setSyncedTrigger(flow.trigger);
+  }
+  if (
+    flow.trigger !== syncedTrigger &&
+    JSON.stringify(flow.trigger) !== JSON.stringify(syncedTrigger)
+  ) {
     setType(triggerTypeOf(flow.trigger));
     setKeywordsText(flow.trigger.keywords.join("\n"));
     setCampaignId(flow.trigger.campaignId ?? "");
@@ -137,6 +169,25 @@ function TriggerPanelBody({ flow }: { flow: Flow }) {
   });
   const campaigns = campaignsQuery.data ?? [];
   const selectedCampaign = campaigns.find((c) => c.id === campaignId);
+  // Nome já salvo da campanha: vale enquanto a lista carrega/falha ou se a
+  // campanha foi excluída (o id não mudou) — senão o card diria "qualquer disparo".
+  const savedCampaignName =
+    campaignId && campaignId === (flow.trigger.campaignId ?? "")
+      ? (flow.trigger.campaignName ?? "")
+      : "";
+  const campaignMissing =
+    Boolean(campaignId) && !selectedCampaign && campaignsQuery.isSuccess;
+  const hasKeyword = keywordsText.split("\n").some((k) => k.trim() !== "");
+
+  const dirty =
+    type !== triggerTypeOf(flow.trigger) ||
+    (type === "keywords" &&
+      keywordsText.split("\n").map((k) => k.trim()).filter(Boolean).join("\n") !==
+        flow.trigger.keywords.join("\n")) ||
+    (type === "campaign_reply" &&
+      (campaignId !== (flow.trigger.campaignId ?? "") ||
+        replyFilter.trim() !== (flow.trigger.replyFilter ?? "")));
+  usePanelDirty(dirty);
 
   const save = () => {
     useFlowBuilderStore.getState().patchTrigger({
@@ -145,7 +196,7 @@ function TriggerPanelBody({ flow }: { flow: Flow }) {
       keywords: keywordsText.split("\n"),
       campaignId: type === "campaign_reply" ? campaignId || null : null,
       campaignName:
-        type === "campaign_reply" ? (selectedCampaign?.name ?? "") : "",
+        type === "campaign_reply" ? (selectedCampaign?.name ?? savedCampaignName) : "",
       replyFilter: type === "campaign_reply" ? replyFilter : "",
     });
   };
@@ -228,12 +279,16 @@ function TriggerPanelBody({ flow }: { flow: Flow }) {
           <div>
             <Label>Palavras-chave (uma por linha)</Label>
             <textarea
-              className={`${inputCls} resize-none`}
+              className={`${inputCls} resize-none ${hasKeyword ? "" : invalidCls}`}
               rows={6}
               value={keywordsText}
               onChange={(e) => setKeywordsText(e.target.value)}
               placeholder={"quero\ninscrever\noi"}
+              aria-invalid={!hasKeyword}
             />
+            {!hasKeyword && (
+              <FieldError>Informe ao menos uma palavra-chave — sem ela o fluxo nunca dispara.</FieldError>
+            )}
             <Hint>
               O fluxo dispara quando a mensagem recebida for exatamente uma das
               palavras-chave (match exato, normalizado — ignora
@@ -253,6 +308,12 @@ function TriggerPanelBody({ flow }: { flow: Flow }) {
                 disabled={campaignsQuery.isLoading}
               >
                 <option value="">Qualquer disparo</option>
+                {campaignId && !selectedCampaign && (
+                  <option value={campaignId}>
+                    {savedCampaignName || "Campanha salva"}
+                    {campaignMissing ? " (campanha removida?)" : ""}
+                  </option>
+                )}
                 {campaigns.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.name}
@@ -326,11 +387,14 @@ function PanelBody({ step }: { step: Step }) {
   );
 
   // Toda mutação da árvore clona o Flow inteiro (structuredClone), então o objeto
-  // do step muda de identidade sempre que o store muda por fora do form (undo,
-  // deleção/branch pelo canvas). Re-sincroniza pra não "Salvar" estado obsoleto.
+  // do step muda de identidade a cada mudança no store. Re-sincroniza só quando
+  // o CONTEÚDO do passo muda por fora do form (undo, branch pelo canvas) — mexer
+  // em outro passo não apaga o rascunho (panel-edits-lost).
   const [syncedStep, setSyncedStep] = useState(step);
   if (step !== syncedStep) {
     setSyncedStep(step);
+  }
+  if (step !== syncedStep && stepSignature(step) !== stepSignature(syncedStep)) {
     setName(step.name);
     setConfig({ ...step.config });
     setBranches((step.branches ?? []).map((b) => ({ ...b })));
@@ -339,25 +403,39 @@ function PanelBody({ step }: { step: Step }) {
   const set = (key: string, value: unknown) =>
     setConfig((c) => ({ ...c, [key]: value }));
 
-  const save = () => {
-    if (comingSoon) return;
+  const queryClient = useQueryClient();
+
+  /** O que "Salvar ação" gravaria (também define se o painel está "sujo"). */
+  const buildPatch = () => {
+    const templates = queryClient.getQueryData<Template[]>(["templates"]);
     const patch: { name: string; config: Record<string, unknown>; branches?: Branch[] } = {
-      name,
-      config: normalizeConfigForSave(step, config),
+      // nome vazio mantém o anterior (como o header e o card)
+      name: name.trim() || step.name,
+      config: normalizeConfigForSave(step, config, templates),
     };
     if (step.branches) {
-      // Reanexa as sub-árvores (child) pelo id; branches locked sem child são
-      // descartadas no v1 (interactive) — compat com dados antigos do createStep.
-      const edited = branches.map((d) => ({
-        ...d,
-        child: step.branches!.find((b) => b.id === d.id)?.child ?? null,
-      }));
-      const keptLocked =
-        step.type === "interactive"
-          ? step.branches.filter((b) => b.locked && b.child)
-          : [];
-      patch.branches = [...edited, ...keptLocked];
+      // Reanexa as sub-árvores (child) pelo id. No Perguntar, as branches locked
+      // (Not Delivered/Timeout, dados antigos do createStep) só ficam se tiverem
+      // sub-árvore — e entram uma vez só (o estado local já as inclui).
+      patch.branches = branches
+        .filter((d) => step.type !== "interactive" || !d.locked || d.child)
+        .map((d) => ({
+          ...d,
+          child: step.branches!.find((b) => b.id === d.id)?.child ?? null,
+        }));
     }
+    return patch;
+  };
+
+  const dirty =
+    !comingSoon &&
+    stepSignature({ ...step, name, config, branches }) !== stepSignature(step);
+  usePanelDirty(dirty);
+
+  const save = () => {
+    if (comingSoon) return;
+    const patch = buildPatch();
+    if (patch.name !== name) setName(patch.name);
     useFlowBuilderStore.getState().patchStep(step.id, patch);
   };
 
@@ -477,11 +555,22 @@ function PanelBody({ step }: { step: Step }) {
   );
 }
 
+/** Conteúdo editável do passo (sem sub-árvores): base do re-sync do painel. */
+function stepSignature(step: Step): string {
+  return JSON.stringify({
+    name: step.name,
+    config: step.config,
+    branches: (step.branches ?? []).map((b) => ({ ...b, child: b.child?.id ?? null })),
+  });
+}
+
 /** Normalizações de config no commit (ex.: cap de espera do v1). */
 function normalizeConfigForSave(
   step: Step,
-  config: Record<string, unknown>
+  config: Record<string, unknown>,
+  templates: Template[] | undefined
 ): Record<string, unknown> {
+  if (step.type === "whatsapp") return normalizeWhatsappConfig(config, templates);
   if (step.type === "wait") {
     const raw = Number(config.value ?? 1);
     const clamped = Math.min(
@@ -530,6 +619,124 @@ function highlightVars(text: string): React.ReactNode {
   );
 }
 
+// ─── Template do WhatsApp: idioma, variáveis e mídia do cabeçalho ─────────────
+// Contrato com o compile (lib/builder/flow/compile.ts): o passo guarda
+//   template (nome) + templateLanguage, templateBodyParams (valores de {{1}},
+//   {{2}}…, aceitam {{var.x}}) e templateHeaderMediaUrl (cabeçalho de mídia).
+// templateHeaderMediaType é só da tela (lintFlow cobra a URL quando existe).
+
+const TEMPLATE_VALUE_SEP = "::";
+
+const templateValue = (name: string, language: string) =>
+  `${name}${TEMPLATE_VALUE_SEP}${language}`;
+
+function parseTemplateValue(value: string): { name: string; language: string } {
+  const i = value.lastIndexOf(TEMPLATE_VALUE_SEP);
+  if (i === -1) return { name: value, language: "" };
+  return { name: value.slice(0, i), language: value.slice(i + TEMPLATE_VALUE_SEP.length) };
+}
+
+function templateBodyText(t: Template): string {
+  const body = t.components?.find((c) => c.type === "BODY");
+  return String(body?.text ?? t.content ?? "");
+}
+
+/** Variáveis do corpo, na ordem: {{1}}, {{2}}… (ou nomeadas, na 1ª aparição). */
+function templateBodyVars(t: Template): string[] {
+  const text = templateBodyText(t);
+  const found: string[] = [];
+  for (const m of text.matchAll(/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g)) {
+    if (!found.includes(m[1])) found.push(m[1]);
+  }
+  if (found.length > 0 && found.every((v) => /^\d+$/.test(v))) {
+    const max = Math.max(...found.map(Number));
+    return Array.from({ length: max }, (_, i) => String(i + 1));
+  }
+  return found;
+}
+
+const HEADER_MEDIA_TYPES: Record<string, string> = {
+  IMAGE: "image",
+  VIDEO: "video",
+  GIF: "video",
+  DOCUMENT: "document",
+};
+const HEADER_MEDIA_LABELS: Record<string, string> = {
+  image: "imagem",
+  video: "vídeo",
+  document: "documento",
+};
+
+function templateHeaderMediaType(t: Template): string | null {
+  const header = t.components?.find((c) => c.type === "HEADER");
+  return header?.format ? (HEADER_MEDIA_TYPES[header.format] ?? null) : null;
+}
+
+/** Template aprovado do passo (nome + idioma; sem idioma salvo, o único com o nome). */
+function findStepTemplate(
+  approved: Template[],
+  name: string,
+  language: string
+): Template | undefined {
+  if (!name) return undefined;
+  const sameName = approved.filter((t) => t.name === name);
+  if (language) return sameName.find((t) => t.language === language);
+  return sameName.length === 1 ? sameName[0] : sameName.find((t) => t.language === "pt_BR");
+}
+
+const TEMPLATE_KEYS = [
+  "templateLanguage",
+  "templateBodyParams",
+  "templateHeaderMediaUrl",
+  "templateHeaderMediaType",
+] as const;
+
+/**
+ * Commit do passo WhatsApp: sem template, limpa os campos do template; com
+ * template conhecido, alinha idioma, nº de variáveis e cabeçalho ao template
+ * aprovado (passos antigos guardavam só o nome e usavam Media URL no lugar do
+ * cabeçalho). Template ainda não carregado: grava como está.
+ */
+function normalizeWhatsappConfig(
+  config: Record<string, unknown>,
+  templates: Template[] | undefined
+): Record<string, unknown> {
+  const name = String(config.template ?? "").trim();
+  // Chaves "limpas" vão como undefined: o patchStep MESCLA a config (um delete
+  // manteria o valor antigo) e o JSON salvo descarta undefined.
+  if (!name) {
+    if (!TEMPLATE_KEYS.some((k) => config[k] !== undefined)) return config;
+    const next = { ...config };
+    for (const k of TEMPLATE_KEYS) next[k] = undefined;
+    return next;
+  }
+  const approved = (templates ?? []).filter((t) => t.status === "APPROVED");
+  const t = findStepTemplate(approved, name, String(config.templateLanguage ?? ""));
+  if (!t) return config;
+
+  const next: Record<string, unknown> = { ...config, templateLanguage: t.language };
+  const vars = templateBodyVars(t);
+  const current = Array.isArray(config.templateBodyParams)
+    ? config.templateBodyParams.map((v) => String(v ?? ""))
+    : [];
+  next.templateBodyParams =
+    vars.length > 0 ? vars.map((_, i) => current[i] ?? "") : undefined;
+
+  const mediaType = templateHeaderMediaType(t);
+  if (mediaType) {
+    next.templateHeaderMediaType = mediaType;
+    next.templateHeaderMediaUrl = String(
+      config.templateHeaderMediaUrl ?? config.mediaUrl ?? ""
+    ).trim();
+  } else {
+    next.templateHeaderMediaType = undefined;
+    next.templateHeaderMediaUrl = undefined;
+  }
+  // Com template, a mídia é a do cabeçalho: o Media URL solto não vale.
+  if (next.mediaUrl) next.mediaUrl = "";
+  return next;
+}
+
 function WhatsappForm({ config, set }: FormProps) {
   const message = String(config.message ?? "");
   const templatesQuery = useQuery({
@@ -541,9 +748,47 @@ function WhatsappForm({ config, set }: FormProps) {
   const approved = (templatesQuery.data ?? []).filter(
     (t: Template) => t.status === "APPROVED"
   );
-  const selected = String(config.template ?? "");
-  const selectedMissing =
-    Boolean(selected) && !approved.some((t) => t.name === selected);
+  const selectedName = String(config.template ?? "");
+  const selectedTemplate = findStepTemplate(
+    approved,
+    selectedName,
+    String(config.templateLanguage ?? "")
+  );
+  const selectedValue = selectedTemplate
+    ? templateValue(selectedTemplate.name, selectedTemplate.language)
+    : selectedName;
+  const selectedMissing = Boolean(selectedName) && !selectedTemplate;
+
+  const vars = selectedTemplate ? templateBodyVars(selectedTemplate) : [];
+  const params = Array.isArray(config.templateBodyParams)
+    ? config.templateBodyParams.map((v) => String(v ?? ""))
+    : [];
+  const headerMediaType = selectedTemplate ? templateHeaderMediaType(selectedTemplate) : null;
+  const headerMediaUrl = String(config.templateHeaderMediaUrl ?? config.mediaUrl ?? "");
+
+  const chooseTemplate = (value: string) => {
+    if (!value) {
+      set("template", "");
+      for (const k of TEMPLATE_KEYS) set(k, undefined);
+      return;
+    }
+    const { name, language } = parseTemplateValue(value);
+    const t = approved.find((x) => x.name === name && x.language === language);
+    set("template", name);
+    set("templateLanguage", language || undefined);
+    if (!t) return;
+    const nextVars = templateBodyVars(t);
+    set("templateBodyParams", nextVars.length > 0 ? nextVars.map(() => "") : undefined);
+    const mediaType = templateHeaderMediaType(t);
+    set("templateHeaderMediaType", mediaType ?? undefined);
+    set("templateHeaderMediaUrl", mediaType ? "" : undefined);
+  };
+
+  const setParam = (index: number, value: string) => {
+    const next = vars.map((_, i) => params[i] ?? "");
+    next[index] = value;
+    set("templateBodyParams", next);
+  };
 
   return (
     <>
@@ -551,14 +796,19 @@ function WhatsappForm({ config, set }: FormProps) {
         <Label>Selecionar template do WhatsApp</Label>
         <select
           className={inputCls}
-          value={selected}
-          onChange={(e) => set("template", e.target.value)}
+          value={selectedValue}
+          onChange={(e) => chooseTemplate(e.target.value)}
           disabled={templatesQuery.isLoading}
         >
           <option value="">Nenhum — mensagem livre</option>
-          {selectedMissing && <option value={selected}>{selected} (não aprovado?)</option>}
+          {selectedMissing && (
+            <option value={selectedName}>{selectedName} (não aprovado?)</option>
+          )}
           {approved.map((t) => (
-            <option key={`${t.name}-${t.language}`} value={t.name}>
+            <option
+              key={templateValue(t.name, t.language)}
+              value={templateValue(t.name, t.language)}
+            >
               {t.name} ({t.language}) - {t.category}
             </option>
           ))}
@@ -572,36 +822,95 @@ function WhatsappForm({ config, set }: FormProps) {
         </Hint>
       </div>
 
-      <div>
-        <Label>Media URL</Label>
-        <input
-          className={inputCls}
-          value={String(config.mediaUrl ?? "")}
-          onChange={(e) => set("mediaUrl", e.target.value)}
-          placeholder="https://..."
-        />
-        <Hint>Substitui a mídia aprovada na Meta no momento do disparo.</Hint>
-      </div>
+      {selectedTemplate && (
+        <div className="rounded-lg border border-border bg-[var(--ds-bg-surface)]/50 p-2.5 text-[12px] leading-relaxed whitespace-pre-wrap text-[var(--ds-text-secondary)]">
+          {highlightVars(templateBodyText(selectedTemplate))}
+        </div>
+      )}
 
-      <div>
-        <Label>Mensagem</Label>
-        <textarea
-          className={`${inputCls} resize-none`}
-          rows={5}
-          value={message}
-          onChange={(e) => set("message", e.target.value)}
-          placeholder="Digite a mensagem a ser enviada..."
-        />
-        {message && (
-          <div className="mt-2 rounded-lg border border-border bg-[var(--ds-bg-surface)]/50 p-2.5 text-[12px] leading-relaxed whitespace-pre-wrap text-[var(--ds-text-secondary)]">
-            {highlightVars(message)}
-          </div>
-        )}
-        <Hint>
-          Use variáveis do fluxo no formato {"{{var.nome}}"}. Com template
-          selecionado, o template tem prioridade sobre a mensagem livre.
-        </Hint>
-      </div>
+      {vars.length > 0 && (
+        <div className="space-y-2">
+          <Label>Variáveis do template</Label>
+          {vars.map((v, i) => {
+            const value = params[i] ?? "";
+            const empty = value.trim() === "";
+            return (
+              <div key={v}>
+                <label className="mb-1 block text-[12px] text-[var(--ds-text-secondary)]">
+                  Valor de {`{{${v}}}`}
+                </label>
+                <input
+                  className={`${inputCls} ${empty ? invalidCls : ""}`}
+                  value={value}
+                  onChange={(e) => setParam(i, e.target.value)}
+                  placeholder="ex.: {{var.nome}} ou um texto fixo"
+                  aria-label={`Valor de {{${v}}}`}
+                  aria-invalid={empty}
+                />
+              </div>
+            );
+          })}
+          <Hint>
+            Aceita texto fixo ou variáveis do fluxo, como {"{{var.nome}}"}. Todas são
+            obrigatórias para publicar.
+          </Hint>
+        </div>
+      )}
+
+      {selectedTemplate && headerMediaType && (
+        <div>
+          <Label>
+            Mídia do cabeçalho ({HEADER_MEDIA_LABELS[headerMediaType] ?? headerMediaType})
+          </Label>
+          <input
+            className={`${inputCls} ${headerMediaUrl.trim() ? "" : invalidCls}`}
+            value={headerMediaUrl}
+            onChange={(e) => set("templateHeaderMediaUrl", e.target.value)}
+            placeholder="https://..."
+            aria-label="Mídia do cabeçalho"
+            aria-invalid={!headerMediaUrl.trim()}
+          />
+          <Hint>
+            Este template tem {HEADER_MEDIA_LABELS[headerMediaType] ?? "mídia"} no
+            cabeçalho: informe a URL pública enviada a cada contato.
+          </Hint>
+        </div>
+      )}
+
+      {!selectedName && (
+        <div>
+          <Label>Media URL</Label>
+          <input
+            className={inputCls}
+            value={String(config.mediaUrl ?? "")}
+            onChange={(e) => set("mediaUrl", e.target.value)}
+            placeholder="https://..."
+          />
+          <Hint>Opcional: envia uma imagem com a mensagem abaixo como legenda.</Hint>
+        </div>
+      )}
+
+      {!selectedName && (
+        <div>
+          <Label>Mensagem</Label>
+          <textarea
+            className={`${inputCls} resize-none`}
+            rows={5}
+            value={message}
+            onChange={(e) => set("message", e.target.value)}
+            placeholder="Digite a mensagem a ser enviada..."
+          />
+          {message && (
+            <div className="mt-2 rounded-lg border border-border bg-[var(--ds-bg-surface)]/50 p-2.5 text-[12px] leading-relaxed whitespace-pre-wrap text-[var(--ds-text-secondary)]">
+              {highlightVars(message)}
+            </div>
+          )}
+          <Hint>
+            Use variáveis do fluxo no formato {"{{var.nome}}"}. Mensagem livre só é
+            entregue dentro da janela de 24h da conversa — fora dela, use um template.
+          </Hint>
+        </div>
+      )}
     </>
   );
 }
@@ -914,7 +1223,12 @@ function ConditionForm({ branches, setBranches }: BranchesFormProps) {
                 </button>
               </div>
               <div className="flex gap-2">
-                <input className={inputCls} value="Mensagem recebida" disabled />
+                <input
+                  className={inputCls}
+                  value={conditionFieldLabel(b.field)}
+                  disabled
+                  aria-label="Campo comparado"
+                />
                 <select
                   className={inputCls}
                   value={b.operator ?? "contains"}
@@ -928,11 +1242,15 @@ function ConditionForm({ branches, setBranches }: BranchesFormProps) {
                 </select>
               </div>
               <input
-                className={inputCls}
+                className={`${inputCls} ${(b.value ?? "").trim() ? "" : invalidCls}`}
                 value={b.value ?? ""}
                 onChange={(e) => editBranch(b.id, { value: e.target.value })}
                 placeholder="Valor (ex.: Confirmar Presença)"
+                aria-invalid={!(b.value ?? "").trim()}
               />
+              {!(b.value ?? "").trim() && (
+                <FieldError>Informe o valor — vazio, esta branch pegaria todas as respostas.</FieldError>
+              )}
             </div>
           ))}
         <div className="rounded-lg border border-dashed border-border bg-[var(--ds-bg-surface)]/40 p-3 text-[12px] text-[var(--ds-text-muted)]">
@@ -961,9 +1279,16 @@ function InteractiveForm({
   const editBranch = (id: string, patch: Partial<Branch>) =>
     setBranches((bs) => bs.map((b) => (b.id === id ? { ...b, ...patch } : b)));
 
-  // v1: 1 a 3 botões, ≤20 caracteres cada (limite dos botões do WhatsApp).
+  // 1 a 10 opções, ≤20 caracteres cada: até 3 viram botões do WhatsApp; acima
+  // disso, uma lista de opções (limites da Meta).
   const buttons = branches.filter((b) => !b.locked);
   const buttonCount = buttons.length;
+  const asList = buttonCount > MAX_REPLY_BUTTONS;
+  const labelKeys = buttons.map((b) => b.label.trim().toLowerCase());
+  // repetido = já apareceu num botão ANTERIOR (marca só o segundo em diante)
+  const isDuplicate = (b: Branch, index: number) =>
+    b.label.trim() !== "" &&
+    labelKeys.indexOf(b.label.trim().toLowerCase()) < index;
 
   const removeBranch = (b: Branch) => {
     if (
@@ -1004,14 +1329,16 @@ function InteractiveForm({
       <div>
         <Label>Botões / opções (1 branch por botão)</Label>
         <div className="space-y-2">
-          {buttons.map((b) => (
-            <div key={b.id} className="flex items-center gap-2">
+          {buttons.map((b, i) => (
+            <div key={b.id}>
+            <div className="flex items-center gap-2">
               <div className="relative flex-1">
                 <input
-                  className={`${inputCls} pr-12`}
+                  className={`${inputCls} pr-12 ${!b.label.trim() || isDuplicate(b, i) ? invalidCls : ""}`}
                   value={b.label}
                   maxLength={MAX_BUTTON_CHARS}
                   onChange={(e) => editBranch(b.id, { label: e.target.value })}
+                  aria-invalid={!b.label.trim() || isDuplicate(b, i)}
                 />
                 <span className="pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-[10px] text-[var(--ds-text-muted)]">
                   {b.label.length}/{MAX_BUTTON_CHARS}
@@ -1027,6 +1354,12 @@ function InteractiveForm({
                 <X size={14} />
               </button>
             </div>
+            {!b.label.trim() ? (
+              <FieldError>Escreva o texto do botão.</FieldError>
+            ) : isDuplicate(b, i) ? (
+              <FieldError>Já existe um botão com este texto.</FieldError>
+            ) : null}
+            </div>
           ))}
         </div>
         <button
@@ -1038,9 +1371,17 @@ function InteractiveForm({
           <Plus size={13} /> Adicionar botão{" "}
           {buttonCount >= MAX_BUTTONS && `(máx. ${MAX_BUTTONS})`}
         </button>
+        <Hint>
+          {asList
+            ? `${buttonCount} opções: enviadas como lista do WhatsApp (até ${MAX_BUTTONS}).`
+            : `Enviados como botões do WhatsApp (até ${MAX_REPLY_BUTTONS}); com mais opções, vira uma lista (até ${MAX_BUTTONS}).`}{" "}
+          Até {MAX_BUTTON_CHARS} caracteres cada.
+        </Hint>
         <div className="mt-3 rounded-lg border border-dashed border-border bg-[var(--ds-bg-surface)]/40 p-3 text-[12px] text-[var(--ds-text-muted)]">
           O fluxo reconhece a resposta pelo <span className="font-medium text-[var(--ds-text-secondary)]">texto</span>{" "}
-          do botão — respostas fora dos botões seguem pela continuação do fluxo.
+          do botão — respostas fora dos botões seguem pela{" "}
+          <span className="font-medium text-[var(--ds-text-secondary)]">continuação</span> (o
+          &quot;+&quot; abaixo das opções no canvas).
         </div>
       </div>
     </>

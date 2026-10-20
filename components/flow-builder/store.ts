@@ -49,11 +49,14 @@ interface FlowBuilderStore {
   selectedStepId: string | null;
   picker: PickerState | null;
   pickingGotoId: string | null;
+  /** o painel de config aberto tem edição não salva (pergunta antes de descartar) */
+  panelDirty: boolean;
 
   loadFlow: (flow: Flow) => void;
   reset: () => void;
 
   select: (id: string | null) => void;
+  setPanelDirty: (dirty: boolean) => void;
   openPicker: (slot: Slot, pos: { x: number; y: number }) => void;
   closePicker: () => void;
   insertStep: (type: StepType) => void;
@@ -76,6 +79,16 @@ interface FlowBuilderStore {
   redo: () => void;
 }
 
+/**
+ * Trocar/fechar o painel com edição não salva: pergunta antes de descartar
+ * (trigger-draft-discard). true = pode seguir.
+ */
+function confirmDiscardPanel(get: () => { panelDirty: boolean }): boolean {
+  if (!get().panelDirty) return true;
+  if (typeof window === "undefined") return true;
+  return window.confirm("Descartar as alterações não salvas deste painel?");
+}
+
 const pushPast = (past: Flow[], flow: Flow): Flow[] => [
   ...past.slice(-(MAX_HISTORY - 1)),
   flow,
@@ -90,6 +103,7 @@ export const useFlowBuilderStore = create<FlowBuilderStore>((set, get) => ({
   selectedStepId: null,
   picker: null,
   pickingGotoId: null,
+  panelDirty: false,
 
   loadFlow: (flow) =>
     set({
@@ -100,6 +114,7 @@ export const useFlowBuilderStore = create<FlowBuilderStore>((set, get) => ({
       selectedStepId: null,
       picker: null,
       pickingGotoId: null,
+      panelDirty: false,
     }),
 
   reset: () =>
@@ -111,9 +126,17 @@ export const useFlowBuilderStore = create<FlowBuilderStore>((set, get) => ({
       selectedStepId: null,
       picker: null,
       pickingGotoId: null,
+      panelDirty: false,
     }),
 
-  select: (id) => set({ selectedStepId: id, picker: null }),
+  select: (id) => {
+    const { selectedStepId } = get();
+    if (id !== selectedStepId && !confirmDiscardPanel(get)) return;
+    set({ selectedStepId: id, picker: null, panelDirty: id === selectedStepId && get().panelDirty });
+  },
+  setPanelDirty: (dirty) => {
+    if (get().panelDirty !== dirty) set({ panelDirty: dirty });
+  },
 
   openPicker: (slot, pos) => set({ picker: { slot, x: pos.x, y: pos.y } }),
   closePicker: () => set({ picker: null }),
@@ -121,6 +144,11 @@ export const useFlowBuilderStore = create<FlowBuilderStore>((set, get) => ({
   insertStep: (type) => {
     const { flow, picker, past, rev } = get();
     if (!flow || !picker) return;
+    // o passo novo abre no painel: o rascunho do painel atual seria perdido
+    if (!confirmDiscardPanel(get)) {
+      set({ picker: null });
+      return;
+    }
     const res = addStep(flow, { type, slot: picker.slot });
     if (res.flow === flow) {
       // no-op da operação (ex.: terminal em slot com cauda) → não polui o undo
@@ -145,6 +173,7 @@ export const useFlowBuilderStore = create<FlowBuilderStore>((set, get) => ({
       saveMode: "structural",
       picker: null,
       selectedStepId: res.stepId,
+      panelDirty: false,
     });
   },
 
@@ -158,6 +187,7 @@ export const useFlowBuilderStore = create<FlowBuilderStore>((set, get) => ({
       rev: rev + 1,
       saveMode: "structural",
       selectedStepId: selectedStepId === id ? null : selectedStepId,
+      ...(selectedStepId === id ? { panelDirty: false } : {}),
     });
   },
 
