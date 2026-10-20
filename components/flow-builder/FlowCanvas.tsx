@@ -14,6 +14,7 @@ import type { Edge, Node, NodeMouseHandler } from "@xyflow/react";
 import { CornerDownRight } from "lucide-react";
 import { useEiaTheme } from "@/components/eia/theme";
 import { layoutFlow } from "@/lib/builder/flow/layout";
+import { useFlowIssues } from "./issues";
 import { TRIGGER_SELECTION_ID, useFlowBuilderStore } from "./store";
 import { edgeTypes } from "./edges";
 import { nodeTypes } from "./nodes";
@@ -91,17 +92,29 @@ export default function FlowCanvas() {
   // Árvore aninhada é a única fonte de verdade: nodes/edges 100% derivados
   const layout = useMemo(() => (flow ? layoutFlow(flow) : null), [flow]);
 
+  // Pendências por passo (marca no card) e do gatilho (sem stepId)
+  const issues = useFlowIssues();
+  const issueByNode = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const issue of issues) {
+      const id = issue.stepId ?? TRIGGER_SELECTION_ID;
+      if (!map.has(id)) map.set(id, issue.message);
+    }
+    return map;
+  }, [issues]);
+
   const nodes = useMemo(
     () =>
       (layout?.nodes ?? []).map((n) => ({
         ...n,
+        data: issueByNode.has(n.id) ? { ...n.data, issue: issueByNode.get(n.id) } : n.data,
         selected: n.id === selectedStepId,
         className:
           pickingGotoId && n.type === "step" && n.id !== pickingGotoId
             ? "pickable"
             : undefined,
       })) as Node[],
-    [layout, selectedStepId, pickingGotoId]
+    [layout, selectedStepId, pickingGotoId, issueByNode]
   );
 
   const edges = useMemo(() => (layout?.edges ?? []) as unknown as Edge[], [layout]);

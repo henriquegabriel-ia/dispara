@@ -158,3 +158,45 @@ describe('BH-02 desfazer, status, versão e publicar', () => {
     expect(screen.getByRole('button', { name: 'Testar workflow' })).toBeDisabled()
   })
 })
+
+// ─── BH-05 ─────────────────────────────────────────────────────────────────────
+
+describe('BH-05 refazer e pendências', () => {
+  it('Refazer fica habilitado depois de desfazer e refaz', () => {
+    store().loadFlow(createEmptyFlow({ id: 'wf', name: 'A' }))
+    renderHeader()
+    const redo = screen.getByTitle('Refazer (Cmd+Shift+Z)') as HTMLButtonElement
+    expect(redo).toBeDisabled()
+    act(() => store().renameFlow('B'))
+    fireEvent.click(undoBtn())
+    expect(store().flow!.name).toBe('A')
+    expect(redo).not.toBeDisabled()
+    fireEvent.click(redo)
+    expect(store().flow!.name).toBe('B')
+  })
+
+  it('"N pendências" lista o que falta e abre o gatilho/passo ao clicar', () => {
+    const flow = createEmptyFlow({ id: 'wf', name: 'A' })
+    store().loadFlow({
+      ...flow,
+      trigger: { type: 'keywords', label: 'Palavras-chave', keywords: [] },
+      root: { id: 'w', type: 'whatsapp', name: 'Boas-vindas', config: { message: '' }, next: null },
+    })
+    renderHeader()
+    fireEvent.click(screen.getByRole('button', { name: '2 pendências para publicar' }))
+    const items = screen.getAllByRole('button').filter((b) => b.closest('[role="dialog"]'))
+    expect(items.map((b) => b.textContent)).toEqual([
+      'Gatilho de palavra-chave sem nenhuma palavra: o fluxo nunca dispararia.',
+      'Passo WhatsApp "Boas-vindas" está vazio: escolha um template ou escreva a mensagem.',
+    ])
+    fireEvent.click(items[1])
+    expect(store().selectedStepId).toBe('w')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('sem pendências o botão não aparece', () => {
+    store().loadFlow(createEmptyFlow({ id: 'wf', name: 'A' }))
+    renderHeader()
+    expect(screen.queryByRole('button', { name: /pendência/ })).not.toBeInTheDocument()
+  })
+})

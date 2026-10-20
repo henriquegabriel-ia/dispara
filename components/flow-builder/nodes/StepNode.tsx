@@ -3,14 +3,19 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { Handle, Position } from "@xyflow/react";
 import type { NodeProps } from "@xyflow/react";
-import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { MoreHorizontal, Pencil, Trash2, TriangleAlert } from "lucide-react";
 import { STEP_META } from "@/lib/builder/flow/meta";
 import type { Step } from "@/lib/builder/flow/types";
 import { stepChipStyle, stepIcon } from "../icons";
 import { useFlowBuilderStore } from "../store";
 
 const StepNode = memo(function StepNode({ data, selected }: NodeProps) {
-  const { step, subtitle } = data as unknown as { step: Step; subtitle: string };
+  const { step, subtitle, issue } = data as unknown as {
+    step: Step;
+    subtitle: string;
+    /** pendência que impede o Publicar (FlowCanvas → issues.ts) */
+    issue?: string;
+  };
   const meta = STEP_META[step.type];
   const Icon = stepIcon(meta.icon);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -79,6 +84,16 @@ const StepNode = memo(function StepNode({ data, selected }: NodeProps) {
           <div className="truncate text-[11px] text-[var(--ds-text-muted)]">{subtitle}</div>
         )}
       </div>
+      {issue && (
+        <span
+          className="shrink-0 text-amber-500"
+          title={issue}
+          aria-label={`Pendência: ${issue}`}
+          role="img"
+        >
+          <TriangleAlert size={14} />
+        </span>
+      )}
       <button
         type="button"
         className="nodrag shrink-0 rounded p-1 text-[var(--ds-text-muted)] hover:bg-[var(--ds-bg-hover)] hover:text-[var(--ds-text-secondary)]"
