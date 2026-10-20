@@ -136,7 +136,7 @@ function IssuesButton() {
                       .select(issue.stepId ?? TRIGGER_SELECTION_ID);
                   }}
                 >
-                  {issue.message}
+                  <span className="block text-left whitespace-normal">{issue.message}</span>
                 </EiaButton>
               </li>
             ))}
@@ -236,15 +236,18 @@ export default function BuilderHeader({
         >
           <Undo2 size={15} />
         </EiaIconButton>
-        <EiaIconButton
-          label="Refazer"
-          size="sm"
-          disabled={!canRedo}
-          onClick={() => useFlowBuilderStore.getState().redo()}
-          title="Refazer (Cmd+Shift+Z)"
-        >
-          <Redo2 size={15} />
-        </EiaIconButton>
+        {/* No mobile o Refazer fica só no atalho (o header precisa caber em 390px). */}
+        <span className="hidden sm:inline-flex">
+          <EiaIconButton
+            label="Refazer"
+            size="sm"
+            disabled={!canRedo}
+            onClick={() => useFlowBuilderStore.getState().redo()}
+            title="Refazer (Cmd+Shift+Z)"
+          >
+            <Redo2 size={15} />
+          </EiaIconButton>
+        </span>
         <EiaIconButton
           label="Configurações do workflow"
           size="sm"

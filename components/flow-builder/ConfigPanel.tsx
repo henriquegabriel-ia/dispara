@@ -823,7 +823,7 @@ function WhatsappForm({ config, set }: FormProps) {
       </div>
 
       {selectedTemplate && (
-        <div className="rounded-lg border border-eia-border-subtle bg-eia-subtle p-2.5 text-[12px] leading-relaxed whitespace-pre-wrap text-eia-muted">
+        <div className="rounded-lg border border-eia-border-subtle bg-eia-raised p-2.5 text-[12px] leading-relaxed whitespace-pre-wrap text-eia-muted">
           {highlightVars(templateBodyText(selectedTemplate))}
         </div>
       )}
