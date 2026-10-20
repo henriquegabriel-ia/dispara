@@ -173,7 +173,7 @@ export interface MetaSendMock {
   reset: () => void
   /** só os envios que a Meta aceitou */
   delivered: () => SentMessage[]
-  /** text.body dos envios aceitos */
+  /** texto visível dos envios aceitos: text.body ou, em botões/lista, interactive.body.text */
   texts: () => string[]
   /** envios aceitos para um telefone (com ou sem "+") */
   sentTo: (phone: string) => SentMessage[]
@@ -358,7 +358,10 @@ export function createMetaSendMock(options: MetaSendMockOptions = {}): MetaSendM
       fetchMock.mockClear()
     },
     delivered: () => sent.filter((m) => m.messageId !== null),
-    texts: () => sent.filter((m) => m.messageId !== null && m.text !== null).map((m) => m.text as string),
+    texts: () =>
+      sent
+        .filter((m) => m.messageId !== null && (m.text ?? m.interactiveText) !== null)
+        .map((m) => (m.text ?? m.interactiveText) as string),
     sentTo: (phone) => sent.filter((m) => m.messageId !== null && digits(m.to) === digits(phone)),
     last: () => sent[sent.length - 1],
   }

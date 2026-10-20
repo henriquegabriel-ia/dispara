@@ -173,6 +173,7 @@ describe('Perguntar (interactive) — envio e pausa', () => {
       toSource: 'inbound',
       message: 'Vendas ou suporte?',
       variableKey: 'reply_ask',
+      buttons: ['Vendas', 'Suporte'],
     })
 
     const res = await run(graph)
@@ -181,8 +182,17 @@ describe('Perguntar (interactive) — envio e pausa', () => {
     expect(h.meta.calls[0].body).toEqual({
       messaging_product: 'whatsapp',
       to: PHONE,
-      type: 'text',
-      text: { body: 'Vendas ou suporte?', preview_url: false },
+      type: 'interactive',
+      interactive: {
+        type: 'button',
+        body: { text: 'Vendas ou suporte?' },
+        action: {
+          buttons: [
+            { type: 'reply', reply: { id: 'Vendas', title: 'Vendas' } },
+            { type: 'reply', reply: { id: 'Suporte', title: 'Suporte' } },
+          ],
+        },
+      },
     })
     expect(res).toMatchObject({ success: true, paused: true, resumeNodeId: 'ask__var', conversationId: expect.any(String) })
     expect(Object.keys(res.results)).toEqual([TRIGGER_NODE_ID, 'ask'])
@@ -205,18 +215,9 @@ describe('Perguntar (interactive) — envio e pausa', () => {
     })
   })
 
-  it('T13 (documenta) o Perguntar envia TEXTO simples: os botões configurados não chegam à Meta', async () => {
-    await run(salesSupportGraph())
-    expect(h.meta.last()?.type).toBe('text')
-    expect(JSON.stringify(h.meta.last()?.body)).not.toContain('Suporte')
-  })
-
-  // BUG(perguntar-sem-botoes): a tela configura 1 a 3 botões "≤20 caracteres (limite dos
-  // botões do WhatsApp)" (components/flow-builder/ConfigPanel.tsx:964-1044), mas o compile
-  // emite o ask-question só com `message` (lib/builder/flow/compile.ts:418-429) e o passo
-  // manda type 'text'. O contato não tem botão para tocar: precisa DIGITAR o rótulo exato
-  // (=== sensível a caixa/acento), senão cai em "Outra resposta".
-  it.fails('BUG(perguntar-sem-botoes): a pergunta deveria sair como interactive.button com os rótulos dos botões', async () => {
+  // Corrigido BUG(perguntar-sem-botoes): o compile leva os rótulos ao nó ask e o passo envia
+  // botões interativos (até 3) ou lista (4 a 10 opções).
+  it('perguntar-sem-botoes: a pergunta sai como interactive.button com os rótulos dos botões', async () => {
     await run(salesSupportGraph())
     const body = h.meta.last()!.body as { type: string; interactive?: { type: string; action: { buttons: Array<{ reply: { title: string } }> } } }
     expect(body.type).toBe('interactive')
@@ -380,11 +381,9 @@ describe('Perguntar — a resposta escolhe a branch', () => {
     expect(h.meta.texts()).toEqual(['Você escolheu Suporte'])
   })
 
-  // BUG(template-segunda-expansao): processTemplates expande {{var.*}} e DEPOIS aplica o
-  // padrão {{@nodeId:...}} sobre o resultado (lib/builder/workflow-executor.workflow.ts:505-584):
-  // um texto digitado pelo contato contendo "{{@...}}" é resolvido contra as saídas da run
-  // (aqui a saída do nó de retomada; num fluxo com HTTP Request, a resposta dele).
-  it.fails('BUG(template-segunda-expansao): a resposta do contato deveria ser ecoada literalmente', async () => {
+  // Corrigido BUG(template-segunda-expansao): {{var.*}} e {{@nodeId:...}} são resolvidos numa
+  // única passada — o valor substituído nunca é reprocessado como template.
+  it('template-segunda-expansao: a resposta do contato é ecoada literalmente', async () => {
     const graph = graphOf(
       steps.interactive({
         id: 'ask',
@@ -585,13 +584,9 @@ describe('Condição — operadores, None e continuação', () => {
     expect(h.meta.texts()).toEqual(['urgente!'])
   })
 
-  // BUG(cond-trigger-pos-resume): uma Condição na CONVERGÊNCIA depois de um Perguntar que
-  // está dentro de uma branch é compilada com o askStepId do contexto externo (null) → usa
-  // {{@__trigger:Gatilho.message}} (lib/builder/flow/compile.ts:523-525, 648-653). Ela só
-  // roda depois do resume, quando outputs começa vazio (resume/route.ts não passa
-  // initialOutputs): o literal fica na expressão, cond_0 E cond_none dão false e TUDO
-  // depois é pulado — o fluxo termina em silêncio.
-  it.fails('BUG(cond-trigger-pos-resume): condição na convergência após Perguntar em branch deveria seguir (ao menos o None)', async () => {
+  // Corrigido BUG(cond-trigger-pos-resume): a condição da convergência alcançável depois de uma
+  // retomada usa a mensagem do gatilho persistida nas variáveis ({{var.__trigger_message}}).
+  it('cond-trigger-pos-resume: condição na convergência após Perguntar em branch segue no resume', async () => {
     const graph = graphOf(
       steps.condition({
         id: 'condA',
@@ -606,7 +601,8 @@ describe('Condição — operadores, None e continuação', () => {
     await run(graph, { message: 'x' })
     expect(h.meta.texts()).toEqual(['Confirma?'])
     await resumeAsk(graph, 'Sim')
-    expect(h.meta.texts()).toContain('Obrigado')
+    // a mensagem do gatilho ("x") não contém "y": vai pelo None e segue para a continuação
+    expect(h.meta.texts()).toEqual(['Confirma?', 'Obrigado'])
   })
 
   it('T24 (documenta) o mesmo fluxo sem passar pelo Perguntar (mensagem sem "x") funciona', async () => {
@@ -625,19 +621,13 @@ describe('Condição — operadores, None e continuação', () => {
     expect(h.meta.texts()).toEqual(['y', 'Obrigado'])
   })
 
-  it('T25 (documenta) valor vazio ("contains \'\'", default da tela) é sempre verdadeiro: o None nunca roda', async () => {
-    const graph = conditionGraph('contains', '')
-    for (const [i, message] of ['qualquer coisa', 'outra', ''].entries()) {
-      await run(graph, { message, executionId: `r${i}` })
+  // Corrigido BUG(cond-valor-vazio): branch de condição sem valor não compila (".includes("")"
+  // capturaria todo contato e o None nunca rodaria).
+  it('cond-valor-vazio: compile recusa condição contains/equals/not_contains com valor vazio', () => {
+    for (const op of ['contains', 'equals', 'not_contains'] as const) {
+      expect(() => conditionGraph(op, '')).toThrow(FlowCompileError)
+      expect(() => conditionGraph(op, '   ')).toThrow(/está sem valor/)
     }
-    expect(h.meta.texts()).toEqual(['branch', 'fim', 'branch', 'fim', 'branch', 'fim'])
-  })
-
-  // BUG(cond-valor-vazio): createStep/addBranch criam a branch de condição com value ''
-  // (lib/builder/flow/operations.ts:124-131, 322-326) e nem validateTree nem o compile barram;
-  // ".includes("")" é sempre true — a branch captura tudo e o None nunca roda.
-  it.fails('BUG(cond-valor-vazio): compile deveria recusar condição contains/equals com valor vazio', () => {
-    expect(() => conditionGraph('contains', '')).toThrow(FlowCompileError)
   })
 
   it('T26 expressionError (crase com ${}) vai para o log do passo; condição false e a jusante pulada', async () => {
@@ -706,25 +696,16 @@ describe('END e status final da run', () => {
     expect(res.success).toBe(true)
   })
 
-  // BUG(status-skipped): skipNode grava { success:false, error:'skipped' } para todo nó de
-  // branch não escolhida/depois de um END (lib/builder/workflow-executor.workflow.ts:776-789)
-  // e finalSuccess = every(r => r.success) (linha 1282) conta esses nós: o fluxo que fez
-  // exatamente o que devia termina com workflow_runs.status 'error' e error 'skipped'
-  // (e as rotas respondem "failed").
-  it.fails('BUG(status-skipped): branch com END tomada corretamente deveria fechar a run como success', async () => {
+  // Corrigido BUG(status-skipped): nós pulados (branch não escolhida, depois de um END) não
+  // contam como falha — o status final considera só os nós executados.
+  it('status-skipped: branch com END tomada corretamente fecha a run como success', async () => {
     const res = await run(endGraph(), { message: 'sair' })
     expect(h.meta.texts()).toEqual(['Tchau'])
     expect(res.success).toBe(true)
     expect(h.db.row('workflow_runs', { id: RUN })).toMatchObject({ status: 'success', error: null })
   })
 
-  it('T36 (documenta) hoje a run do END fica "error" com error "skipped"', async () => {
-    const res = await run(endGraph(), { message: 'sair' })
-    expect(res.success).toBe(false)
-    expect(h.db.row('workflow_runs', { id: RUN })).toMatchObject({ status: 'error', error: 'skipped' })
-  })
-
-  it.fails('BUG(status-skipped): T37 resposta "Suporte" (branch Vendas não tomada) deveria fechar a run de resume como success', async () => {
+  it('status-skipped: T37 resposta "Suporte" (branch Vendas não tomada) fecha a run de resume como success', async () => {
     const graph = salesSupportGraph()
     await run(graph)
     const res = await resumeAsk(graph, 'Suporte', { executionId: 'run-resume' })
@@ -863,17 +844,16 @@ describe('Bordas (rotas e drain reais): status das runs', () => {
     expect(resume.body).toMatchObject({ status: 'success' })
     expect(h.meta.texts()).toEqual(['Vendas ou suporte?', 'Obrigado'])
     const runsAfter = h.db.rows('workflow_runs').filter((r) => r.workflow_id === workflowId)
+    // a run que pausou na pergunta é finalizada quando a resposta assume o fluxo
     expect(runsAfter.map((r) => [r.trigger_type, r.status])).toEqual([
-      ['Keywords', 'waiting'],
+      ['Keywords', 'success'],
       ['Resume', 'success'],
     ])
   })
 
-  // BUG(run-waiting-orfao): a pausa põe a run em 'waiting' e a continuação (resume/drain)
-  // SEMPRE cria outra workflow_runs (resume/route.ts:139-148, lib/cron/workflow-enrollments.ts:89-98);
-  // ninguém finaliza a original (o enrollment guarda run_id, mas não é usado). A lista de
-  // execuções acumula runs 'waiting' eternas para conversas que já terminaram.
-  it.fails('BUG(run-waiting-orfao): depois do resume a run original não deveria continuar "waiting"', async () => {
+  // Corrigido BUG(run-waiting-orfao): a continuação (resume/drain) finaliza a run que pausou
+  // (achada pela conversa ou por enrollment.run_id).
+  it('run-waiting-orfao: depois do resume a run original não continua "waiting"', async () => {
     const { workflowId } = await seedPublishedFlow(h.db, askFlow('wf-ask'))
     const exec = await routes.execute(workflowId, { input: { from: FROM, to: FROM, message: 'oi' } })
     const conv = h.db.row('workflow_conversations', { workflow_id: workflowId })!
@@ -883,7 +863,7 @@ describe('Bordas (rotas e drain reais): status das runs', () => {
     expect(original.finished_at).toEqual(expect.any(String))
   })
 
-  it.fails('BUG(run-waiting-orfao): Aguardar via /execute + drain não deveria deixar a run original "waiting"', async () => {
+  it('run-waiting-orfao: Aguardar via /execute + drain não deixa a run original "waiting"', async () => {
     freezeTime('2026-10-18T12:00:00.000Z')
     const { workflowId } = await seedPublishedFlow(
       h.db,
@@ -898,11 +878,8 @@ describe('Bordas (rotas e drain reais): status das runs', () => {
     expect(original.status).not.toBe('waiting')
   })
 
-  // BUG(resume-sem-claim): /resume lê a conversa com status='waiting' e só a marca
-  // 'completed' DEPOIS do executeWorkflow (resume/route.ts:76-82 e 176), sem CAS
-  // waiting→processing. Duas respostas próximas (ids de mensagem distintos, então o dedupe
-  // do webhook não ajuda) retomam o mesmo Perguntar duas vezes e reenviam os passos seguintes.
-  it.fails('BUG(resume-sem-claim): duas respostas simultâneas deveriam retomar o Perguntar uma vez só', async () => {
+  // Corrigido BUG(resume-sem-claim): o /resume faz CAS waiting→processing antes de executar.
+  it('resume-sem-claim: duas respostas simultâneas retomam o Perguntar uma vez só', async () => {
     const { workflowId } = await seedPublishedFlow(h.db, askFlow('wf-ask'))
     await routes.execute(workflowId, { input: { from: FROM, to: FROM, message: 'oi' } })
     const conv = h.db.row('workflow_conversations', { workflow_id: workflowId })!
@@ -918,22 +895,6 @@ describe('Bordas (rotas e drain reais): status das runs', () => {
     const statuses = [a.body, b.body].map((x) => (x as { status: string }).status).sort()
     expect(statuses).toEqual(['failed', 'success'])
     expect(h.meta.texts()).toEqual(['Obrigado'])
-  })
-
-  it('(documenta) resume-sem-claim: hoje as duas respostas simultâneas executam e "Obrigado" sai 2x', async () => {
-    const { workflowId } = await seedPublishedFlow(h.db, askFlow('wf-ask'))
-    await routes.execute(workflowId, { input: { from: FROM, to: FROM, message: 'oi' } })
-    const conv = h.db.row('workflow_conversations', { workflow_id: workflowId })!
-    h.meta.reset()
-    const barrier = createBarrier(2)
-    const off = h.db.onBefore(async () => barrier.wait(), { table: 'workflow_conversations', op: 'select' })
-    await Promise.all([
-      routes.resume(workflowId, { conversationId: conv.id, input: { from: PHONE, to: PHONE, message: 'Vendas' } }),
-      routes.resume(workflowId, { conversationId: conv.id, input: { from: PHONE, to: PHONE, message: 'Suporte' } }),
-    ])
-    off()
-    expect(h.meta.texts()).toEqual(['Obrigado', 'Obrigado'])
-    expect(h.db.rows('workflow_runs').filter((r) => r.trigger_type === 'Resume')).toHaveLength(2)
   })
 
   // BUG(conversa-sem-expiracao): workflow_conversations não tem TTL e o compile rejeita a
@@ -975,7 +936,8 @@ describe('Bordas (rotas e drain reais): status das runs', () => {
     )
     expect((await routes.enroll(workflowId, { contactIds: [SEED_IDS.contacts.ana] })).body).toMatchObject({ enrolled: 1 })
     expect(await routes.drain()).toMatchObject({ claimed: 1, paused: 1 })
-    expect(h.db.row('workflow_enrollments', { workflow_id: workflowId })).toMatchObject({ status: 'waiting', attempts: 1, resume_node_ids: ['w2'] })
+    // retomada OK zera as tentativas (attempts mede só falhas consecutivas)
+    expect(h.db.row('workflow_enrollments', { workflow_id: workflowId })).toMatchObject({ status: 'waiting', attempts: 0, resume_node_ids: ['w2'] })
     advanceTime(5 * 60_000)
     expect(await routes.drain()).toMatchObject({ claimed: 1, completed: 1 })
     expect(h.meta.texts()).toEqual(['Um', 'Dois'])
@@ -984,10 +946,8 @@ describe('Bordas (rotas e drain reais): status das runs', () => {
     expect(runs[1].status).toBe('success')
   })
 
-  // BUG(drain-run-running): o drain insere a run 'running' e, quando a execução pausa de
-  // novo num Aguardar, só reagenda o enrollment (lib/cron/workflow-enrollments.ts:89-112) —
-  // o executor não grava status na pausa — e a run fica 'running' para sempre.
-  it.fails('BUG(drain-run-running): run "DelayResume" que pausa em outro Aguardar deveria ficar "waiting"', async () => {
+  // Corrigido BUG(drain-run-running): o dreno marca 'waiting' a run que pausou de novo.
+  it('drain-run-running: run "DelayResume" que pausa em outro Aguardar fica "waiting"', async () => {
     freezeTime('2026-10-18T12:00:00.000Z')
     const { workflowId } = await seedPublishedFlow(
       h.db,
@@ -1003,10 +963,9 @@ describe('Bordas (rotas e drain reais): status das runs', () => {
     expect(drainRun.status).toBe('waiting')
   })
 
-  // BUG(drain-run-running) (2ª parte): nó de retomada ausente (republicação) → results {}
-  // e every([]) === true: o executor grava a run 'success' enquanto o enrollment vai para
-  // 'failed' ("Nó de retomada ausente") — a tela mostra sucesso para algo que não rodou.
-  it.fails('BUG(drain-run-running): nó de retomada ausente não deveria gravar a run como success', async () => {
+  // Corrigido BUG(drain-run-running) (2ª parte): nó de retomada ausente → o executor fecha a
+  // run como erro ("Nó de retomada ausente") e o enrollment vai para 'failed'.
+  it('drain-run-running: nó de retomada ausente não grava a run como success', async () => {
     freezeTime('2026-10-18T12:00:00.000Z')
     const { workflowId, versionId } = await seedPublishedFlow(
       h.db,

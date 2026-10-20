@@ -258,15 +258,17 @@ describe('WhatsApp — mensagem de texto (send-message)', () => {
 // ─── Template ──────────────────────────────────────────────────────────────────
 
 describe('WhatsApp — template (send-template)', () => {
-  it('T02 template tem prioridade sobre mensagem e mídia: payload exato com pt_BR e components []', async () => {
+  it('T02 template tem prioridade sobre mensagem e mídia: payload exato com pt_BR e components [] (template fora do cache local)', async () => {
     const graph = graphOf(
       steps.whatsapp({ id: 'w1', template: 'boas_vindas', message: 'ignorada', mediaUrl: 'https://cdn.test/y.png' })
     )
+    // a mídia do passo vira a mídia do HEADER do template (só usada se o header for de mídia)
     expect(graph.nodes.find((n) => n.id === 'w1')?.data.config).toEqual({
       actionType: 'whatsapp/send-template',
       toSource: 'inbound',
       templateName: 'boas_vindas',
       language: 'pt_BR',
+      headerMediaUrl: 'https://cdn.test/y.png',
     })
     const res = await run(graph)
     expect(h.meta.calls).toHaveLength(1)
@@ -335,11 +337,9 @@ describe('WhatsApp — template (send-template)', () => {
     expect(h.meta.calls).toHaveLength(0)
   })
 
-  // BUG(template-idioma): a tela lista templates aprovados de QUALQUER idioma
-  // (ConfigPanel.tsx mostra "nome (idioma)") mas grava só o nome, e o compile fixa
-  // language 'pt_BR' (lib/builder/flow/compile.ts:230). Um template aprovado só em
-  // en_US sai com pt_BR e a Meta responde 132001 (template inexistente na tradução).
-  it.fails('BUG(template-idioma): template aprovado só em en_US deveria sair com language en_US', async () => {
+  // Corrigido BUG(template-idioma): o passo usa templateLanguage (contrato com a tela) e, em
+  // fluxos antigos sem o idioma, o do ÚNICO template aprovado com aquele nome no cache local.
+  it('template-idioma: template aprovado só em en_US sai com language en_US', async () => {
     h.db.insert('templates', {
       name: 'promo_en',
       language: 'en_US',
@@ -351,12 +351,18 @@ describe('WhatsApp — template (send-template)', () => {
     expect((h.meta.last()?.body.template as { language: { code: string } }).language.code).toBe('en_US')
   })
 
-  // BUG(template-sem-params): sendTemplateStep não carrega o template do banco e não
-  // passa `template` para buildMetaTemplatePayload (lib/builder/steps/whatsapp/send-template.ts:60-90);
-  // o compile não gera bodyParams. Template com {{1}} vai sem parâmetros (Meta 132000) e
-  // HEADER de mídia vai sem o parâmetro de mídia (Meta 132012) — o disparo de campanha resolve
-  // isso passando o template; o passo do fluxo não.
-  it.fails('BUG(template-sem-params): template com HEADER IMAGE e {{1}} deveria levar header de mídia e 1 parâmetro', async () => {
+  it('templateLanguage da tela vai para o nó compilado e para a Meta', async () => {
+    const step = steps.whatsapp({ id: 'w1', template: 'order_update' })
+    step.config.templateLanguage = 'es_ES'
+    const graph = graphOf(step)
+    expect(graph.nodes.find((n) => n.id === 'w1')?.data.config).toMatchObject({ templateName: 'order_update', language: 'es_ES' })
+    await run(graph)
+    expect((h.meta.last()?.body.template as { language: { code: string } }).language.code).toBe('es_ES')
+  })
+
+  // Corrigido BUG(template-sem-params): o passo carrega o template do cache local (header de
+  // mídia pelo exemplo ou pela mídia do passo) e o compile leva templateBodyParams → bodyParams.
+  it('template-sem-params: template com HEADER IMAGE e {{1}} leva header de mídia e 1 parâmetro', async () => {
     h.db.insert('templates', {
       name: 'oferta',
       language: 'pt_BR',
@@ -367,19 +373,55 @@ describe('WhatsApp — template (send-template)', () => {
         { type: 'BODY', text: 'Olá {{1}}, sua oferta chegou', example: { body_text: [['Ana']] } },
       ],
     })
-    await run(graphOf(steps.whatsapp({ id: 'w1', template: 'oferta' })))
+    const step = steps.whatsapp({ id: 'w1', template: 'oferta' })
+    step.config.templateBodyParams = ['{{var.nome}}']
+    const graph = graphOf(step)
+    expect(graph.nodes.find((n) => n.id === 'w1')?.data.config).toMatchObject({ bodyParams: ['{{var.nome}}'] })
+    await run(graph, { initialVariables: { nome: 'Ana' } })
     const components = (h.meta.last()?.body.template as { components: Array<{ type: string; parameters: unknown[] }> }).components
     expect(components.find((c) => c.type === 'header')?.parameters).toEqual([
       { type: 'image', image: { link: 'https://cdn.test/oferta.jpg' } },
     ])
-    expect(components.find((c) => c.type === 'body')?.parameters).toHaveLength(1)
+    expect(components.find((c) => c.type === 'body')?.parameters).toEqual([{ type: 'text', text: 'Ana' }])
   })
 
-  // BUG(json-template-aspas): processTemplates injeta o valor CRU dentro da string JSON de
-  // bodyParams (lib/builder/workflow-executor.workflow.ts:505-515); um valor com aspas
-  // invalida o JSON e parseJsonArray devolve [] em silêncio. Alcance baixo (a tela não gera
-  // bodyParams), mas o grafo cru/API aceita.
-  it.fails('BUG(json-template-aspas): variável com aspas dentro de bodyParams deveria virar o parâmetro literal', async () => {
+  it('templateHeaderMediaUrl substitui a mídia de exemplo do HEADER', async () => {
+    h.db.insert('templates', {
+      name: 'oferta',
+      language: 'pt_BR',
+      status: 'APPROVED',
+      category: 'MARKETING',
+      components: [{ type: 'HEADER', format: 'IMAGE', example: { header_handle: ['https://cdn.test/exemplo.jpg'] } }, { type: 'BODY', text: 'Oferta!' }],
+    })
+    const step = steps.whatsapp({ id: 'w1', template: 'oferta' })
+    step.config.templateHeaderMediaUrl = 'https://cdn.test/minha.jpg'
+    await run(graphOf(step))
+    const components = (h.meta.last()?.body.template as { components: Array<{ type: string; parameters: unknown[] }> }).components
+    expect(components.find((c) => c.type === 'header')?.parameters).toEqual([{ type: 'image', image: { link: 'https://cdn.test/minha.jpg' } }])
+  })
+
+  it('template com {{1}} sem valor configurado: o passo falha com mensagem clara e NADA é enviado', async () => {
+    h.db.insert('templates', {
+      name: 'boas_vindas',
+      language: 'pt_BR',
+      status: 'APPROVED',
+      category: 'MARKETING',
+      components: [{ type: 'BODY', text: 'Olá {{1}}!' }],
+    })
+    const res = await run(graphOf(steps.whatsapp({ id: 'w1', template: 'boas_vindas' })))
+    expect(res.results.w1.success).toBe(false)
+    expect(res.results.w1.error).toMatch(/exige 1 variável/)
+    expect(h.meta.calls).toHaveLength(0)
+  })
+
+  it('variável do template vazia na tela não compila', () => {
+    const step = steps.whatsapp({ id: 'w1', template: 'boas_vindas' })
+    step.config.templateBodyParams = ['  ']
+    expect(() => graphOf(step)).toThrow(/variável \{\{1\}\}/)
+  })
+
+  // Corrigido BUG(json-template-aspas): dentro de *Params em JSON o valor substituído é escapado.
+  it('json-template-aspas: variável com aspas dentro de bodyParams vira o parâmetro literal', async () => {
     await run(
       rawChain([
         { id: 'p', config: { actionType: 'whatsapp/send-template', toSource: 'inbound', templateName: 't', bodyParams: '[{"text":"{{var.nome}}"}]' } },
@@ -984,15 +1026,11 @@ describe('Erros da Meta e resiliência', () => {
     const res = await run(graphOf(chain(steps.whatsapp({ id: 'w1', message: 'oi' }), steps.tag({ id: 't', tags: ['x'] }))))
     expect(res.results.w1).toEqual({ success: false, error: 'WhatsApp send failed' })
     expect(res.results.t).toEqual({ success: false, error: 'skipped' })
-    // hoje o log só guarda o payload enviado (ver BUG(meta-erro-texto-perdido))
     expect(logsOf().find((l) => l.node_id === 'w1')?.output).toMatchObject({ details: { payload: { type: 'text' } } })
   })
 
-  // BUG(meta-erro-texto-perdido): sendWhatsAppPayload chama safeJson(response) (consome o
-  // corpo) e, se não for JSON, safeText(response) no MESMO Response — que já foi lido e
-  // devolve null (lib/builder/steps/whatsapp/shared.ts:78-80). O corpo de um 5xx/HTML do
-  // proxy some do log: o operador vê só "WhatsApp send failed".
-  it.fails('BUG(meta-erro-texto-perdido): corpo não-JSON do erro deveria ir para os detalhes do log', async () => {
+  // Corrigido BUG(meta-erro-texto-perdido): o corpo é lido UMA vez (texto) e só então parseado.
+  it('meta-erro-texto-perdido: corpo não-JSON do erro vai para os detalhes do log', async () => {
     h.meta.route(/\/messages$/, () => new Response('<html>Bad gateway</html>', { status: 502 }))
     await run(graphOf(steps.whatsapp({ id: 'w1', message: 'oi' })))
     expect(logsOf().find((l) => l.node_id === 'w1')?.output).toMatchObject({ details: { details: '<html>Bad gateway</html>' } })
@@ -1045,10 +1083,9 @@ describe('Erros da Meta e resiliência', () => {
     expect(h.meta.fetch).toHaveBeenCalledTimes(2)
   })
 
-  // BUG(timeout-reenvio): runWithTimeout rejeita mas NÃO cancela o passo
-  // (lib/builder/workflow-executor.workflow.ts:277-312). Com retry, um envio lento é
-  // refeito enquanto o primeiro ainda completa: o contato recebe a mensagem 2x.
-  it.fails('BUG(timeout-reenvio): passo que estoura o timeout com retry não deveria enviar a mensagem duas vezes', async () => {
+  // Corrigido BUG(timeout-reenvio): timeout NÃO é re-tentado (o passo não é cancelado e pode
+  // concluir depois) — o nó falha com "Step timeout" e a mensagem sai uma vez só.
+  it('timeout-reenvio: passo que estoura o timeout com retry não envia a mensagem duas vezes', async () => {
     const original = h.meta.fetch.getMockImplementation()!
     h.meta.fetch.mockImplementationOnce(async (input: RequestInfo | URL, init?: RequestInit) => {
       await sleep(60)

@@ -2,7 +2,7 @@ import "server-only";
 
 import { getWhatsAppCredentials } from "@/lib/whatsapp-credentials";
 import { normalizePhoneNumber } from "@/lib/phone-formatter";
-import { fetchWithTimeout, safeJson, safeText } from "@/lib/server-http";
+import { fetchWithTimeout, safeText } from "@/lib/server-http";
 
 type WhatsAppCredentials = {
   accessToken: string;
@@ -75,9 +75,19 @@ export async function sendWhatsAppPayload(
     }
   );
 
-  const data = await safeJson(response);
+  // Lê o corpo UMA vez (texto) e tenta JSON: um 5xx/HTML do proxy não pode
+  // sumir do log (o Response não pode ser lido duas vezes).
+  const rawBody = await safeText(response);
+  let data: unknown = null;
+  if (rawBody) {
+    try {
+      data = JSON.parse(rawBody);
+    } catch {
+      data = null;
+    }
+  }
   if (!response.ok) {
-    const details = data ?? (await safeText(response));
+    const details = data ?? (rawBody || null);
     const metaError =
       typeof details === "object" && details !== null && "error" in details
         ? (details as { error?: { message?: string; code?: number; error_subcode?: number } }).error

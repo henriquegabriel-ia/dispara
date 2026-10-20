@@ -23,6 +23,7 @@ import { createConversation } from "./workflow-conversations";
 import { normalizePhoneNumber } from "@/lib/phone-formatter";
 import type { WorkflowEdge, WorkflowNode } from "./graph-types";
 import { getWorkflowExecutionConfig } from "@/lib/builder/workflow-execution-settings";
+import { TRIGGER_MESSAGE_VAR } from "@/lib/builder/flow/runtime-vars";
 import {
   timeWindowDelayMs,
   type WorkflowSettings,
@@ -274,6 +275,13 @@ async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+class StepTimeoutError extends Error {
+  constructor() {
+    super("Step timeout");
+    this.name = "StepTimeoutError";
+  }
+}
+
 async function runWithTimeout<T>(
   fn: () => Promise<T>,
   timeoutMs?: number
@@ -282,12 +290,17 @@ async function runWithTimeout<T>(
     return await fn();
   }
 
-  return await Promise.race([
-    fn(),
-    new Promise<T>((_resolve, reject) =>
-      setTimeout(() => reject(new Error("Step timeout")), timeoutMs)
-    ),
-  ]);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      fn(),
+      new Promise<T>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new StepTimeoutError()), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 async function runWithRetry<T>(
@@ -301,7 +314,9 @@ async function runWithRetry<T>(
     try {
       return await runWithTimeout(fn, timeoutMs);
     } catch (error) {
-      if (attempt >= retries) {
+      // Timeout NÃO é re-tentado: o passo não é cancelado e pode concluir depois
+      // (ex.: a Meta aceita o envio lento) — repetir mandaria a mensagem 2x.
+      if (attempt >= retries || error instanceof StepTimeoutError) {
         throw error;
       }
       const delay = Math.max(0, baseDelayMs) * Math.pow(2, attempt);
@@ -488,6 +503,72 @@ async function executeActionStep(input: {
   };
 }
 
+function stringifyTemplateValue(rawValue: unknown): string {
+  if (rawValue === null || rawValue === undefined) {
+    return "";
+  }
+  if (typeof rawValue === "object") {
+    return JSON.stringify(rawValue);
+  }
+  return String(rawValue);
+}
+
+/** Resolve {{@nodeId:Label.field}} contra as saídas da run (sem saída → literal). */
+function resolveNodeTemplate(
+  match: string,
+  nodeId: string,
+  rest: string,
+  outputs: NodeOutputs
+): string {
+  const sanitizedNodeId = nodeId.replace(/[^a-zA-Z0-9]/g, "_");
+  const output = outputs[sanitizedNodeId];
+  if (!output) {
+    return match;
+  }
+
+  const dotIndex = rest.indexOf(".");
+  if (dotIndex === -1) {
+    // No field path, return the entire output data
+    return stringifyTemplateValue(output.data);
+  }
+
+  // If data is null/undefined, return empty string instead of trying to access fields
+  if (output.data === null || output.data === undefined) {
+    return "";
+  }
+
+  const fieldPath = rest.substring(dotIndex + 1);
+  const fields = fieldPath.split(".");
+  // biome-ignore lint/suspicious/noExplicitAny: Dynamic output data traversal
+  let current: any = output.data;
+
+  // For standardized outputs { success, data, error }, automatically look inside data
+  // unless explicitly accessing success/data/error
+  const firstField = fields[0];
+  if (
+    current &&
+    typeof current === "object" &&
+    "success" in current &&
+    "data" in current &&
+    firstField !== "success" &&
+    firstField !== "data" &&
+    firstField !== "error"
+  ) {
+    current = current.data;
+  }
+
+  for (const field of fields) {
+    if (current && typeof current === "object") {
+      current = current[field];
+    } else {
+      // Field access failed, return empty string
+      return "";
+    }
+  }
+
+  return stringifyTemplateValue(current);
+}
+
 /**
  * Process template variables in config
  */
@@ -498,92 +579,36 @@ function processTemplates(
 ): Record<string, unknown> {
   const processed: Record<string, unknown> = {};
 
+  // {{var.<key>}} e {{@nodeId:Label.field}} numa ÚNICA passada: o valor
+  // substituído (ex.: texto digitado pelo contato) nunca é reprocessado como
+  // template ("{{@...}}" na resposta sai literal).
+  const substitute = (text: string, escapeForJson: boolean): string =>
+    text.replace(
+      /\{\{\s*var\.([a-zA-Z0-9_.-]+)\s*\}\}|\{\{@([^:]+):([^}]+)\}\}/g,
+      (match, varKey: string | undefined, nodeId: string | undefined, rest: string | undefined) => {
+        const resolved =
+          varKey !== undefined
+            ? stringifyTemplateValue(variables[varKey])
+            : resolveNodeTemplate(match, String(nodeId), String(rest), outputs);
+        // Dentro de uma string JSON (bodyParams/headerParams/buttonParams cru), o
+        // valor precisa ser escapado — aspas no nome do contato não podem quebrar
+        // o JSON e zerar os parâmetros do template.
+        return escapeForJson && resolved !== match
+          ? JSON.stringify(resolved).slice(1, -1)
+          : resolved;
+      }
+    );
+
   for (const [key, value] of Object.entries(config)) {
     if (typeof value === "string") {
-      // Process template variables like {{@nodeId:Label.field}}
-      let processedValue = value;
-      const variablePattern = /\{\{\s*var\.([a-zA-Z0-9_.-]+)\s*\}\}/g;
-      processedValue = processedValue.replace(variablePattern, (_match, varKey) => {
-        const rawValue = variables[varKey];
-        if (rawValue === null || rawValue === undefined) {
-          return "";
-        }
-        if (typeof rawValue === "object") {
-          return JSON.stringify(rawValue);
-        }
-        return String(rawValue);
-      });
-      const templatePattern = /\{\{@([^:]+):([^}]+)\}\}/g;
-      processedValue = processedValue.replace(
-        templatePattern,
-        // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Template processing requires nested logic
-        (match, nodeId, rest) => {
-          const sanitizedNodeId = nodeId.replace(/[^a-zA-Z0-9]/g, "_");
-          const output = outputs[sanitizedNodeId];
-          if (!output) {
-            return match;
-          }
-
-          const dotIndex = rest.indexOf(".");
-          if (dotIndex === -1) {
-            // No field path, return the entire output data
-            const data = output.data;
-            if (data === null || data === undefined) {
-              // Return empty string for null/undefined data (e.g., from disabled nodes)
-              return "";
-            }
-            if (typeof data === "object") {
-              return JSON.stringify(data);
-            }
-            return String(data);
-          }
-
-          // If data is null/undefined, return empty string instead of trying to access fields
-          if (output.data === null || output.data === undefined) {
-            return "";
-          }
-
-          const fieldPath = rest.substring(dotIndex + 1);
-          const fields = fieldPath.split(".");
-          // biome-ignore lint/suspicious/noExplicitAny: Dynamic output data traversal
-          let current: any = output.data;
-
-          // For standardized outputs { success, data, error }, automatically look inside data
-          // unless explicitly accessing success/data/error
-          const firstField = fields[0];
-          if (
-            current &&
-            typeof current === "object" &&
-            "success" in current &&
-            "data" in current &&
-            firstField !== "success" &&
-            firstField !== "data" &&
-            firstField !== "error"
-          ) {
-            current = current.data;
-          }
-
-          for (const field of fields) {
-            if (current && typeof current === "object") {
-              current = current[field];
-            } else {
-              // Field access failed, return empty string
-              return "";
-            }
-          }
-
-          // Convert value to string, using JSON.stringify for objects/arrays
-          if (current === null || current === undefined) {
-            return "";
-          }
-          if (typeof current === "object") {
-            return JSON.stringify(current);
-          }
-          return String(current);
-        }
-      );
-
-      processed[key] = processedValue;
+      processed[key] = substitute(value, /Params$/.test(key));
+    } else if (
+      /Params$/.test(key) &&
+      Array.isArray(value) &&
+      value.every((item) => typeof item === "string")
+    ) {
+      // Valores dos parâmetros do template ({{1}}, {{2}}…) como lista de texto.
+      processed[key] = (value as string[]).map((item) => substitute(item, false));
     } else {
       processed[key] = value;
     }
@@ -630,6 +655,20 @@ export async function executeWorkflow(
   const variables: Record<string, unknown> = {
     ...(input.initialVariables || {}),
   };
+  // Mensagem do gatilho persistida nas variáveis (sobrevive à retomada de um
+  // "Perguntar"): só quando o grafo a referencia (condição após retomada).
+  if (
+    variables[TRIGGER_MESSAGE_VAR] === undefined &&
+    nodes.some((node) =>
+      String((node.data?.config as Record<string, unknown> | undefined)?.condition ?? "").includes(
+        TRIGGER_MESSAGE_VAR
+      )
+    )
+  ) {
+    variables[TRIGGER_MESSAGE_VAR] = String(
+      (triggerInput as Record<string, unknown> | undefined)?.message ?? ""
+    );
+  }
   const executionDefaults = await getWorkflowExecutionConfig()
     .then((res) => res.config)
     .catch((error) => {
@@ -654,6 +693,10 @@ export async function executeWorkflow(
     incomingCounts.set(edge.target, (incomingCounts.get(edge.target) || 0) + 1);
   }
 
+  // Nós pulados (branch não escolhida, depois de um END ou a jusante de uma
+  // falha): não contam como falha da run — o fluxo que seguiu o caminho certo
+  // termina "success".
+  const skippedNodes = new Set<string>();
   const satisfiedIncoming = new Map<string, number>();
   const blockedIncoming = new Map<string, number>();
   // Re-hidrata nós já executados numa passada anterior (retomada após wait durável):
@@ -740,6 +783,28 @@ export async function executeWorkflow(
     return node.data.type;
   }
 
+  // Retomada cujo(s) nó(s) de partida não existe(m) mais nesta versão (passo
+  // removido numa republicação): nada roda — falha visível, nunca "success".
+  if (startNodeIds && !startNodeIds.some((id) => nodeMap.has(id))) {
+    const missingError = "Nó de retomada ausente na versão atual do workflow";
+    if (executionId) {
+      try {
+        await triggerStep({
+          triggerData: {},
+          _workflowComplete: {
+            executionId,
+            status: "error",
+            error: missingError,
+            startTime: Date.now(),
+          },
+        });
+      } catch (error) {
+        console.error("[Workflow Executor] Failed to update execution record:", error);
+      }
+    }
+    return { success: false, results, outputs, error: missingError };
+  }
+
   try {
     console.log("[Workflow Executor] Starting execution from trigger nodes");
     const workflowStartTime = Date.now();
@@ -776,6 +841,7 @@ export async function executeWorkflow(
     const skipNode = (nodeId: string) => {
       if (resolvedNodes.has(nodeId)) return;
       resolvedNodes.add(nodeId);
+      skippedNodes.add(nodeId);
       results[nodeId] = { success: false, error: "skipped" };
       const sanitizedNodeId = nodeId.replace(/[^a-zA-Z0-9]/g, "_");
       outputs[sanitizedNodeId] = {
@@ -959,6 +1025,9 @@ export async function executeWorkflow(
                   paused: true,
                   wait: {
                     kind: "delay" as const,
+                    // pausa da janela de horário (não é um "Aguardar": o Stop on
+                    // Response não a cancela)
+                    reason: "window" as const,
                     resumeNodeIds: [nodeId],
                     resumeInMs: windowDelayMs,
                   },
@@ -1279,7 +1348,10 @@ export async function executeWorkflow(
       }
     }
 
-    const finalSuccess = Object.values(results).every((r) => r.success);
+    const executedResults = Object.entries(results)
+      .filter(([id]) => !skippedNodes.has(id))
+      .map(([, r]) => r);
+    const finalSuccess = executedResults.every((r) => r.success);
     const duration = Date.now() - workflowStartTime;
 
     console.log("[Workflow Executor] Workflow execution completed:", {
@@ -1297,7 +1369,7 @@ export async function executeWorkflow(
             executionId,
             status: finalSuccess ? "success" : "error",
             output: Object.values(results).at(-1)?.data,
-            error: Object.values(results).find((r) => !r.success)?.error,
+            error: executedResults.find((r) => !r.success)?.error,
             startTime: workflowStartTime,
           },
         });
