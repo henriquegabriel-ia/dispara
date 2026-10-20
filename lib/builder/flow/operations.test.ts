@@ -457,11 +457,10 @@ describe('OPS-08 updateTrigger: normalização', () => {
 })
 
 describe('OPS-09 primeiro "Salvar gatilho" sem mudanças', () => {
-  // BUG(trigger-noop): o trigger de createEmptyFlow() não tem campaignId/campaignName/
+  // trigger-noop: o trigger de createEmptyFlow() não tem campaignId/campaignName/
   // replyFilter, e o ConfigPanel sempre envia esses campos (campaignId null, '' e '').
-  // O JSON muda, a identidade não é preservada, e um clique em "Salvar" sem mudar nada
-  // gera snapshot de undo e autosave inúteis (operations.ts:395).
-  it.fails('o patch que o painel envia sem alterar nada deve ser no-op (mesmo objeto)', () => {
+  // A comparação é pela forma normalizada: "Salvar" sem mudar nada é no-op.
+  it('o patch que o painel envia sem alterar nada deve ser no-op (mesmo objeto)', () => {
     const f = createEmptyFlow()
     const panelPatch = {
       type: 'none' as const,

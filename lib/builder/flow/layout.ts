@@ -103,6 +103,9 @@ export function measureChain(step: Step | null, hasTarget: boolean): Box {
       const nextBox = measureChain(step.next, hasTarget);
       width = Math.max(width, nextBox.width);
       height += V_GAP + nextBox.height;
+    } else {
+      // "+" da continuação (next do container) abaixo do bloco de branches
+      height += V_GAP + PLUS_SIZE;
     }
     return { width, height };
   }
@@ -129,16 +132,27 @@ function flowEdge(
   ctx.edges.push({ id: `e-${source}-${target}`, source, target, type: "flow", data });
 }
 
-function plusNode(id: string, cx: number, y: number, slot: Slot): LayoutNode {
+function plusNode(
+  id: string,
+  cx: number,
+  y: number,
+  slot: Slot,
+  extra: Record<string, unknown> = {}
+): LayoutNode {
   return {
     id,
     type: "plus",
     position: { x: cx - PLUS_SIZE / 2, y },
     width: PLUS_SIZE,
     height: PLUS_SIZE,
-    data: { slot },
+    data: { slot, ...extra },
     selectable: false,
   };
+}
+
+/** Rótulo do "+" da continuação de um container (o que vem depois do bloco). */
+function continuationLabel(step: Step): string {
+  return step.type === "interactive" ? "Continuação (outras respostas)" : "Continuação";
 }
 
 function branchEdgeLabel(step: Step, i: number): string {
@@ -215,15 +229,44 @@ function placeStep(
       // todas as branches terminam em end/goto → nada converge; liga container→next
       // contornando o bloco de branches pela lateral (senão a edge atravessaria a
       // coluna do meio) e mantém o slot para o "+" (critério: + em QUALQUER edge)
+      const afterY = childY + colsH + V_GAP;
       if (!anyConverged) {
         flowEdge(ctx, step.id, step.next.id, {
           slot: { kind: "after", stepId: step.id },
           bypassX: cx + totalW / 2 + H_GAP / 2,
         });
+      } else {
+        // branches convergem no next: "+" no ponto de junção para inserir um
+        // passo entre o bloco de branches e o next
+        ctx.nodes.push(
+          plusNode(
+            `plus-after-${step.id}`,
+            cx,
+            afterY - V_GAP / 2 - PLUS_SIZE / 2,
+            { kind: "after", stepId: step.id },
+            { junction: true, label: continuationLabel(step) }
+          )
+        );
       }
-      const afterY = childY + colsH + V_GAP;
       return placeStep(ctx, step.next, cx, afterY, convergeTargetId);
     }
+
+    // sem next: "+" da continuação abaixo do bloco, ligado ao container pela
+    // lateral (no Perguntar, é por onde seguem as respostas fora dos botões)
+    const contId = `plus-after-${step.id}`;
+    ctx.nodes.push(
+      plusNode(
+        contId,
+        cx,
+        childY + colsH + V_GAP,
+        { kind: "after", stepId: step.id },
+        { label: continuationLabel(step) }
+      )
+    );
+    flowEdge(ctx, step.id, contId, {
+      noButton: true,
+      bypassX: cx + totalW / 2 + H_GAP / 2,
+    });
     return anyConverged;
   }
 
@@ -251,6 +294,17 @@ function placeStep(
 }
 
 // ─── Subtítulos dos cards ──────────────────────────────────────────────────────
+
+/** Rótulo pt-BR dos campos de condição (o valor salvo continua o identificador). */
+export const CONDITION_FIELD_LABELS: Record<string, string> = {
+  "Replied message": "Mensagem recebida",
+};
+
+export function conditionFieldLabel(field: string | undefined): string {
+  const key = field || "Replied message";
+  return CONDITION_FIELD_LABELS[key] ?? key;
+}
+
 function truncate(s: string, n: number): string {
   return s.length > n ? `${s.slice(0, n - 1)}…` : s;
 }
@@ -278,7 +332,7 @@ function subtitleFor(step: Step, names: Map<string, string>): string {
       const b = step.branches?.find((br) => !br.locked);
       if (b?.value) {
         const op = CONDITION_OPERATORS[b.operator ?? "contains"] ?? b.operator;
-        return truncate(`Se "${b.field}" ${op} "${b.value}"`, 48);
+        return truncate(`Se "${conditionFieldLabel(b.field)}" ${op} "${b.value}"`, 48);
       }
       const n = (step.branches?.length ?? 1) - 1;
       return `${n} ${n === 1 ? "branch" : "branches"} + None`;

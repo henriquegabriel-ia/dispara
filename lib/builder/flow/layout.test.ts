@@ -360,13 +360,13 @@ describe('LY-06 subtítulos dos cards', () => {
     ['wait 1 dia', simple('t', 'wait', { value: 1, unit: 'days' }), '1 dia'],
     ['wait unidade desconhecida → minutos', simple('t', 'wait', { value: 4, unit: 'weeks' }), '4 minutos'],
     ['wait até resposta', simple('t', 'wait', { mode: 'reply', value: 9 }), 'Até resposta do contato'],
-    ['condição contém', condition([{ value: 'oi' }]), 'Se "Replied message" contém "oi"'],
-    ['condição é igual a', condition([{ value: 'Sim', operator: 'equals' }]), 'Se "Replied message" é igual a "Sim"'],
-    ['condição não contém', condition([{ value: 'não', operator: 'not_contains' }]), 'Se "Replied message" não contém "não"'],
-    ['condição operador desconhecido', condition([{ value: '5', operator: 'gt' }]), 'Se "Replied message" gt "5"'],
+    ['condição contém', condition([{ value: 'oi' }]), 'Se "Mensagem recebida" contém "oi"'],
+    ['condição é igual a', condition([{ value: 'Sim', operator: 'equals' }]), 'Se "Mensagem recebida" é igual a "Sim"'],
+    ['condição não contém', condition([{ value: 'não', operator: 'not_contains' }]), 'Se "Mensagem recebida" não contém "não"'],
+    ['condição operador desconhecido', condition([{ value: '5', operator: 'gt' }]), 'Se "Mensagem recebida" gt "5"'],
     ['condição sem valor (1 branch)', condition([{ value: '' }]), '1 branch + None'],
     ['condição sem valor (2 branches)', condition([{ value: '' }, { value: '' }]), '2 branches + None'],
-    ['condição truncada em 48', condition([{ value: 'z'.repeat(60) }]), `${'Se "Replied message" contém "zzzzzzzzzzzzzzzzzzzzzzzzzzz'.slice(0, 47)}…`],
+    ['condição truncada em 48', condition([{ value: 'z'.repeat(60) }]), `${'Se "Mensagem recebida" contém "zzzzzzzzzzzzzzzzzzzzzzzzzzz'.slice(0, 47)}…`],
     ['split', container('S', 'split', [br('a', 'A', null, { percent: 50 }), br('b', 'B', null, { percent: 50 })]), '2 paths'],
     ['tag com tags', simple('t', 'tag', { tags: ['vip', ' lead ', ''] }), 'vip, lead'],
     ['tag legado tagName', simple('t', 'tag', { tags: [], tagName: 'antiga' }), 'antiga'],
@@ -383,10 +383,9 @@ describe('LY-06 subtítulos dos cards', () => {
 })
 
 describe('LY-07 subtítulo da condição em pt-BR', () => {
-  // BUG(cond-subtitle-field): o painel rotula o campo como "Mensagem recebida"
-  // (ConfigPanel.tsx:917), mas o card mostra o identificador interno em inglês
-  // "Replied message" (layout.ts:406).
-  it.fails('mostra "Mensagem recebida" no card', () => {
+  // cond-subtitle-field: o card usa o mesmo rótulo do painel ("Mensagem recebida"),
+  // não o identificador interno "Replied message" (que continua sendo o valor salvo).
+  it('mostra "Mensagem recebida" no card', () => {
     const C = container('C', 'condition', [
       br('c0', 'B1', null, { field: 'Replied message', operator: 'contains', value: 'oi' }),
       br('cn', 'None', null, { locked: true }),
@@ -400,25 +399,40 @@ describe('LY-07 subtítulo da condição em pt-BR', () => {
 describe('LY-08 "+" para a continuação de Perguntar/Condição', () => {
   const hasAfter = (flow: Flow, stepId: string) => offeredSlots(flow).some((s) => s.kind === 'after' && s.stepId === stepId)
 
-  it('caracterização: slot after do container só existe no caso bypass (todas as branches terminais)', () => {
+  it('caso bypass (todas as branches terminais): slot after do container na edge lateral', () => {
     const C = container('C', 'condition', [br('b0', 'B1', end('E1'), { value: 'x' }), br('bn', 'None', end('E2'), { locked: true })], wa('X'))
     expect(hasAfter(flowOf(C), 'C')).toBe(true)
   })
 
-  // BUG(no-continuation-slot): um Perguntar no fim do fluxo nunca ganha um "+" para a
-  // continuação (next). Respostas fora dos botões seguem pela continuação
-  // (compile.ts:472-485; dica em ConfigPanel.tsx:1041-1044), mas a tela não deixa
-  // configurá-la: o layout só cria o slot {after, container} no bypass (layout.ts:343-348).
-  it.fails('Perguntar no root sem next oferece slot "after" do próprio Perguntar', () => {
+  // no-continuation-slot: um Perguntar sem next ganha o "+" da continuação abaixo
+  // do bloco de botões (é por onde seguem as respostas fora dos botões).
+  it('Perguntar no root sem next oferece slot "after" do próprio Perguntar', () => {
     const Q = container('Q', 'interactive', [br('q0', 'Sim', wa('S')), br('q1', 'Não')])
     expect(hasAfter(flowOf(Q), 'Q')).toBe(true)
   })
 
-  // BUG(no-continuation-slot): com next X e branches convergindo, não há como
-  // inserir um passo entre a condição e o ponto de junção X.
-  it.fails('condição com next X e branches convergindo oferece slot "after" da condição', () => {
+  // no-continuation-slot: com next X e branches convergindo, um "+" no ponto de
+  // junção insere um passo entre o bloco da condição e X.
+  it('condição com next X e branches convergindo oferece slot "after" da condição', () => {
     const C = container('C', 'condition', [br('b0', 'B1', wa('W'), { value: 'x' }), br('bn', 'None', null, { locked: true })], wa('X'))
     expect(hasAfter(flowOf(C), 'C')).toBe(true)
+  })
+
+  it('o "+" da continuação fica abaixo do bloco (sem next) ou na junção (com next), sem sobrepor nada', () => {
+    const Q = container('Q', 'interactive', [br('q0', 'Sim', wa('S')), br('q1', 'Não')])
+    const { nodes, edges } = layoutFlow(flowOf(Q))
+    const plus = node(nodes, 'plus-after-Q')
+    const childY = ROOT_Y + CONTAINER_H + V_GAP + BRANCH_LABEL_H
+    expect(plus).toMatchObject({ type: 'plus', data: { slot: { kind: 'after', stepId: 'Q' }, label: 'Continuação (outras respostas)' } })
+    expect(plus.position.y).toBe(childY + SIMPLE_H + V_GAP + PLUS_SIZE + V_GAP)
+    expect(edge(edges, 'e-Q-plus-after-Q').data).toMatchObject({ noButton: true, bypassX: expect.any(Number) })
+
+    const C = container('C', 'condition', [br('b0', 'B1', wa('W'), { value: 'x' }), br('bn', 'None', null, { locked: true })], wa('X'))
+    const l2 = layoutFlow(flowOf(C))
+    const junction = node(l2.nodes, 'plus-after-C')
+    const x = node(l2.nodes, 'X')
+    expect(junction.data).toMatchObject({ junction: true, slot: { kind: 'after', stepId: 'C' } })
+    expect(junction.position.y + PLUS_SIZE).toBeLessThan(x.position.y)
   })
 
   it('todos os outros pontos de inserção existem (root, after de simples, branches vazias e com filho)', () => {

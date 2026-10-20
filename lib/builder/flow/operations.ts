@@ -301,8 +301,25 @@ export function updateTrigger(
   if (patch.campaignId !== undefined) f.trigger.campaignId = patch.campaignId;
   if (patch.campaignName !== undefined) f.trigger.campaignName = patch.campaignName;
   if (patch.replyFilter !== undefined) f.trigger.replyFilter = patch.replyFilter.trim();
-  if (JSON.stringify(f.trigger) === JSON.stringify(flow.trigger)) return flow;
+  if (sameTrigger(f.trigger, flow.trigger)) return flow;
   return f;
+}
+
+/**
+ * Compara gatilhos pela forma normalizada: ausência de campaignId/campaignName/
+ * replyFilter (árvores antigas, createEmptyFlow) equivale a null/""/"" — o painel
+ * sempre envia esses campos, e salvar sem mudar nada tem de ser no-op.
+ */
+function sameTrigger(a: Flow["trigger"], b: Flow["trigger"]): boolean {
+  const norm = (t: Flow["trigger"]) => ({
+    type: t.type ?? "keywords",
+    label: t.label ?? "",
+    keywords: (t.keywords ?? []).map((k) => k.trim()).filter(Boolean),
+    campaignId: t.campaignId || null,
+    campaignName: t.campaignName ?? "",
+    replyFilter: (t.replyFilter ?? "").trim(),
+  });
+  return JSON.stringify(norm(a)) === JSON.stringify(norm(b));
 }
 
 /** Adiciona uma branch respeitando as branches fixas de cada tipo. */
