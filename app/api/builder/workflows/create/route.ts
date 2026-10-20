@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
+import { nanoid } from "nanoid";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import {
-  buildDefaultGraph,
+  buildDefaultWorkflow,
   createWorkflowRecord,
   getCompanyId,
   toSavedWorkflow,
 } from "@/lib/builder/workflow-db";
+import { compileFlow } from "@/lib/builder/flow/compile";
+import type { WorkflowEdge, WorkflowNode } from "@/lib/builder/graph-types";
 import { validateWorkflowSchema } from "@/lib/shared/workflow-schema";
 import { validateTree } from "@/lib/builder/flow/tree-validate";
 import type { Flow } from "@/lib/builder/flow/types";
@@ -25,8 +28,8 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}));
   const nodes = Array.isArray(body?.nodes) ? body.nodes : [];
   const edges = Array.isArray(body?.edges) ? body.edges : [];
-  const graph =
-    nodes.length === 0 && edges.length === 0 ? buildDefaultGraph() : null;
+  const workflowId = nanoid();
+  const name = typeof body?.name === "string" && body.name ? body.name : undefined;
   let tree: unknown;
   if (body?.tree !== undefined) {
     if (body.tree === null || typeof body.tree !== "object") {
@@ -44,7 +47,30 @@ export async function POST(request: Request) {
     }
     tree = body.tree;
   }
-  let normalized = {
+  // Sem grafo no corpo (a tela de lista cria com nodes: [], edges: []): o fluxo
+  // nasce no builder novo — árvore (a enviada ou a vazia "Sem gatilho") e o grafo
+  // COMPILADO dela. Nunca o grafo legado (Webhook + Send Message vazio).
+  let graph: { nodes: WorkflowNode[]; edges: WorkflowEdge[] } | null = null;
+  if (nodes.length === 0 && edges.length === 0) {
+    const fallback = buildDefaultWorkflow({ id: workflowId, name });
+    graph = { nodes: fallback.nodes, edges: fallback.edges };
+    if (tree === undefined) {
+      tree = fallback.tree;
+    } else {
+      try {
+        const compiled = compileFlow(tree as Flow);
+        graph = {
+          nodes: compiled.nodes as unknown as WorkflowNode[],
+          edges: compiled.edges as unknown as WorkflowEdge[],
+        };
+      } catch {
+        // Árvore ainda incompleta (rascunho): fica com o grafo da árvore vazia —
+        // o publish recompila a árvore e recusa se ela não compilar.
+      }
+    }
+  }
+  const normalized = {
+    id: workflowId,
     name: body?.name,
     description: body?.description,
     nodes: graph ? graph.nodes : nodes,
@@ -52,16 +78,7 @@ export async function POST(request: Request) {
     tree,
     visibility: body?.visibility,
   };
-  let validation = validateWorkflowSchema(normalized);
-  if (!validation.success && nodes.length === 0 && edges.length === 0) {
-    const fallback = buildDefaultGraph();
-    normalized = {
-      ...normalized,
-      nodes: fallback.nodes,
-      edges: fallback.edges,
-    };
-    validation = validateWorkflowSchema(normalized);
-  }
+  const validation = validateWorkflowSchema(normalized);
   if (!validation.success) {
     return NextResponse.json(
       { error: "Invalid workflow", details: validation.errors },

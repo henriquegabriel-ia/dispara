@@ -3,6 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { normalizePhoneNumber } from "@/lib/phone-formatter";
+import { phoneLookupVariants } from "@/lib/builder/phone-variants";
 
 export type ContactRow = {
   id: string;
@@ -11,26 +12,8 @@ export type ContactRow = {
   tags: unknown;
 };
 
-/**
- * Variantes do telefone para lookup — cobre o "bug do 9" brasileiro (Meta pode
- * entregar o número sem o 9 mesmo que esteja salvo com, e vice-versa) e a
- * presença/ausência do prefixo "+". Mesma lógica do webhook (AutoReply).
- */
-export function phoneLookupVariants(phone: string): string[] {
-  const digits = String(phone).replace(/\D/g, "");
-  if (!digits) return [];
-  const variants = new Set<string>([digits, `+${digits}`]);
-  if (digits.startsWith("55") && digits.length === 12) {
-    const withNine = `${digits.slice(0, 4)}9${digits.slice(4)}`;
-    variants.add(withNine);
-    variants.add(`+${withNine}`);
-  } else if (digits.startsWith("55") && digits.length === 13 && digits[4] === "9") {
-    const withoutNine = `${digits.slice(0, 4)}${digits.slice(5)}`;
-    variants.add(withoutNine);
-    variants.add(`+${withoutNine}`);
-  }
-  return Array.from(variants);
-}
+// Variantes do telefone (bug do 9 + prefixo "+"): ver lib/builder/phone-variants.ts.
+export { phoneLookupVariants };
 
 /** Telefone do contato do fluxo (triggerData.from/to/phone), normalizado E.164. */
 export function resolveContactPhone(

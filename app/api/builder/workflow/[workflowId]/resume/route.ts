@@ -1,17 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { nanoid } from "nanoid";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import {
-  ensureWorkflowRecord,
-  getCompanyId,
-  toSavedWorkflow,
-} from "@/lib/builder/workflow-db";
+import { fetchPublishedRecord, toSavedWorkflow } from "@/lib/builder/workflow-db";
 import { executeWorkflow } from "@/lib/builder/workflow-executor.workflow";
 import { validateWorkflowSchema } from "@/lib/shared/workflow-schema";
-import { completeConversation } from "@/lib/builder/workflow-conversations";
+import {
+  claimConversation,
+  completeConversation,
+} from "@/lib/builder/workflow-conversations";
 import { verifyCronRequest, cronUnauthorizedResponse } from "@/lib/cron-auth";
-import { persistDelayWait } from "@/lib/builder/workflow-enrollments";
-import { normalizePhoneNumber } from "@/lib/phone-formatter";
+import { askButtonsForResumeNode, canonicalAskAnswer } from "@/lib/builder/ask-reply";
+import {
+  closeRunsWaitingOnConversation,
+  settleExecution,
+  type ExecutionShape,
+} from "@/lib/builder/workflow-run-outcome";
 
 /**
  * Retoma um workflow pausado por Ask Question quando o usuário responde.
@@ -19,6 +22,9 @@ import { normalizePhoneNumber } from "@/lib/phone-formatter";
  * Migração QStash→pg_cron (Fase D): antes era serve() do @upstash/workflow. Agora é um
  * POST autenticado chamado pelo webhook. Se o fluxo retomado cair num Delay, ele pausa
  * de novo e persistimos o enrollment (resume_at) aqui também.
+ *
+ * Concorrência: a conversa é "claimada" (CAS waiting → processing) ANTES de executar —
+ * duas respostas quase simultâneas retomam a pergunta uma vez só.
  */
 
 export const dynamic = "force-dynamic";
@@ -30,17 +36,13 @@ type ResumeWorkflowInput = {
     from?: string;
     to?: string;
     message?: string;
+    /** id do botão/item clicado (interactive.button_reply.id / list_reply.id) */
+    replyId?: string;
   };
 };
 
-type ExecutionResultShape = {
-  success?: boolean;
-  paused?: boolean;
-  wait?: { kind: string; resumeNodeIds: string[]; resumeInMs: number };
-  variables?: Record<string, unknown>;
-  resolvedNodeIds?: string[];
-  outputs?: Record<string, unknown>;
-};
+const failed = (error: string) =>
+  NextResponse.json({ executionId: nanoid(), status: "failed", error });
 
 export async function POST(
   request: NextRequest,
@@ -56,20 +58,12 @@ export async function POST(
   const { conversationId, input } = payload;
 
   if (!workflowId || !conversationId) {
-    return NextResponse.json({
-      executionId: nanoid(),
-      status: "failed",
-      error: "Missing workflowId or conversationId",
-    });
+    return failed("Missing workflowId or conversationId");
   }
 
   const supabase = getSupabaseAdmin();
   if (!supabase) {
-    return NextResponse.json({
-      executionId: nanoid(),
-      status: "failed",
-      error: "Supabase not configured",
-    });
+    return failed("Supabase not configured");
   }
 
   const { data: conversation } = await supabase
@@ -80,50 +74,32 @@ export async function POST(
     .maybeSingle();
 
   if (!conversation) {
-    return NextResponse.json({
-      executionId: nanoid(),
-      status: "failed",
-      error: "Conversation not found",
-    });
+    return failed("Conversation not found");
   }
 
   if (conversation.workflow_id !== workflowId) {
-    return NextResponse.json({
-      executionId: nanoid(),
-      status: "failed",
-      error: "Conversation workflow mismatch",
-    });
+    return failed("Conversation workflow mismatch");
   }
 
   const resumeNodeId = conversation.resume_node_id;
   if (!resumeNodeId) {
-    return NextResponse.json({
-      executionId: nanoid(),
-      status: "failed",
-      error: "Conversation missing resume node",
-    });
+    return failed("Conversation missing resume node");
   }
 
   const variableKey = conversation.variable_key;
   if (!variableKey) {
-    return NextResponse.json({
-      executionId: nanoid(),
-      status: "failed",
-      error: "Conversation missing variable key",
-    });
+    return failed("Conversation missing variable key");
   }
 
-  const incomingMessage = String(input?.message || "").trim();
-  if (!incomingMessage) {
-    return NextResponse.json({
-      executionId: nanoid(),
-      status: "failed",
-      error: "Missing inbound message",
-    });
+  const rawMessage = String(input?.message || "").trim();
+  if (!rawMessage) {
+    return failed("Missing inbound message");
   }
 
-  const companyId = await getCompanyId(supabase);
-  const record = await ensureWorkflowRecord(supabase, workflowId, companyId);
+  const record = await fetchPublishedRecord(supabase, workflowId);
+  if (!record) {
+    return failed("Workflow not published");
+  }
   const workflow = toSavedWorkflow(record);
   const validation = validateWorkflowSchema(workflow);
   if (!validation.success) {
@@ -135,11 +111,26 @@ export async function POST(
     });
   }
 
+  // Claim atômico: só uma retomada consome a resposta.
+  const claimed = await claimConversation(supabase, conversation.id);
+  if (!claimed) {
+    return failed("Conversation already answered");
+  }
+
+  // Resposta casa um botão (pelo id clicado ou pelo texto, ignorando maiúsculas,
+  // acentos e espaços) → vira o rótulo exato do botão.
+  const incomingMessage = canonicalAskAnswer(
+    askButtonsForResumeNode(workflow, resumeNodeId),
+    rawMessage,
+    input?.replyId
+  );
+
   const executionId = nanoid();
+  const versionId = record.version.id;
   await supabase.from("workflow_runs").insert({
     id: executionId,
     workflow_id: workflowId,
-    version_id: record.workflow.active_version_id,
+    version_id: versionId,
     status: "running",
     trigger_type: "Resume",
     input: input ?? {},
@@ -147,80 +138,54 @@ export async function POST(
   });
 
   const conversationVars =
-    (conversation.variables as Record<string, unknown> | null) || {};
+    (claimed.variables as Record<string, unknown> | null) || {};
   const nextVariables = {
     ...conversationVars,
     [variableKey]: incomingMessage,
   };
   const fromPhone = String(
-    input?.from || conversation.phone || input?.to || ""
+    input?.from || claimed.phone || input?.to || ""
   );
 
-  const execution = (await executeWorkflow({
-    nodes: workflow.nodes,
-    edges: workflow.edges,
-    triggerInput: {
-      from: fromPhone,
-      to: fromPhone,
-      message: incomingMessage,
-    },
-    executionId,
-    workflowId,
-    startNodeIds: [resumeNodeId],
-    initialVariables: nextVariables,
-    workflowSettings: workflow.settings,
-  })) as ExecutionResultShape;
+  let execution: ExecutionShape;
+  try {
+    execution = (await executeWorkflow({
+      nodes: workflow.nodes,
+      edges: workflow.edges,
+      triggerInput: {
+        from: fromPhone,
+        to: fromPhone,
+        message: incomingMessage,
+      },
+      executionId,
+      workflowId,
+      startNodeIds: [resumeNodeId],
+      initialVariables: nextVariables,
+      workflowSettings: workflow.settings,
+    })) as ExecutionShape;
+  } finally {
+    // A resposta foi consumida: encerra a conversa do ask-question (mesmo se a
+    // execução falhar — nunca reprocessar a mesma resposta).
+    await completeConversation(supabase, conversation.id, nextVariables);
+  }
 
-  // A resposta foi consumida: encerra a conversa do ask-question.
-  await completeConversation(supabase, conversation.id, nextVariables);
+  // A run que pausou na pergunta deixa de ficar "waiting".
+  await closeRunsWaitingOnConversation(supabase, workflowId, conversation.id, executionId);
 
   // Se o fluxo retomado caiu num Delay, pausa de novo — persiste o enrollment.
-  if (execution.paused && execution.wait?.kind === "delay") {
-    const phone = normalizePhoneNumber(fromPhone);
-    if (phone) {
-      await persistDelayWait(supabase, {
-        workflowId,
-        versionId: record.workflow.active_version_id ?? "",
-        phone,
-        runId: executionId,
-        resumeNodeIds: execution.wait.resumeNodeIds,
-        resumeAt: new Date(
-          Date.now() + (execution.wait.resumeInMs || 0)
-        ).toISOString(),
-        variables: execution.variables ?? nextVariables,
-        resolvedNodeIds: execution.resolvedNodeIds ?? [],
-        outputs: execution.outputs ?? {},
-      });
-      await supabase
-        .from("workflow_runs")
-        .update({
-          status: "waiting",
-          output: { status: "waiting", waitKind: "delay" },
-          finished_at: null,
-        })
-        .eq("id", executionId);
-    } else {
-      console.error(
-        "[builder/resume] Delay pausou sem telefone de retomada — marcando run como failed."
-      );
-      await supabase
-        .from("workflow_runs")
-        .update({
-          status: "failed",
-          error: "Delay sem telefone de retomada",
-          finished_at: new Date().toISOString(),
-        })
-        .eq("id", executionId);
-    }
-  }
+  const status = await settleExecution(supabase, {
+    workflowId,
+    versionId,
+    executionId,
+    phoneRaw: fromPhone,
+    execution,
+    fallbackVariables: nextVariables,
+    logPrefix: "[builder/resume]",
+  });
 
   return NextResponse.json({
     executionId,
-    status: execution.paused
-      ? "waiting"
-      : execution.success
-        ? "success"
-        : "failed",
+    status,
     output: execution,
   });
 }

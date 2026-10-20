@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { ensureWorkflowRecord, getCompanyId } from "@/lib/builder/workflow-db";
+import { fetchWorkflowRecord } from "@/lib/builder/workflow-db";
 
 type RouteParams = {
   params: Promise<{ executionId: string }>;
@@ -37,12 +37,24 @@ export async function GET(request: Request, { params }: RouteParams) {
 
   const { data: logs } = await logsQuery;
 
-  const companyId = await getCompanyId(supabase);
-  const workflowRecord = await ensureWorkflowRecord(
-    supabase,
-    execution.workflow_id,
-    companyId
-  );
+  // Grafo da versão que RODOU (a run guarda version_id); sem ela, a versão
+  // ativa. Leitura nunca cria o workflow.
+  let graph: { nodes: unknown[]; edges: unknown[] } = { nodes: [], edges: [] };
+  const { data: ranVersion } = execution.version_id
+    ? await supabase
+        .from("workflow_versions")
+        .select("nodes, edges")
+        .eq("id", execution.version_id)
+        .maybeSingle()
+    : { data: null };
+  if (ranVersion) {
+    graph = { nodes: ranVersion.nodes ?? [], edges: ranVersion.edges ?? [] };
+  } else {
+    const workflowRecord = await fetchWorkflowRecord(supabase, execution.workflow_id);
+    if (workflowRecord) {
+      graph = { nodes: workflowRecord.version.nodes, edges: workflowRecord.version.edges };
+    }
+  }
 
   const mappedLogs = (logs || []).map((log) => ({
     id: String(log.id),
@@ -62,10 +74,7 @@ export async function GET(request: Request, { params }: RouteParams) {
   return NextResponse.json({
     execution: {
       id: execution.id,
-      workflow: {
-        nodes: workflowRecord.version.nodes,
-        edges: workflowRecord.version.edges,
-      },
+      workflow: graph,
     },
     logs: mappedLogs,
   });

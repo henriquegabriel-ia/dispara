@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("server-only", () => ({}));
+
 let configuredSecret: string | null = null;
 
 vi.mock("@/lib/supabase-db", () => ({
@@ -14,9 +16,9 @@ vi.mock("@/lib/supabase", () => ({
 
 vi.mock("@/lib/builder/workflow-db", () => ({
   getCompanyId: vi.fn(async () => "company-1"),
-  ensureWorkflowRecord: vi.fn(async () => ({
+  fetchPublishedRecord: vi.fn(async () => ({
     workflow: { id: "wf-1", active_version_id: "ver-1" },
-    version: { nodes: [], edges: [] },
+    version: { id: "ver-1", status: "published", nodes: [], edges: [] },
   })),
   toSavedWorkflow: vi.fn(() => ({ nodes: [], edges: [] })),
 }));

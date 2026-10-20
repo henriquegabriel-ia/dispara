@@ -1,16 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { nanoid } from "nanoid";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import {
-  ensureWorkflowRecord,
-  getCompanyId,
-  toSavedWorkflow,
-} from "@/lib/builder/workflow-db";
+import { fetchPublishedRecord, toSavedWorkflow } from "@/lib/builder/workflow-db";
 import { executeWorkflow } from "@/lib/builder/workflow-executor.workflow";
 import { validateWorkflowSchema } from "@/lib/shared/workflow-schema";
 import { verifyCronRequest, cronUnauthorizedResponse } from "@/lib/cron-auth";
-import { persistDelayWait } from "@/lib/builder/workflow-enrollments";
-import { normalizePhoneNumber } from "@/lib/phone-formatter";
+import { matchesKeyword, parseKeywordList } from "@/lib/builder/keyword-match";
+import { isPhoneBlocked } from "@/lib/builder/contact-eligibility";
+import {
+  settleExecution,
+  type ExecutionShape,
+} from "@/lib/builder/workflow-run-outcome";
 
 /**
  * Executa um workflow do builder.
@@ -21,6 +21,9 @@ import { normalizePhoneNumber } from "@/lib/phone-formatter";
  * executor pausa e devolve o ponto de continuação — aqui persistimos o enrollment com
  * resume_at, e o cron drena/retoma depois. Ask-question segue persistindo inline
  * (workflow_conversations).
+ *
+ * Só roda a versão PUBLICADA (workflows.active_version_id com status 'published'):
+ * fluxo nunca publicado, excluído ou inexistente não executa (e nunca é criado aqui).
  */
 
 export const dynamic = "force-dynamic";
@@ -35,16 +38,11 @@ type BuilderWorkflowInput = {
   };
   startNodeIds?: string[];
   initialVariables?: Record<string, unknown>;
-};
-
-type ExecutionResultShape = {
-  success?: boolean;
-  paused?: boolean;
-  wait?: { kind: string; resumeNodeIds: string[]; resumeInMs: number };
-  variables?: Record<string, unknown>;
-  resolvedNodeIds?: string[];
-  outputs?: Record<string, unknown>;
-  results?: unknown;
+  /**
+   * Por que o webhook despachou: "default" = fluxo padrão (a mensagem NÃO casou
+   * palavra-chave nenhuma) — o gate de Palavras-chave não se aplica.
+   */
+  dispatch?: "keyword" | "default" | "campaign_reply";
 };
 
 export async function POST(
@@ -69,8 +67,14 @@ export async function POST(
     });
   }
 
-  const companyId = await getCompanyId(supabase);
-  const record = await ensureWorkflowRecord(supabase, workflowId, companyId);
+  const record = await fetchPublishedRecord(supabase, workflowId);
+  if (!record) {
+    return NextResponse.json({
+      executionId: nanoid(),
+      status: "failed",
+      error: "Workflow not published",
+    });
+  }
   const workflow = toSavedWorkflow(record);
   const validation = validateWorkflowSchema(workflow);
   if (!validation.success) {
@@ -89,63 +93,59 @@ export async function POST(
     | string
     | undefined;
   const inboundMessage = input?.message || "";
+  const versionId = record.version.id;
 
   const executionId = nanoid();
   await supabase.from("workflow_runs").insert({
     id: executionId,
     workflow_id: workflowId,
-    version_id: record.workflow.active_version_id,
+    version_id: versionId,
     status: "running",
     trigger_type: triggerType ?? null,
     input: input ?? {},
     started_at: new Date().toISOString(),
   });
 
-  // Gate de Keywords — só no disparo inicial (não em resume, que passa startNodeIds).
-  if (triggerType === "Keywords" && !payload.startNodeIds) {
-    const keywordListRaw = triggerNode?.data.config?.keywordList as
-      | string
-      | undefined;
-    const keywords = (keywordListRaw || "")
-      .split(/\r?\n/)
-      .map((entry) => entry.trim())
-      .filter(Boolean);
-    const normalizedMessage = inboundMessage.toLowerCase();
-
-    if (!normalizedMessage) {
-      await supabase
-        .from("workflow_runs")
-        .update({
-          status: "skipped",
-          output: { reason: "missing_message" },
-          finished_at: new Date().toISOString(),
-        })
-        .eq("id", executionId);
-      return NextResponse.json({
-        executionId,
+  const skip = async (reason: string) => {
+    await supabase
+      .from("workflow_runs")
+      .update({
         status: "skipped",
-        output: { reason: "missing_message" },
-      });
-    }
+        output: { reason },
+        finished_at: new Date().toISOString(),
+      })
+      .eq("id", executionId);
+    return NextResponse.json({
+      executionId,
+      status: "skipped",
+      output: { reason },
+    });
+  };
 
-    const matched = keywords.some((keyword) =>
-      normalizedMessage.includes(keyword.toLowerCase())
-    );
-    if (!matched) {
-      await supabase
-        .from("workflow_runs")
-        .update({
-          status: "skipped",
-          output: { reason: "keyword_not_matched" },
-          finished_at: new Date().toISOString(),
-        })
-        .eq("id", executionId);
-      return NextResponse.json({
-        executionId,
-        status: "skipped",
-        output: { reason: "keyword_not_matched" },
-      });
+  // Gate de Keywords — só no disparo inicial (não em resume, que passa
+  // startNodeIds) e não quando o webhook despachou o fluxo como PADRÃO. Mesma
+  // regra do webhook (lib/builder/keyword-match): match exato normalizado.
+  if (
+    triggerType === "Keywords" &&
+    !payload.startNodeIds &&
+    payload.dispatch !== "default"
+  ) {
+    if (!inboundMessage.trim()) return skip("missing_message");
+    const keywords = parseKeywordList(triggerNode?.data.config?.keywordList);
+    if (!matchesKeyword(keywords, inboundMessage)) return skip("keyword_not_matched");
+  }
+
+  // Opt-out / supressão: quem pediu para sair não recebe o fluxo (na dúvida —
+  // erro ao consultar — também não envia).
+  const contactPhone = String(input?.from || input?.to || "");
+  if (contactPhone) {
+    let blocked = true;
+    try {
+      blocked = await isPhoneBlocked(supabase, contactPhone);
+    } catch (error) {
+      console.error("[builder/execute] Falha ao checar supressão:", error);
     }
+    if (blocked) return skip("contact_opted_out");
   }
 
   const execution = (await executeWorkflow({
@@ -157,60 +157,20 @@ export async function POST(
     startNodeIds: payload.startNodeIds,
     initialVariables: payload.initialVariables,
     workflowSettings: workflow.settings,
-  })) as ExecutionResultShape;
+  })) as ExecutionShape;
 
-  // Delay durável: o executor pausou por Delay — persiste o enrollment com resume_at.
-  if (execution.paused && execution.wait?.kind === "delay") {
-    const phone = normalizePhoneNumber(
-      String(input?.from || input?.to || "")
-    );
-    if (phone) {
-      await persistDelayWait(supabase, {
-        workflowId,
-        versionId: record.workflow.active_version_id ?? "",
-        phone,
-        runId: executionId,
-        resumeNodeIds: execution.wait.resumeNodeIds,
-        resumeAt: new Date(
-          Date.now() + (execution.wait.resumeInMs || 0)
-        ).toISOString(),
-        variables: execution.variables ?? {},
-        resolvedNodeIds: execution.resolvedNodeIds ?? [],
-        outputs: execution.outputs ?? {},
-      });
-      // Run em espera (não deixar 'running' órfão — igual ao ask-question).
-      await supabase
-        .from("workflow_runs")
-        .update({
-          status: "waiting",
-          output: { status: "waiting", waitKind: "delay" },
-          finished_at: null,
-        })
-        .eq("id", executionId);
-    } else {
-      // Pausou por Delay mas sem telefone pra retomar: seria um buraco silencioso
-      // (run 'running' pra sempre). Falha visível.
-      console.error(
-        "[builder/execute] Delay pausou sem telefone de retomada — marcando run como failed."
-      );
-      await supabase
-        .from("workflow_runs")
-        .update({
-          status: "failed",
-          error: "Delay sem telefone de retomada",
-          finished_at: new Date().toISOString(),
-        })
-        .eq("id", executionId);
-    }
-  }
+  const status = await settleExecution(supabase, {
+    workflowId,
+    versionId,
+    executionId,
+    phoneRaw: contactPhone,
+    execution,
+    logPrefix: "[builder/execute]",
+  });
 
   return NextResponse.json({
     executionId,
-    status: execution.paused
-      ? "waiting"
-      : execution.success
-        ? "success"
-        : "failed",
+    status,
     output: execution,
   });
 }

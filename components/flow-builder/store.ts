@@ -9,6 +9,7 @@
 //     Timeout) — sem suporte no executor v1; a pergunta fica só botões + else.
 //   - updateStep no-op não empurra snapshot de undo (identidade preservada
 //     pelas operations).
+//   - undo/redo por snapshots (past/future); qualquer mutação nova limpa o redo.
 
 import { create } from "zustand";
 import {
@@ -40,17 +41,22 @@ export interface PickerState {
 interface FlowBuilderStore {
   flow: Flow | null;
   past: Flow[]; // undo por snapshot, até 50
+  /** redo: snapshots desfeitos (qualquer mutação nova limpa) */
+  future: Flow[];
   /** bump a cada mutação persistível — o hook de autosave observa isto */
   rev: number;
   saveMode: SaveMode;
   selectedStepId: string | null;
   picker: PickerState | null;
   pickingGotoId: string | null;
+  /** o painel de config aberto tem edição não salva (pergunta antes de descartar) */
+  panelDirty: boolean;
 
   loadFlow: (flow: Flow) => void;
   reset: () => void;
 
   select: (id: string | null) => void;
+  setPanelDirty: (dirty: boolean) => void;
   openPicker: (slot: Slot, pos: { x: number; y: number }) => void;
   closePicker: () => void;
   insertStep: (type: StepType) => void;
@@ -70,6 +76,17 @@ interface FlowBuilderStore {
   cancelGotoPick: () => void;
   chooseGotoTarget: (targetId: string) => void;
   undo: () => void;
+  redo: () => void;
+}
+
+/**
+ * Trocar/fechar o painel com edição não salva: pergunta antes de descartar
+ * (trigger-draft-discard). true = pode seguir.
+ */
+function confirmDiscardPanel(get: () => { panelDirty: boolean }): boolean {
+  if (!get().panelDirty) return true;
+  if (typeof window === "undefined") return true;
+  return window.confirm("Descartar as alterações não salvas deste painel?");
 }
 
 const pushPast = (past: Flow[], flow: Flow): Flow[] => [
@@ -80,33 +97,46 @@ const pushPast = (past: Flow[], flow: Flow): Flow[] => [
 export const useFlowBuilderStore = create<FlowBuilderStore>((set, get) => ({
   flow: null,
   past: [],
+  future: [],
   rev: 0,
   saveMode: "config",
   selectedStepId: null,
   picker: null,
   pickingGotoId: null,
+  panelDirty: false,
 
   loadFlow: (flow) =>
     set({
       flow,
       past: [],
+      future: [],
       rev: 0,
       selectedStepId: null,
       picker: null,
       pickingGotoId: null,
+      panelDirty: false,
     }),
 
   reset: () =>
     set({
       flow: null,
       past: [],
+      future: [],
       rev: 0,
       selectedStepId: null,
       picker: null,
       pickingGotoId: null,
+      panelDirty: false,
     }),
 
-  select: (id) => set({ selectedStepId: id, picker: null }),
+  select: (id) => {
+    const { selectedStepId } = get();
+    if (id !== selectedStepId && !confirmDiscardPanel(get)) return;
+    set({ selectedStepId: id, picker: null, panelDirty: id === selectedStepId && get().panelDirty });
+  },
+  setPanelDirty: (dirty) => {
+    if (get().panelDirty !== dirty) set({ panelDirty: dirty });
+  },
 
   openPicker: (slot, pos) => set({ picker: { slot, x: pos.x, y: pos.y } }),
   closePicker: () => set({ picker: null }),
@@ -114,6 +144,11 @@ export const useFlowBuilderStore = create<FlowBuilderStore>((set, get) => ({
   insertStep: (type) => {
     const { flow, picker, past, rev } = get();
     if (!flow || !picker) return;
+    // o passo novo abre no painel: o rascunho do painel atual seria perdido
+    if (!confirmDiscardPanel(get)) {
+      set({ picker: null });
+      return;
+    }
     const res = addStep(flow, { type, slot: picker.slot });
     if (res.flow === flow) {
       // no-op da operação (ex.: terminal em slot com cauda) → não polui o undo
@@ -133,22 +168,26 @@ export const useFlowBuilderStore = create<FlowBuilderStore>((set, get) => ({
     set({
       flow: nextFlow,
       past: pushPast(past, flow),
+      future: [],
       rev: rev + 1,
       saveMode: "structural",
       picker: null,
       selectedStepId: res.stepId,
+      panelDirty: false,
     });
   },
 
   removeStep: (id) => {
     const { flow, past, rev, selectedStepId } = get();
-    if (!flow) return;
+    if (!flow || !findStep(flow, id)) return; // id inexistente: nada a desfazer/salvar
     set({
       flow: deleteStep(flow, id),
       past: pushPast(past, flow),
+      future: [],
       rev: rev + 1,
       saveMode: "structural",
       selectedStepId: selectedStepId === id ? null : selectedStepId,
+      ...(selectedStepId === id ? { panelDirty: false } : {}),
     });
   },
 
@@ -160,6 +199,7 @@ export const useFlowBuilderStore = create<FlowBuilderStore>((set, get) => ({
     set({
       flow: next,
       past: pushPast(past, flow),
+      future: [],
       rev: rev + 1,
       saveMode: "config",
     });
@@ -173,6 +213,7 @@ export const useFlowBuilderStore = create<FlowBuilderStore>((set, get) => ({
     set({
       flow: next,
       past: pushPast(past, flow),
+      future: [],
       rev: rev + 1,
       saveMode: "config",
     });
@@ -180,10 +221,11 @@ export const useFlowBuilderStore = create<FlowBuilderStore>((set, get) => ({
 
   addBranchTo: (id) => {
     const { flow, past, rev } = get();
-    if (!flow) return;
+    if (!flow || !findStep(flow, id)?.branches?.length) return; // sem branches: no-op
     set({
       flow: addBranch(flow, id),
       past: pushPast(past, flow),
+      future: [],
       rev: rev + 1,
       saveMode: "structural",
     });
@@ -195,6 +237,7 @@ export const useFlowBuilderStore = create<FlowBuilderStore>((set, get) => ({
     set({
       flow: { ...flow, name },
       past: pushPast(past, flow),
+      future: [],
       rev: rev + 1,
       saveMode: "config",
     });
@@ -209,6 +252,7 @@ export const useFlowBuilderStore = create<FlowBuilderStore>((set, get) => ({
     set({
       flow: setGotoTarget(flow, pickingGotoId, targetId),
       past: pushPast(past, flow),
+      future: [],
       rev: rev + 1,
       saveMode: "structural",
       pickingGotoId: null,
@@ -216,17 +260,38 @@ export const useFlowBuilderStore = create<FlowBuilderStore>((set, get) => ({
   },
 
   undo: () => {
-    const { past, rev, selectedStepId } = get();
-    if (past.length === 0) return;
+    const { flow, past, future, rev, selectedStepId } = get();
+    if (past.length === 0 || !flow) return;
     const prev = past[past.length - 1];
     set({
       flow: prev,
       past: past.slice(0, -1),
+      future: [...future.slice(-(MAX_HISTORY - 1)), flow],
       rev: rev + 1,
       saveMode: "structural",
       selectedStepId:
         selectedStepId &&
         (selectedStepId === TRIGGER_SELECTION_ID || findStep(prev, selectedStepId))
+          ? selectedStepId
+          : null,
+      picker: null,
+      pickingGotoId: null,
+    });
+  },
+
+  redo: () => {
+    const { flow, past, future, rev, selectedStepId } = get();
+    if (future.length === 0 || !flow) return;
+    const next = future[future.length - 1];
+    set({
+      flow: next,
+      past: pushPast(past, flow),
+      future: future.slice(0, -1),
+      rev: rev + 1,
+      saveMode: "structural",
+      selectedStepId:
+        selectedStepId &&
+        (selectedStepId === TRIGGER_SELECTION_ID || findStep(next, selectedStepId))
           ? selectedStepId
           : null,
       picker: null,

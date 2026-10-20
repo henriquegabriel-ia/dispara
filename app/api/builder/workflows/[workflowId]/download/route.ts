@@ -1,10 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import {
-  ensureWorkflowRecord,
-  getCompanyId,
-  toSavedWorkflow,
-} from "@/lib/builder/workflow-db";
+import { fetchEditorRecord, toSavedWorkflow } from "@/lib/builder/workflow-db";
 
 type RouteParams = {
   params: Promise<{ workflowId: string }>;
@@ -19,8 +15,11 @@ export async function GET(_request: Request, { params }: RouteParams) {
       { status: 400 }
     );
   }
-  const companyId = await getCompanyId(supabase);
-  const record = await ensureWorkflowRecord(supabase, workflowId, companyId);
+  // Leitura nunca cria: id inexistente → 404.
+  const record = await fetchEditorRecord(supabase, workflowId);
+  if (!record) {
+    return NextResponse.json({ error: "Workflow não encontrado" }, { status: 404 });
+  }
   const workflow = toSavedWorkflow(record);
   return NextResponse.json({
     name: workflow.name,

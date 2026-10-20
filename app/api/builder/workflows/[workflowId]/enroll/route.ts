@@ -4,6 +4,8 @@ import { fetchWorkflowRecord } from "@/lib/builder/workflow-db";
 import { parseWorkflowSettings } from "@/lib/builder/workflow-settings";
 import { TRIGGER_NODE_ID } from "@/lib/builder/flow/compile";
 import { normalizePhoneNumber } from "@/lib/phone-formatter";
+import { parsePhoneNumber } from "libphonenumber-js";
+import { findBlockedPhones } from "@/lib/builder/contact-eligibility";
 
 /**
  * Inscrição manual/bulk de contatos num workflow PUBLICADO — o "Add to
@@ -14,7 +16,21 @@ import { normalizePhoneNumber } from "@/lib/phone-formatter";
  * (drainWorkflowEnrollments) retoma no próximo tick e ganha de graça claim
  * atômico, backoff, anti-poison e o UNIQUE parcial (workflow_id, phone) que
  * deduplica inscrições ativas. Throughput: ~25 contatos/min (limite do drain).
+ *
+ * Nunca inscreve: telefone inválido, contato com opt-out/supressão ativa (mesma
+ * regra do disparo de campanhas) nem quem já está ativo no fluxo.
  */
+
+/** Telefone E.164 plausível (DDI + tamanho possível) — "123" não é inscrito. */
+function validPhone(raw: string): string | null {
+  const phone = normalizePhoneNumber(raw);
+  if (!phone || !/^\+\d{8,15}$/.test(phone)) return null;
+  try {
+    return parsePhoneNumber(phone).isPossible() ? phone : null;
+  } catch {
+    return null;
+  }
+}
 
 type RouteParams = {
   params: Promise<{ workflowId: string }>;
@@ -56,8 +72,12 @@ export async function POST(request: Request, { params }: RouteParams) {
       { status: 404 }
     );
   }
-  // Como no GHL, só workflows publicados aceitam inscrição em massa.
-  if (record.workflow.status !== "published") {
+  // Como no GHL, só workflows publicados aceitam inscrição em massa (a versão
+  // ativa — a que o drain executa — precisa ser a publicada).
+  if (
+    record.workflow.status !== "published" ||
+    record.version.status !== "published"
+  ) {
     return NextResponse.json(
       { error: "Publique o workflow antes de adicionar contatos" },
       { status: 409 }
@@ -83,12 +103,12 @@ export async function POST(request: Request, { params }: RouteParams) {
       .select("id, phone")
       .in("id", contactIds);
     for (const c of contacts ?? []) {
-      const phone = normalizePhoneNumber(String((c as { phone: string }).phone));
+      const phone = validPhone(String((c as { phone: string }).phone ?? ""));
       if (phone) targets.set(phone, { contactId: (c as { id: string }).id });
     }
   }
   for (const raw of rawPhones) {
-    const phone = normalizePhoneNumber(raw);
+    const phone = validPhone(raw);
     if (phone && !targets.has(phone)) targets.set(phone, { contactId: null });
   }
   if (targets.size === 0) {
@@ -98,17 +118,17 @@ export async function POST(request: Request, { params }: RouteParams) {
     );
   }
 
-  // Allow Re-entry desligado → quem JÁ participou (qualquer status de
-  // enrollment) não entra de novo.
-  const settings = parseWorkflowSettings(record.workflow.settings);
-  let blocked = new Set<string>();
-  if (settings.allowReentry === false) {
-    const { data: prior } = await supabase
-      .from("workflow_enrollments")
-      .select("phone")
-      .eq("workflow_id", workflowId)
-      .in("phone", Array.from(targets.keys()));
-    blocked = new Set((prior ?? []).map((r) => String((r as { phone: string }).phone)));
+  // Opt-out / supressão ativa: nunca entra (na dúvida — erro ao consultar — não
+  // inscreve ninguém).
+  let optedOut: Set<string>;
+  try {
+    optedOut = await findBlockedPhones(supabase, Array.from(targets.keys()));
+  } catch (error) {
+    console.error("[builder/enroll] Falha ao checar supressões:", error);
+    return NextResponse.json(
+      { error: "Não foi possível verificar opt-out dos contatos. Tente de novo." },
+      { status: 503 }
+    );
   }
 
   // Quem já está ATIVO no fluxo não é re-inscrito (o UNIQUE parcial rejeitaria
@@ -123,16 +143,38 @@ export async function POST(request: Request, { params }: RouteParams) {
     (activeRows ?? []).map((r) => String((r as { phone: string }).phone))
   );
 
+  // Allow Re-entry desligado → quem JÁ participou (qualquer status de
+  // enrollment) não entra de novo. Quem está ativo conta só em alreadyActive
+  // (cada telefone entra em UM contador: os números do toast fecham).
+  const settings = parseWorkflowSettings(record.workflow.settings);
+  let blocked = new Set<string>();
+  if (settings.allowReentry === false) {
+    const { data: prior } = await supabase
+      .from("workflow_enrollments")
+      .select("phone")
+      .eq("workflow_id", workflowId)
+      .in("phone", Array.from(targets.keys()));
+    blocked = new Set(
+      (prior ?? [])
+        .map((r) => String((r as { phone: string }).phone))
+        .filter((phone) => !alreadyActive.has(phone) && !optedOut.has(phone))
+    );
+  }
+
   const nowIso = new Date().toISOString();
   const rows = Array.from(targets.entries())
-    .filter(([phone]) => !blocked.has(phone) && !alreadyActive.has(phone))
+    .filter(
+      ([phone]) =>
+        !blocked.has(phone) && !alreadyActive.has(phone) && !optedOut.has(phone)
+    )
     .map(([phone, { contactId }]) => ({
       workflow_id: workflowId,
-      version_id: record.workflow.active_version_id,
+      version_id: record.version.id,
       phone,
       contact_id: contactId,
       status: "waiting",
-      wait_kind: "delay",
+      // pontapé da inscrição (não é um "Aguardar": o Stop on Response não cancela)
+      wait_kind: "enroll",
       current_node_id: heads[0] ?? null,
       resume_node_ids: heads,
       resume_at: nowIso,
@@ -182,7 +224,8 @@ export async function POST(request: Request, { params }: RouteParams) {
     success: true,
     requested: targets.size,
     enrolled,
-    alreadyActive: alreadyActive.size,
+    alreadyActive: Array.from(alreadyActive).filter((phone) => !optedOut.has(phone)).length,
     blockedByReentry: blocked.size,
+    ...(optedOut.size > 0 ? { blockedByOptOut: optedOut.size } : {}),
   });
 }

@@ -7,11 +7,15 @@ import { Plus } from "lucide-react";
 import type { Slot } from "@/lib/builder/flow/types";
 import { useFlowBuilderStore } from "../store";
 
-/** "+" folha no fim de uma cadeia aberta (sem END e sem convergência). */
+/**
+ * "+" folha no fim de uma cadeia aberta (sem END e sem convergência) — ou o "+"
+ * da continuação de um Perguntar/Condição (com `label`, abaixo do bloco de
+ * branches ou no ponto de junção com o próximo passo).
+ */
 const PlusLeafNode = memo(function PlusLeafNode({ data }: NodeProps) {
-  const { slot } = data as unknown as { slot: Slot };
+  const { slot, label } = data as unknown as { slot: Slot; label?: string };
   return (
-    <div className="h-full w-full">
+    <div className="relative h-full w-full">
       <Handle type="target" position={Position.Top} />
       <button
         type="button"
@@ -22,10 +26,16 @@ const PlusLeafNode = memo(function PlusLeafNode({ data }: NodeProps) {
             .getState()
             .openPicker(slot, { x: e.clientX, y: e.clientY });
         }}
-        aria-label="Adicionar ação"
+        aria-label={label ? `Adicionar ação: ${label}` : "Adicionar ação"}
+        title={label}
       >
         <Plus size={16} />
       </button>
+      {label && (
+        <span className="pointer-events-none absolute top-1/2 left-full ml-2 -translate-y-1/2 rounded-full border border-eia-border bg-eia-surface px-2 py-0.5 text-[11px] whitespace-nowrap text-eia-muted">
+          {label}
+        </span>
+      )}
     </div>
   );
 });

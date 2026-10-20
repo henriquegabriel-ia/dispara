@@ -14,6 +14,14 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const MAX_ENROLLMENT_ATTEMPTS = 5;
 
+/**
+ * Tipo da espera (workflow_enrollments.wait_kind):
+ *   - "delay":  passo Aguardar — o único que o Stop on Response cancela;
+ *   - "window": pausa fora da janela de horário (settings.timeWindow);
+ *   - "enroll": inscrição manual ainda não iniciada (pontapé do /enroll).
+ */
+export type EnrollmentWaitKind = "delay" | "window" | "enroll";
+
 export type EnrollmentRow = {
   id: string;
   workflow_id: string;
@@ -43,12 +51,13 @@ export type DelayWaitParams = {
   variables: Record<string, unknown>;
   resolvedNodeIds: string[];
   outputs: Record<string, unknown>;
+  waitKind?: EnrollmentWaitKind;
 };
 
 function delayPayload(params: DelayWaitParams) {
   return {
     status: "waiting",
-    wait_kind: "delay",
+    wait_kind: params.waitKind ?? "delay",
     current_node_id: params.resumeNodeIds[0] ?? null,
     resume_node_ids: params.resumeNodeIds,
     resume_at: params.resumeAt,
@@ -68,28 +77,41 @@ function delayPayload(params: DelayWaitParams) {
  * Idempotente e seguro sob concorrência: só toca linhas 'waiting' (nunca 'active', que
  * está sendo processada pelo drain), e trata a violação do índice único parcial
  * (23505 — duas pausas concorrentes pro mesmo contato) sem propagar erro.
+ *
+ * Retorna se a espera ficou GRAVADA. false = nada persistido (erro do banco ou
+ * conflito com um enrollment 'active'): quem chama não pode deixar a run
+ * "waiting" — o contato nunca seria retomado.
  */
 export async function persistDelayWait(
   supabase: SupabaseClient,
   params: DelayWaitParams
-): Promise<void> {
+): Promise<boolean> {
   const shared = delayPayload(params);
 
-  const { data: existing } = await supabase
+  const { data: existing, error: lookupError } = await supabase
     .from("workflow_enrollments")
     .select("id")
     .eq("workflow_id", params.workflowId)
     .eq("phone", params.phone)
     .eq("status", "waiting")
     .maybeSingle();
+  if (lookupError) {
+    console.error("[workflow-enrollments] Falha ao ler a espera existente:", lookupError.message);
+    return false;
+  }
 
   if (existing) {
-    await supabase
+    const { data: updated, error: updateError } = await supabase
       .from("workflow_enrollments")
       .update(shared)
       .eq("id", (existing as { id: string }).id)
-      .eq("status", "waiting"); // CAS: não rouba linha que o drain acabou de claimar
-    return;
+      .eq("status", "waiting") // CAS: não rouba linha que o drain acabou de claimar
+      .select("id");
+    if (updateError) {
+      console.error("[workflow-enrollments] Falha ao atualizar a espera:", updateError.message);
+      return false;
+    }
+    return Array.isArray(updated) && updated.length > 0;
   }
 
   const now = new Date().toISOString();
@@ -103,15 +125,19 @@ export async function persistDelayWait(
   });
 
   if (error) {
+    console.error("[workflow-enrollments] Falha ao gravar a espera:", error.message);
     // Provável 23505 (unique parcial): outra pausa concorrente já criou/está ativa.
     // Best-effort: atualiza só se ainda houver uma linha 'waiting' (não pisa em 'active').
-    await supabase
+    const { data: updated } = await supabase
       .from("workflow_enrollments")
       .update(shared)
       .eq("workflow_id", params.workflowId)
       .eq("phone", params.phone)
-      .eq("status", "waiting");
+      .eq("status", "waiting")
+      .select("id");
+    return Array.isArray(updated) && updated.length > 0;
   }
+  return true;
 }
 
 /**
@@ -173,7 +199,15 @@ export async function reapStuckEnrollments(
   return (data || []).length;
 }
 
-/** Enrollment retomado encontrou OUTRO Delay: reagenda o mesmo enrollment. */
+/**
+ * Enrollment retomado encontrou OUTRO Delay (ou a janela de horário): reagenda o
+ * mesmo enrollment. A retomada deu certo, então as tentativas ZERAM — attempts
+ * mede só falhas consecutivas da mesma retomada (anti-poison), não quantas
+ * esperas o fluxo tem.
+ *
+ * CAS em 'active': se o contato respondeu durante a retomada e o Stop on Response
+ * cancelou o enrollment, ele NÃO volta para a fila. Retorna se reagendou.
+ */
 export async function rescheduleEnrollment(
   supabase: SupabaseClient,
   id: string,
@@ -183,24 +217,32 @@ export async function rescheduleEnrollment(
     variables: Record<string, unknown>;
     resolvedNodeIds: string[];
     outputs: Record<string, unknown>;
+    waitKind?: EnrollmentWaitKind;
+    /** run que pausou agora (a próxima retomada o finaliza) */
+    runId?: string | null;
   }
-): Promise<void> {
-  await supabase
+): Promise<boolean> {
+  const { data } = await supabase
     .from("workflow_enrollments")
     .update({
       status: "waiting",
-      wait_kind: "delay",
+      wait_kind: params.waitKind ?? "delay",
       current_node_id: params.resumeNodeIds[0] ?? null,
       resume_node_ids: params.resumeNodeIds,
       resume_at: params.resumeAt,
       variables: params.variables,
       resolved_nodes: params.resolvedNodeIds,
       outputs: params.outputs,
+      attempts: 0,
+      ...(params.runId !== undefined ? { run_id: params.runId } : {}),
       locked_at: null,
       locked_by: null,
       updated_at: new Date().toISOString(),
     })
-    .eq("id", id);
+    .eq("id", id)
+    .eq("status", "active")
+    .select("id");
+  return Array.isArray(data) && data.length > 0;
 }
 
 /** Backoff: erro transitório no drain → reagenda pro futuro em vez de falhar em definitivo. */
@@ -221,7 +263,8 @@ export async function backoffEnrollment(
       locked_by: null,
       updated_at: new Date().toISOString(),
     })
-    .eq("id", id);
+    .eq("id", id)
+    .eq("status", "active"); // não ressuscita um enrollment cancelado
 }
 
 export async function completeEnrollment(
@@ -232,6 +275,25 @@ export async function completeEnrollment(
     .from("workflow_enrollments")
     .update({
       status: "completed",
+      locked_at: null,
+      locked_by: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id)
+    .eq("status", "active"); // cancelado no meio (Stop on Response) continua cancelado
+}
+
+/** Encerra sem executar (contato com opt-out/supressão, fluxo sem versão publicada). */
+export async function cancelEnrollment(
+  supabase: SupabaseClient,
+  id: string,
+  reason: string
+): Promise<void> {
+  await supabase
+    .from("workflow_enrollments")
+    .update({
+      status: "cancelled",
+      last_error: reason.slice(0, 500),
       locked_at: null,
       locked_by: null,
       updated_at: new Date().toISOString(),

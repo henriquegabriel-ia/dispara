@@ -8,18 +8,24 @@ const createWorkflowRecord = vi.fn(async () => ({}));
 let currentVersionNodes: unknown[] = [];
 let existingRecords: unknown[] = [];
 
+const currentRecord = async () => ({
+  workflow: { id: "wf-1", active_version_id: "ver-old", name: "Fluxo" },
+  version: { id: "ver-old", status: "draft", nodes: currentVersionNodes, edges: [], tree: null },
+});
+
 vi.mock("@/lib/builder/workflow-db", () => ({
   getCompanyId: vi.fn(async () => "company-1"),
-  ensureWorkflowRecord: vi.fn(async () => ({
-    workflow: { id: "wf-1", active_version_id: "ver-old", name: "Fluxo" },
-    version: { nodes: currentVersionNodes, edges: [], tree: null },
-  })),
+  ensureWorkflowRecord: vi.fn(async () => currentRecord()),
+  ensureEditorRecord: vi.fn(async () => currentRecord()),
+  fetchEditorRecord: vi.fn(async () => currentRecord()),
+  fetchWorkflowRecord: vi.fn(async () => currentRecord()),
   listWorkflowRecords: vi.fn(async () => existingRecords),
   toSavedWorkflow: vi.fn(() => ({ id: "wf-1" })),
   updateWorkflowRecord: (...args: unknown[]) => updateWorkflowRecord(...(args as [])),
   createNewVersion: (...args: unknown[]) => createNewVersion(...(args as [])),
   createWorkflowRecord: (...args: unknown[]) => createWorkflowRecord(...(args as [])),
   buildDefaultGraph: vi.fn(() => ({ nodes: [], edges: [] })),
+  buildDefaultWorkflow: vi.fn(() => ({ tree: null, nodes: [], edges: [] })),
 }));
 
 vi.mock("@/lib/builder/workflow-schedule", () => ({
@@ -40,6 +46,7 @@ function makeQuery() {
     select: () => query,
     eq: () => query,
     neq: () => query,
+    in: () => query,
     maybeSingle: async () => ({ data: selectedVersionRow, error: null }),
     update: (values: unknown) => {
       supabaseUpdates.push(values);

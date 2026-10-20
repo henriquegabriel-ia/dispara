@@ -33,6 +33,7 @@
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:report": "playwright show-report",
+    "test:e2e:builder": "playwright test -c playwright.builder.config.ts",
     "test:all": "npm run test && npm run test:e2e",
     "test:stress": "tsx tests/stress/run-stress-test.ts",
     "test:stress:local": "tsx tests/stress/run-stress-test.ts --target=http://localhost:3000/api/webhook",

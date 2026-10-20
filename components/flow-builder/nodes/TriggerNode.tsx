@@ -3,13 +3,15 @@
 import { memo } from "react";
 import { Handle, Position } from "@xyflow/react";
 import type { NodeProps } from "@xyflow/react";
-import { Plus, Zap } from "lucide-react";
+import { Plus, TriangleAlert, Zap } from "lucide-react";
 import type { FlowTriggerType } from "@/lib/builder/flow/types";
 
 const TriggerNode = memo(function TriggerNode({ data, selected }: NodeProps) {
-  const { label, keywords, triggerType, campaignName, replyFilter } =
+  const { label, keywords, triggerType, campaignName, replyFilter, issue } =
     data as unknown as {
       label: string;
+      /** pendência do gatilho que impede o Publicar (FlowCanvas → issues.ts) */
+      issue?: string;
       keywords?: string[];
       triggerType?: FlowTriggerType;
       campaignName?: string;
@@ -63,6 +65,11 @@ const TriggerNode = memo(function TriggerNode({ data, selected }: NodeProps) {
         </div>
         <div className="truncate text-[11px] text-[var(--ds-text-muted)]">{subtitle}</div>
       </div>
+      {issue && (
+        <span className="shrink-0 text-eia-warning" title={issue} aria-label={`Pendência: ${issue}`} role="img">
+          <TriangleAlert size={14} />
+        </span>
+      )}
       <Handle type="source" position={Position.Bottom} />
     </div>
   );

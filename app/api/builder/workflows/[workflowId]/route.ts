@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import {
-  ensureWorkflowRecord,
+  ensureEditorRecord,
+  fetchEditorRecord,
   getCompanyId,
   toSavedWorkflow,
   updateWorkflowRecord,
@@ -36,8 +37,11 @@ export async function GET(_request: Request, { params }: RouteParams) {
       { status: 400 }
     );
   }
-  const companyId = await getCompanyId(supabase);
-  const record = await ensureWorkflowRecord(supabase, workflowId, companyId);
+  // Leitura nunca cria: id inexistente (ou excluído) → 404.
+  const record = await fetchEditorRecord(supabase, workflowId);
+  if (!record) {
+    return NextResponse.json({ error: "Workflow não encontrado" }, { status: 404 });
+  }
   return NextResponse.json(toSavedWorkflow(record));
 }
 
@@ -50,22 +54,36 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       { status: 400 }
     );
   }
-  const body = await request.json().catch(() => ({}));
-  const normalized = normalizeWorkflowPatch(body);
-  const validation = validateWorkflowSchema(normalized);
-  if (!validation.success) {
+  const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
     return NextResponse.json(
-      { error: "Invalid workflow", details: validation.errors },
+      { error: "Invalid JSON", details: "o corpo deve ser um objeto JSON" },
       { status: 400 }
     );
   }
-  // O grafo cru vai direto para o executor: revalida no servidor TODAS as
-  // expressões de Condition e os actionTypes (não confia no compile do cliente).
-  const graphIssues = findWorkflowGraphIssues(normalized.nodes);
-  if (graphIssues.length > 0) {
-    return NextResponse.json(workflowGraphIssuesBody(graphIssues), {
-      status: 400,
+  const normalized = normalizeWorkflowPatch(body);
+  // PATCH parcial (ex.: só { settings } ou só { name }) não mexe no grafo;
+  // o grafo só é validado quando vem no corpo.
+  if (normalized.nodes !== undefined || normalized.edges !== undefined) {
+    const validation = validateWorkflowSchema({
+      ...normalized,
+      nodes: normalized.nodes ?? [],
+      edges: normalized.edges ?? [],
     });
+    if (!validation.success) {
+      return NextResponse.json(
+        { error: "Invalid workflow", details: validation.errors },
+        { status: 400 }
+      );
+    }
+    // O grafo cru vai direto para o executor: revalida no servidor TODAS as
+    // expressões de Condition e os actionTypes (não confia no compile do cliente).
+    const graphIssues = findWorkflowGraphIssues(normalized.nodes ?? []);
+    if (graphIssues.length > 0) {
+      return NextResponse.json(workflowGraphIssuesBody(graphIssues), {
+        status: 400,
+      });
+    }
   }
   // Árvore canônica do builder novo: valida estrutura leve antes de persistir.
   let tree: unknown;
@@ -85,17 +103,22 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     }
     tree = body.tree;
   }
-  await updateWorkflowRecord(supabase, workflowId, {
-    name: normalized?.name,
-    description: normalized?.description,
-    nodes: normalized?.nodes,
-    edges: normalized?.edges,
-    tree,
-    visibility: normalized?.visibility,
-    settings: normalized?.settings,
-  });
   const companyId = await getCompanyId(supabase);
-  const record = await ensureWorkflowRecord(supabase, workflowId, companyId);
+  await updateWorkflowRecord(
+    supabase,
+    workflowId,
+    {
+      name: normalized?.name,
+      description: normalized?.description,
+      nodes: normalized?.nodes,
+      edges: normalized?.edges,
+      tree,
+      visibility: normalized?.visibility,
+      settings: normalized?.settings,
+    },
+    companyId
+  );
+  const record = await ensureEditorRecord(supabase, workflowId, companyId);
   return NextResponse.json(toSavedWorkflow(record));
 }
 
@@ -113,12 +136,12 @@ export async function DELETE(_request: Request, { params }: RouteParams) {
 }
 
 function normalizeWorkflowPatch(body: Record<string, unknown>) {
-  const nodes: WorkflowNode[] = Array.isArray(body?.nodes)
+  const nodes: WorkflowNode[] | undefined = Array.isArray(body?.nodes)
     ? body.nodes.map((node) => normalizeNode(node))
-    : [];
-  const edges: WorkflowEdge[] = Array.isArray(body?.edges)
+    : undefined;
+  const edges: WorkflowEdge[] | undefined = Array.isArray(body?.edges)
     ? body.edges.map((edge) => normalizeEdge(edge))
-    : [];
+    : undefined;
 
   return {
     name: typeof body?.name === "string" ? body.name : undefined,
@@ -219,12 +242,22 @@ function normalizeActionConfig(
     "footer",
     "language",
     "body",
-    "buttons",
   ];
   for (const key of keysToDrop) {
     if (key in nextConfig) {
       delete nextConfig[key];
     }
+  }
+  // "buttons" do Perguntar (lista de rótulos emitida pelo compile) é mantido; o
+  // formato legado (JSON string do send-buttons) não pertence ao ask-question.
+  if (
+    "buttons" in nextConfig &&
+    !(
+      Array.isArray(nextConfig.buttons) &&
+      (nextConfig.buttons as unknown[]).every((label) => typeof label === "string")
+    )
+  ) {
+    delete nextConfig.buttons;
   }
 
   return nextConfig;

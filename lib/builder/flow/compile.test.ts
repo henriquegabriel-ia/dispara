@@ -506,7 +506,8 @@ describe("compileFlow — erros claros", () => {
       config: { message: "Escolha:" },
       next: null,
       branches: [
-        branch("b1", 'Sim"; process.exit(); "', null),
+        // ≤ 20 caracteres (limite do botão do WhatsApp)
+        branch("b1", 'S";process.exit();"', null),
         branch("b2", "Not Delivered", null, { locked: true }),
         branch("b3", "Timeout", null, { locked: true }),
       ],
@@ -514,7 +515,7 @@ describe("compileFlow — erros claros", () => {
     const compiled = compileFlow(makeFlow(ask));
     // O " do label é escapado (\"), preso dentro da string — não executa nada.
     expect(nodeById(compiled, "ask__cond_0").data.config.condition).toBe(
-      `${REF_ASK} === "Sim\\"; process.exit(); \\""`
+      `${REF_ASK} === "S\\";process.exit();\\""`
     );
   });
 

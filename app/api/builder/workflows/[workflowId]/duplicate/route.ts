@@ -2,10 +2,11 @@ import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import {
   createWorkflowRecord,
-  ensureWorkflowRecord,
+  fetchEditorRecord,
   getCompanyId,
   toSavedWorkflow,
 } from "@/lib/builder/workflow-db";
+import { parseWorkflowSettings } from "@/lib/builder/workflow-settings";
 import {
   findWorkflowGraphIssues,
   workflowGraphIssuesBody,
@@ -25,7 +26,11 @@ export async function POST(_request: Request, { params }: RouteParams) {
     );
   }
   const companyId = await getCompanyId(supabase);
-  const record = await ensureWorkflowRecord(supabase, workflowId, companyId);
+  // Duplicar nunca cria o original: id inexistente → 404.
+  const record = await fetchEditorRecord(supabase, workflowId);
+  if (!record) {
+    return NextResponse.json({ error: "Workflow não encontrado" }, { status: 404 });
+  }
   // A cópia nasce como versão ativa (rascunho executável): mesma revalidação de
   // condições e actionTypes do PATCH — senão duplicar um grafo gravado antes
   // da revalidação "lavaria" uma condição maliciosa ou um passo removido.
@@ -43,6 +48,8 @@ export async function POST(_request: Request, { params }: RouteParams) {
       nodes: record.version.nodes,
       edges: record.version.edges,
       tree: record.version.tree ?? undefined,
+      // a cópia herda as configurações (reentrada, Stop on Response, janela)
+      settings: parseWorkflowSettings(record.workflow.settings),
     },
     companyId
   );

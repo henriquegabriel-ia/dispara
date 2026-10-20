@@ -37,6 +37,7 @@ export default function BuilderPage({ params }: BuilderPageProps) {
     loadError,
     saveState,
     publishedVersion,
+    hasUnpublishedChanges,
     publishing,
     publish,
     settings,
@@ -48,6 +49,7 @@ export default function BuilderPage({ params }: BuilderPageProps) {
       <BuilderHeader
         saveState={saveState}
         publishedVersion={publishedVersion}
+        hasUnpublishedChanges={hasUnpublishedChanges}
         publishing={publishing}
         onPublish={publish}
         onOpenSettings={() => setSettingsOpen(true)}
