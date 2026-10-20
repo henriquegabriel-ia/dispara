@@ -27,6 +27,7 @@ import {
 } from "@/lib/builder/condition-validator";
 import { WAIT_UNITS } from "./meta";
 import { layoutFlow, TRIGGER_ID } from "./layout";
+import { TRIGGER_MESSAGE_VAR } from "./runtime-vars";
 import { validateTree } from "./tree-validate";
 import { triggerTypeOf, type Branch, type Flow, type Step } from "./types";
 
@@ -50,6 +51,9 @@ export const TRIGGER_NODE_ID = TRIGGER_ID; // "__trigger"
  * PRIMEIRO ponto — então o label NÃO pode conter '.', ':' nem '}'.
  */
 const REF_LABEL_REPLY = "Resposta";
+/** Limites do WhatsApp para o "Perguntar" (botões ≤ 3; acima disso, lista ≤ 10). */
+const MAX_ASK_OPTIONS = 10;
+const MAX_ASK_LABEL = 20;
 const REF_LABEL_TRIGGER = "Gatilho";
 
 // ─── Types do grafo compilado (shape validado por workflow-schema.ts) ─────────
@@ -223,11 +227,32 @@ function compileWhatsapp(ctx: CompileCtx, step: Step): void {
 
   let config: Record<string, unknown>;
   if (template) {
+    // Contrato com a tela (ConfigPanel / WhatsappForm):
+    //   templateLanguage?: string        idioma aprovado do template (ex.: "en_US")
+    //   templateBodyParams?: string[]    valores de {{1}}, {{2}}… (aceitam {{var.x}})
+    //   templateHeaderMediaUrl?: string  mídia do HEADER (substitui a de exemplo)
+    // Formato emitido = o que lib/builder/steps/whatsapp/send-template.ts espera.
+    const language = String(step.config.templateLanguage ?? "").trim() || "pt_BR";
+    const rawParams = step.config.templateBodyParams;
+    const bodyParams = Array.isArray(rawParams)
+      ? rawParams.map((value) => (value === null || value === undefined ? "" : String(value)))
+      : [];
+    const emptyIndex = bodyParams.findIndex((value) => !value.trim());
+    if (emptyIndex !== -1) {
+      throw new FlowCompileError(
+        `Passo WhatsApp "${step.name}": a variável {{${emptyIndex + 1}}} do template "${template}" está vazia.`,
+        step.id
+      );
+    }
+    const headerMediaUrl =
+      String(step.config.templateHeaderMediaUrl ?? "").trim() || mediaUrl;
     config = {
       actionType: ACTION_SEND_TEMPLATE,
       toSource: "inbound",
       templateName: template,
-      language: "pt_BR",
+      language,
+      ...(bodyParams.length > 0 ? { bodyParams } : {}),
+      ...(headerMediaUrl ? { headerMediaUrl } : {}),
     };
   } else if (mediaUrl) {
     config = {
@@ -408,6 +433,38 @@ function compileInteractive(
       step.id
     );
   }
+  // Limites do WhatsApp: até 3 botões (acima disso a pergunta vira lista, até
+  // 10 opções), título com até 20 caracteres, sem vazio e sem repetição.
+  if (buttons.length > MAX_ASK_OPTIONS) {
+    throw new FlowCompileError(
+      `Pergunta "${step.name}": no máximo ${MAX_ASK_OPTIONS} opções (tem ${buttons.length}).`,
+      step.id
+    );
+  }
+  const seenLabels = new Set<string>();
+  for (const { branch } of buttons) {
+    const label = String(branch.label ?? "").trim();
+    if (!label) {
+      throw new FlowCompileError(
+        `Pergunta "${step.name}": há um botão sem texto — preencha o rótulo de todos os botões.`,
+        step.id
+      );
+    }
+    if (label.length > MAX_ASK_LABEL) {
+      throw new FlowCompileError(
+        `Pergunta "${step.name}": o botão "${label}" passa de ${MAX_ASK_LABEL} caracteres (limite do WhatsApp).`,
+        step.id
+      );
+    }
+    const key = label.toLowerCase();
+    if (seenLabels.has(key)) {
+      throw new FlowCompileError(
+        `Pergunta "${step.name}": o botão "${label}" está repetido — cada botão precisa de um texto diferente.`,
+        step.id
+      );
+    }
+    seenLabels.add(key);
+  }
 
   const askId = step.id;
   const varId = `${step.id}__var`;
@@ -424,6 +481,9 @@ function compileInteractive(
       toSource: "inbound",
       message,
       variableKey,
+      // Rótulos dos botões (branches não travadas), na ordem: o passo envia
+      // botões interativos (até 3) ou lista, e a retomada casa a resposta com eles.
+      buttons: buttons.map(({ branch }) => String(branch.label).trim()),
     },
     position: askPos,
   });
@@ -447,7 +507,7 @@ function compileInteractive(
   // && !(anteriores) fica redundante com ===, mas é inofensiva e mantém o mesmo
   // formato das condições de texto livre.
   const bases = buttons.map(
-    ({ branch }) => `${ref} === "${escapeLiteral(branch.label)}"`
+    ({ branch }) => `${ref} === "${escapeLiteral(String(branch.label).trim())}"`
   );
 
   // fan-out: G → C_i (mutuamente exclusivas) e G → C_else
@@ -489,7 +549,16 @@ function compileInteractive(
 
 function conditionBase(ref: string, branch: Branch, step: Step): string {
   const operator = String(branch.operator ?? "contains");
-  const value = escapeLiteral(String(branch.value ?? ""));
+  const rawValue = String(branch.value ?? "");
+  // "contém ''" é sempre verdadeiro (e "igual a ''" só casa resposta vazia): a
+  // branch capturaria todos os contatos e o "None" nunca rodaria.
+  if (!rawValue.trim()) {
+    throw new FlowCompileError(
+      `Condição "${step.name}": a branch "${branch.label}" está sem valor — preencha o texto a comparar.`,
+      step.id
+    );
+  }
+  const value = escapeLiteral(rawValue);
   switch (operator) {
     case "contains":
       return `${ref}.includes("${value}")`;
@@ -510,6 +579,7 @@ function compileCondition(
   step: Step,
   contHeads: string[],
   askStepId: string | null,
+  afterResume: boolean,
   compileBranchChain: (child: Step | null, convergeHeads: string[]) => string[]
 ): string[] {
   // Referência ao "Perguntar" mais próximo ACIMA na árvore: usa a VARIÁVEL
@@ -520,9 +590,15 @@ function compileCondition(
   // initialVariables (ver resume/route.ts + workflow-conversations).
   // Sem "Perguntar" acima, a condição só roda na execução inicial (nunca num
   // resume), então a saída do trigger {{@__trigger:...}} é confiável.
+  // Sem "Perguntar" acima MAS alcançável depois de uma retomada (convergência de
+  // um container com "Perguntar" dentro de uma branch): a saída do gatilho não
+  // existe no resume (outputs começa vazio) — usa a mensagem do gatilho
+  // persistida nas variáveis da run ({{var.__trigger_message}}).
   const ref = askStepId
     ? `{{var.${replyVarKey(askStepId)}}}`
-    : `{{@${TRIGGER_NODE_ID}:${REF_LABEL_TRIGGER}.message}}`;
+    : afterResume
+      ? `{{var.${TRIGGER_MESSAGE_VAR}}}`
+      : `{{@${TRIGGER_NODE_ID}:${REF_LABEL_TRIGGER}.message}}`;
 
   const branches = step.branches ?? [];
   const evaluated: Array<{ branch: Branch; index: number; base: string }> = [];
@@ -612,7 +688,8 @@ function compileChain(
   ctx: CompileCtx,
   step: Step | null,
   convergeHeads: string[],
-  askStepId: string | null
+  askStepId: string | null,
+  afterResume = false
 ): string[] {
   if (!step) return convergeHeads;
 
@@ -623,14 +700,14 @@ function compileChain(
 
     case "whatsapp": {
       compileWhatsapp(ctx, step);
-      const nextHeads = compileChain(ctx, step.next, convergeHeads, askStepId);
+      const nextHeads = compileChain(ctx, step.next, convergeHeads, askStepId, afterResume);
       connect(ctx, step.id, nextHeads);
       return [step.id];
     }
 
     case "wait": {
       compileWait(ctx, step);
-      const nextHeads = compileChain(ctx, step.next, convergeHeads, askStepId);
+      const nextHeads = compileChain(ctx, step.next, convergeHeads, askStepId, afterResume);
       connect(ctx, step.id, nextHeads);
       return [step.id];
     }
@@ -639,30 +716,35 @@ function compileChain(
       // A continuação (next) e as branches ficam ABAIXO do Perguntar na árvore →
       // condições dentro delas referenciam a resposta deste step (via variável
       // persistida {{var.reply_<step.id>}}).
-      const contHeads = compileChain(ctx, step.next, convergeHeads, step.id);
+      const contHeads = compileChain(ctx, step.next, convergeHeads, step.id, true);
       return compileInteractive(ctx, step, contHeads, (child, heads) =>
-        compileChain(ctx, child, heads, step.id)
+        compileChain(ctx, child, heads, step.id, true)
       );
     }
 
     case "condition": {
-      const contHeads = compileChain(ctx, step.next, convergeHeads, askStepId);
-      return compileCondition(ctx, step, contHeads, askStepId, (child, heads) =>
-        compileChain(ctx, child, heads, askStepId)
+      // A continuação roda depois de uma retomada se alguma branch tiver um
+      // "Perguntar" (a branch pausa e a convergência só roda no resume).
+      const contAfterResume =
+        afterResume ||
+        (step.branches ?? []).some((branch) => containsInteractive(branch.child));
+      const contHeads = compileChain(ctx, step.next, convergeHeads, askStepId, contAfterResume);
+      return compileCondition(ctx, step, contHeads, askStepId, afterResume, (child, heads) =>
+        compileChain(ctx, child, heads, askStepId, afterResume)
       );
     }
 
     case "tag":
     case "tag_remove": {
       compileTag(ctx, step, step.type === "tag_remove");
-      const nextHeads = compileChain(ctx, step.next, convergeHeads, askStepId);
+      const nextHeads = compileChain(ctx, step.next, convergeHeads, askStepId, afterResume);
       connect(ctx, step.id, nextHeads);
       return [step.id];
     }
 
     case "pipeline": {
       compilePipeline(ctx, step);
-      const nextHeads = compileChain(ctx, step.next, convergeHeads, askStepId);
+      const nextHeads = compileChain(ctx, step.next, convergeHeads, askStepId, afterResume);
       connect(ctx, step.id, nextHeads);
       return [step.id];
     }
@@ -678,6 +760,41 @@ function compileChain(
       const exhaustive: never = step.type;
       throw new FlowCompileError(`Tipo de step desconhecido: ${String(exhaustive)}.`, step.id);
     }
+  }
+}
+
+/** A subárvore (cadeia + branches) tem algum "Perguntar"? */
+function containsInteractive(step: Step | null): boolean {
+  let current = step;
+  while (current) {
+    if (current.type === "interactive") return true;
+    if ((current.branches ?? []).some((branch) => containsInteractive(branch.child))) {
+      return true;
+    }
+    current = current.next;
+  }
+  return false;
+}
+
+/**
+ * Remove nós inalcançáveis (sem aresta de entrada, exceto o gatilho) — ex.: o
+ * passo depois de uma condição em que TODAS as branches terminam em END. O
+ * executor rodaria esse nó como RAIZ no início de toda execução. Repete até
+ * estabilizar (a remoção de um nó pode deixar o próximo sem entrada).
+ */
+function pruneUnreachable(ctx: CompileCtx): void {
+  for (;;) {
+    const withIncoming = new Set(ctx.edges.map((edge) => edge.target));
+    const orphans = new Set(
+      ctx.nodes
+        .filter((node) => node.id !== TRIGGER_NODE_ID && !withIncoming.has(node.id))
+        .map((node) => node.id)
+    );
+    if (orphans.size === 0) return;
+    ctx.nodes = ctx.nodes.filter((node) => !orphans.has(node.id));
+    ctx.edges = ctx.edges.filter(
+      (edge) => !orphans.has(edge.source) && !orphans.has(edge.target)
+    );
   }
 }
 
@@ -711,6 +828,15 @@ export function compileFlow(flow: Flow): CompiledWorkflow {
   // SEMPRE emitido — "sem gatilho" vira triggerType "None": o webhook nunca o
   // dispara, mas o fluxo publicado aceita inscrição manual/bulk (/enroll).
   const triggerType = triggerTypeOf(flow.trigger);
+  const keywords = (flow.trigger.keywords ?? [])
+    .map((keyword) => String(keyword ?? "").trim())
+    .filter(Boolean);
+  if (triggerType === "keywords" && keywords.length === 0) {
+    throw new FlowCompileError(
+      'O gatilho "Palavras-chave" está sem nenhuma palavra: adicione pelo menos 1 palavra-chave ou troque para "Sem gatilho".',
+      null
+    );
+  }
   const triggerConfig: Record<string, unknown> =
     triggerType === "none"
       ? { triggerType: "None" }
@@ -723,7 +849,7 @@ export function compileFlow(flow: Flow): CompiledWorkflow {
           }
         : {
             triggerType: "Keywords",
-            keywordList: flow.trigger.keywords.join("\n"),
+            keywordList: keywords.join("\n"),
           };
   const triggerFallbackLabel =
     triggerType === "none"
@@ -742,6 +868,9 @@ export function compileFlow(flow: Flow): CompiledWorkflow {
   // 4. Cadeia raiz (sem convergência herdada, sem Perguntar acima)
   const rootHeads = compileChain(ctx, flow.root, [], null);
   connect(ctx, TRIGGER_NODE_ID, rootHeads);
+
+  // 5. Nenhum nó órfão no grafo executável.
+  pruneUnreachable(ctx);
 
   return { nodes: ctx.nodes, edges: ctx.edges };
 }

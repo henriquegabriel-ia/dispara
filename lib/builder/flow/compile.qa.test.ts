@@ -93,9 +93,9 @@ describe('compileFlow — nó __trigger (formato lido pelo webhook e pelo execut
     expect(g.edges).toEqual([{ id: 'e-__trigger-w1', source: '__trigger', target: 'w1' }])
   })
 
-  it('C01 keywords: o compile NÃO normaliza (trim/dedupe/vazias): quem normaliza é o webhook', () => {
+  it('C01 keywords: o compile apara e descarta palavras vazias; caixa/acento/dedupe ficam para o casamento (keyword-match)', () => {
     const g = compileFlow(makeFlow({ trigger: triggers.keywords(['  Olá ', '', 'PROMO', 'promo']), root: steps.end() }))
-    expect(cfg(g, TRIGGER_NODE_ID)).toEqual({ triggerType: 'Keywords', keywordList: '  Olá \n\nPROMO\npromo' })
+    expect(cfg(g, TRIGGER_NODE_ID)).toEqual({ triggerType: 'Keywords', keywordList: 'Olá\nPROMO\npromo' })
   })
 
   it('C03 sem type (árvore antiga) compila como Keywords; label customizado é preservado', () => {
@@ -132,11 +132,11 @@ describe('compileFlow — nó __trigger (formato lido pelo webhook e pelo execut
     })
   })
 
-  // BUG(keywords-vazias): um gatilho "Palavra-chave" sem nenhuma palavra válida compila e publica,
+  // Corrigido BUG(keywords-vazias): um gatilho "Palavra-chave" sem nenhuma palavra válida compila e publica,
   // mas o webhook descarta fluxos com lista vazia (app/api/webhook/route.ts loadKeywordWorkflows):
   // o fluxo publicado nunca dispara e a tela não avisa. O compile já recusa whatsapp/tag/pipeline
   // vazios; o correto é recusar também este gatilho (é o que a tela grava com o textarea vazio).
-  it.fails('C04 BUG(keywords-vazias): gatilho keywords sem palavra válida deveria falhar no compile', () => {
+  it('C04 keywords-vazias: gatilho keywords sem palavra válida deveria falhar no compile', () => {
     expect(() => compileFlow(makeFlow({ trigger: triggers.keywords(['', '  ']), root: steps.whatsapp({ id: 'w1', message: 'oi' }) }))).toThrow(
       FlowCompileError
     )
@@ -148,7 +148,29 @@ describe('compileFlow — nó __trigger (formato lido pelo webhook e pelo execut
 describe('compileFlow — whatsapp', () => {
   it('C05 precedência: template > mídia > mensagem', () => {
     const tpl = compileFlow(makeFlow({ root: steps.whatsapp({ id: 'w', template: ' promo_out ', mediaUrl: 'https://x/y.png', message: 'm' }) }))
-    expect(cfg(tpl, 'w')).toEqual({ actionType: 'whatsapp/send-template', toSource: 'inbound', templateName: 'promo_out', language: 'pt_BR' })
+    // a mídia do passo vira a mídia do HEADER do template (contrato: templateHeaderMediaUrl tem precedência)
+    expect(cfg(tpl, 'w')).toEqual({
+      actionType: 'whatsapp/send-template',
+      toSource: 'inbound',
+      templateName: 'promo_out',
+      language: 'pt_BR',
+      headerMediaUrl: 'https://x/y.png',
+    })
+
+    const tplFull = steps.whatsapp({ id: 'w', template: 'pedido' })
+    Object.assign(tplFull.config, {
+      templateLanguage: 'en_US',
+      templateBodyParams: ['{{var.nome}}', '42'],
+      templateHeaderMediaUrl: 'https://x/h.png',
+    })
+    expect(cfg(compileFlow(makeFlow({ root: tplFull })), 'w')).toEqual({
+      actionType: 'whatsapp/send-template',
+      toSource: 'inbound',
+      templateName: 'pedido',
+      language: 'en_US',
+      bodyParams: ['{{var.nome}}', '42'],
+      headerMediaUrl: 'https://x/h.png',
+    })
 
     const media = compileFlow(makeFlow({ root: steps.whatsapp({ id: 'w', mediaUrl: ' https://x/v.mp4 ', mediaType: 'video', message: 'cap' }) }))
     expect(cfg(media, 'w')).toEqual({
@@ -236,7 +258,14 @@ describe('compileFlow — interactive (Perguntar)', () => {
     )
     // o índice 2 (Not Delivered travada) é pulado: o sufixo vem do índice da branch, não da posição do botão
     expect(ids(g)).not.toContain('ask__cond_2')
-    expect(cfg(g, 'ask')).toEqual({ actionType: 'whatsapp/ask-question', toSource: 'inbound', message: 'Quer a proposta?', variableKey: 'reply_ask' })
+    expect(cfg(g, 'ask')).toEqual({
+      actionType: 'whatsapp/ask-question',
+      toSource: 'inbound',
+      message: 'Quer a proposta?',
+      variableKey: 'reply_ask',
+      // rótulos das branches NÃO travadas, na ordem
+      buttons: ['Sim', 'Não', 'Talvez'],
+    })
     // Get Variable SEM "message" (senão o executor o sequestraria como ask-question)
     expect(cfg(g, 'ask__var')).toEqual({ actionType: 'Get Variable', variableKey: 'reply_ask' })
     expect(node(g, 'ask__var').data.label).toBe('Pergunta · resposta')
@@ -280,32 +309,23 @@ describe('compileFlow — interactive (Perguntar)', () => {
     expect(compileError(makeFlow({ root: lockedWithChild })).message).toContain('não é suportada no v1')
   })
 
-  it('C08 rótulo duplicado e rótulo vazio compilam hoje (o 2º "Sim" nunca casa; "" só casa resposta vazia)', () => {
-    const g = compileFlow(
-      makeFlow({
-        root: steps.interactive({
-          id: 'q',
-          message: 'Escolha',
-          buttons: [
-            { label: 'Sim', child: steps.whatsapp({ id: 'a', message: 'A' }) },
-            { label: 'Sim', child: steps.whatsapp({ id: 'b', message: 'B' }) },
-            { label: '' },
-          ],
-        }),
-      })
-    )
-    const s = '{{@q__var:Resposta.value}} === "Sim"'
-    // a 2ª branch "Sim" é `X && !(X)`: inalcançável (documentado — a tela não impede o rótulo repetido)
-    expect(cfg(g, 'q__cond_1').condition).toBe(`${s} && !(${s})`)
-    expect(cfg(g, 'q__cond_2').condition).toBe(`{{@q__var:Resposta.value}} === "" && !(${s}) && !(${s})`)
+  it('C08 rótulo duplicado (ignorando maiúsculas), vazio ou com mais de 20 caracteres não compila; até 10 opções', () => {
+    const ask = (buttons: Array<string | { label: string }>) =>
+      makeFlow({ root: steps.interactive({ id: 'q', message: 'Escolha', buttons: buttons as never }) })
+    expect(compileError(ask(['Sim', 'sim'])).message).toContain('está repetido')
+    expect(compileError(ask(['Sim', '  '])).message).toContain('sem texto')
+    expect(compileError(ask(['Um rótulo comprido demais'])).message).toContain('20 caracteres')
+    expect(compileError(ask(Array.from({ length: 11 }, (_, i) => `Opção ${i + 1}`))).message).toContain('no máximo 10')
+    expect(() => compileFlow(ask(Array.from({ length: 10 }, (_, i) => `Opção ${i + 1}`)))).not.toThrow()
+    expect(compileError(ask(['Sim', 'sim'])).stepId).toBe('q')
   })
 
-  // BUG(perguntar-sem-botoes): a tela configura até 3 botões ("N botões interativos" no card) e o
+  // Corrigido BUG(perguntar-sem-botoes): a tela configura até 3 botões ("N botões interativos" no card) e o
   // compile assume que "a resposta do WhatsApp volta EXATA (o texto do botão)", mas o nó ask
   // compilado só leva message/variableKey e askQuestionStep (lib/builder/steps/whatsapp/ask-question.ts)
   // envia buildTextMessage — texto puro, sem botões. O contato precisa digitar o rótulo idêntico
   // (=== e sensível a maiúsculas); "sim" cai em "Outra resposta".
-  it.fails('C09 BUG(perguntar-sem-botoes): o nó ask compilado deveria carregar os botões', () => {
+  it('C09 perguntar-sem-botoes: o nó ask compilado deveria carregar os botões', () => {
     const g = compileFlow(makeFlow({ root: steps.interactive({ id: 'q', message: 'Confirma?', buttons: ['Sim', 'Não'] }) }))
     const askConfig = cfg(g, 'q')
     const serialized = JSON.stringify(askConfig.buttons ?? askConfig.interactive ?? null)
@@ -396,11 +416,11 @@ describe('compileFlow — condition', () => {
     expect(targetsOf(g, 'c__cond_none')).toEqual(['depois'])
   })
 
-  // BUG(condicao-valor-vazio): a condição criada pela tela (operations.createStep: operator
+  // Corrigido BUG(condicao-valor-vazio): a condição criada pela tela (operations.createStep: operator
   // "contains", value "") compila para `.includes("")`, que é SEMPRE true: todo contato vai para a
   // "Branch 1" e a "None" nunca roda. O compile recusa whatsapp/tag/pipeline vazios; o correto é
   // recusar também a branch sem valor (contains/equals com "" não tem sentido para o usuário).
-  it.fails('C18 BUG(condicao-valor-vazio): condição com valor vazio deveria falhar no compile', () => {
+  it('C18 condicao-valor-vazio: condição com valor vazio deveria falhar no compile', () => {
     const { flow, stepId } = addStep(createEmptyFlow({ keywords: ['oi'] }), { type: 'condition', slot: { kind: 'root' } })
     expect(stepId).not.toBe('')
     expect(() => compileFlow(flow)).toThrow(FlowCompileError)
@@ -590,18 +610,12 @@ describe('compileFlow — invariantes do grafo executável', () => {
     })
   }
 
-  it('C11 (fato) o passo depois de uma condição toda-END é compilado SEM edge de entrada', () => {
-    const g = compileFlow(allEndsThenNext())
-    expect(ids(g)).toContain('obrigado')
-    expect(sourcesOf(g, 'obrigado')).toEqual([])
-  })
-
-  // BUG(orphan-next): o executor (workflow-executor.workflow.ts, readyQueue inicial) roda como RAIZ
+  // Corrigido BUG(orphan-next): o executor (workflow-executor.workflow.ts, readyQueue inicial) roda como RAIZ
   // todo nó com 0 arestas de entrada. O passo "obrigado" acima é órfão: é executado no início de
   // TODA execução (envia "Obrigado" antes até da condição), enquanto o canvas o desenha depois
   // dela. A tela permite montar isso (END entra em qualquer branch vazia). Correto: nenhum nó
   // não-trigger sem entrada — o next inalcançável não deveria ser emitido (ou ser recusado).
-  it.fails('C11 BUG(orphan-next): todo nó não-trigger deveria ter ≥1 edge de entrada', () => {
+  it('C11 orphan-next: todo nó não-trigger deveria ter ≥1 edge de entrada', () => {
     const g = compileFlow(allEndsThenNext())
     const orphans = g.nodes.filter((n) => n.id !== TRIGGER_NODE_ID && sourcesOf(g, n.id).length === 0).map((n) => n.id)
     expect(orphans).toEqual([])
@@ -631,20 +645,22 @@ describe('compileFlow — invariantes do grafo executável', () => {
     })
   }
 
-  it('C12 (fato) a condição da convergência referencia o gatilho e é alcançável a partir do resume (ask__var)', () => {
+  it('C12 a condição da convergência (alcançável a partir do resume) usa a mensagem do gatilho persistida nas variáveis', () => {
     const g = compileFlow(askInsideBranchThenCondition())
     const fromResume = reachableFrom(g, 'ask__var')
     expect(fromResume.has('c2__cond_0')).toBe(true)
-    expect(nodeRefs(String(cfg(g, 'c2__cond_0').condition))).toEqual(['__trigger'])
-    expect(fromResume.has(TRIGGER_NODE_ID)).toBe(false)
+    expect(String(cfg(g, 'c2__cond_0').condition)).toBe('{{var.__trigger_message}}.includes("aju")')
+    expect(nodeRefs(String(cfg(g, 'c2__cond_0').condition))).toEqual([])
+    // a condição da RAIZ (só roda na execução inicial) continua lendo a saída do gatilho
+    expect(nodeRefs(String(cfg(g, 'c1__cond_0').condition))).toEqual(['__trigger'])
   })
 
-  // BUG(resume-trigger-ref): no resume a rota (app/api/builder/workflow/[id]/resume) executa a partir
+  // Corrigido BUG(resume-trigger-ref): no resume a rota (app/api/builder/workflow/[id]/resume) executa a partir
   // de "ask__var" SEM initialOutputs; outputs.__trigger não existe, o template {{@__trigger:...}}
   // fica literal, a validação falha e c2__cond_0 E c2__cond_none dão false — o fluxo morre em
   // silêncio depois da resposta. Correto: toda Condition alcançável a partir de um nó de resume só
   // referencia saídas de nós que também rodam nesse resume (ou variáveis persistidas {{var.*}}).
-  it.fails('C12 BUG(resume-trigger-ref): condições alcançáveis do resume não deveriam referenciar nós fora dele', () => {
+  it('C12 resume-trigger-ref: condições alcançáveis do resume não deveriam referenciar nós fora dele', () => {
     const g = compileFlow(askInsideBranchThenCondition())
     const violations: string[] = []
     for (const resumeRoot of ids(g).filter((id) => id.endsWith('__var'))) {
@@ -737,7 +753,7 @@ describe('C17 meta.ts ↔ compile', () => {
     }
   })
 
-  it('defaults do createStep: whatsapp/interactive/tag/tag_remove/pipeline vazios falham; wait/condition/end compilam', () => {
+  it('defaults do createStep: whatsapp/interactive/condition/tag/tag_remove/pipeline vazios falham; wait/end compilam', () => {
     const outcome = (type: StepType) => {
       const { flow } = addStep(createEmptyFlow({ keywords: ['oi'] }), { type, slot: { kind: 'root' } })
       try {
@@ -751,7 +767,7 @@ describe('C17 meta.ts ↔ compile', () => {
       whatsapp: 'erro',
       interactive: 'erro',
       wait: 'ok',
-      condition: 'ok', // ver C18: deveria ser 'erro'
+      condition: 'erro', // C18: branch sem valor não compila
       split: 'erro',
       tag: 'erro',
       tag_remove: 'erro',

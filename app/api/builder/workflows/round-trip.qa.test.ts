@@ -211,7 +211,7 @@ describe('round-trip: o webhook só enxerga o que foi publicado', () => {
     expect(trigger?.data.config).toEqual({ triggerType: 'CampaignReply', campaignId: '', campaignName: '', replyFilter: 'Quero' })
   })
 
-  it('compileFlow no cliente ≡ grafo que o /execute roda (o servidor não recompila)', async () => {
+  it('compileFlow no cliente ≡ grafo que o /execute roda (o publish recompila a árvore no servidor — mesmo resultado)', async () => {
     const flow = kwFlow(chain(steps.tag({ id: 't', tags: ['x'] }), steps.whatsapp({ id: 'w', message: 'y' })))
     const published = await saveAndPublish(flow)
     const active = h.db.row('workflow_versions', { id: h.db.row('workflows', { id: 'wf' })?.active_version_id as string })
@@ -221,10 +221,10 @@ describe('round-trip: o webhook só enxerga o que foi publicado', () => {
 })
 
 describe('round-trip: bugs que só aparecem executando o grafo compilado', () => {
-  // BUG(orphan-next): numa condição em que TODAS as branches terminam em END, o passo do
+  // Corrigido BUG(orphan-next): numa condição em que TODAS as branches terminam em END, o passo do
   // "next" é compilado sem edge de entrada; o executor trata nó sem entrada como raiz e o roda
   // no início de TODA execução. Correto: "Obrigado" nunca é enviado (nenhum caminho leva a ele).
-  it.fails('C11 BUG(orphan-next): passo depois de condição toda-END não deveria rodar', async () => {
+  it('C11 orphan-next: passo depois de condição toda-END não deveria rodar', async () => {
     const root = steps.condition({
       id: 'c',
       branches: [{ label: 'X', value: 'x', operator: 'contains', child: steps.end() }],
@@ -236,23 +236,11 @@ describe('round-trip: bugs que só aparecem executando o grafo compilado', () =>
     expect(textsTo(ANA)).toEqual([])
   })
 
-  it('C11 (fato) hoje o passo órfão roda e envia "Obrigado"', async () => {
-    const root = steps.condition({
-      id: 'c',
-      branches: [{ label: 'X', value: 'x', operator: 'contains', child: steps.end() }],
-      none: steps.end(),
-      next: steps.whatsapp({ id: 'wz', message: 'Obrigado' }),
-    })
-    await saveAndPublish(kwFlow(root))
-    await receiveText('oi')
-    expect(textsTo(ANA)).toEqual(['Obrigado'])
-  })
-
-  // BUG(resume-trigger-ref): condição na convergência depois de um Perguntar que está DENTRO de
+  // Corrigido BUG(resume-trigger-ref): condição na convergência depois de um Perguntar que está DENTRO de
   // uma branch referencia {{@__trigger:Gatilho.message}}. O /resume roda a partir de ask__var sem
   // os outputs do gatilho: a expressão fica literal, todas as saídas da condição dão false e o
   // fluxo morre em silêncio. Correto: depois de responder "Sim", alguma saída de C2 roda.
-  it.fails('C12 BUG(resume-trigger-ref): condição após Perguntar aninhado deveria seguir no resume', async () => {
+  it('C12 resume-trigger-ref: condição após Perguntar aninhado deveria seguir no resume', async () => {
     const root = steps.condition({
       id: 'c1',
       branches: [{ label: 'A', value: 'oi', operator: 'contains', child: steps.interactive({ id: 'q', message: 'Confirma?', buttons: ['Sim'] }) }],
@@ -269,17 +257,17 @@ describe('round-trip: bugs que só aparecem executando o grafo compilado', () =>
     expect(textsTo(ANA).length).toBeGreaterThan(1)
   })
 
-  // BUG(perguntar-sem-botoes): a tela configura botões, mas o ask-question compilado envia
+  // Corrigido BUG(perguntar-sem-botoes): a tela configura botões, mas o ask-question compilado envia
   // TEXTO puro e casa a resposta com === sensível a maiúsculas. Correto: a mensagem do Perguntar
   // sai como interativa com os botões e responder "sim" segue pela branch "Sim".
-  it.fails('C09 BUG(perguntar-sem-botoes): o Perguntar deveria sair com botões interativos', async () => {
+  it('C09 perguntar-sem-botoes: o Perguntar deveria sair com botões interativos', async () => {
     await saveAndPublish(kwFlow(steps.interactive({ id: 'q', message: 'Topa?', buttons: ['Sim', 'Não'] })))
     await receiveText('oi')
     const [sent] = h.meta.sentTo(ANA)
     expect(sent.type).toBe('interactive')
   })
 
-  it('C09 (fato) o Perguntar sai como texto e "sim" minúsculo cai em "Outra resposta"', async () => {
+  it('C09 o Perguntar sai com botões e "sim" minúsculo digitado segue a branch "Sim"', async () => {
     const root = steps.interactive({
       id: 'q',
       message: 'Topa?',
@@ -288,8 +276,8 @@ describe('round-trip: bugs que só aparecem executando o grafo compilado', () =>
     })
     await saveAndPublish(kwFlow(root))
     await receiveText('oi')
-    expect(h.meta.sentTo(ANA)[0].type).toBe('text')
+    expect(h.meta.sentTo(ANA)[0].type).toBe('interactive')
     await receiveText('sim')
-    expect(textsTo(ANA)).toEqual(['Topa?'])
+    expect(textsTo(ANA)).toEqual(['Topa?', 'ok sim'])
   })
 })
