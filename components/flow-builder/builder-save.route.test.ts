@@ -94,11 +94,9 @@ describe('RT-01 salvar pela tela grava a árvore e o grafo', () => {
 })
 
 describe('RT-03 editar depois de publicar', () => {
-  // BUG(edits-go-live): o publish aponta workflows.active_version_id para a versão
-  // 'published', e o PATCH do autosave (updateWorkflowRecord) grava nessa MESMA linha
-  // (workflow-db.ts:292-302). Qualquer edição no builder entra no ar na hora, sem
-  // clicar em Publicar — o webhook (status='published') já executa a mensagem nova.
-  it.fails('o autosave não altera a versão publicada até o próximo Publicar', async () => {
+  // edits-go-live: depois de publicar, o autosave grava num rascunho; a versão
+  // 'published' (a que o webhook executa) só muda no próximo Publicar.
+  it('o autosave não altera a versão publicada até o próximo Publicar', async () => {
     const { flow } = await publishedA()
     expect(publishedMessage('wf-live')).toBe('A')
     const res = await routes.patchWorkflow('wf-live', autosaveBody(editInStore(flow, 'B')))
@@ -106,36 +104,32 @@ describe('RT-03 editar depois de publicar', () => {
     expect(publishedMessage('wf-live')).toBe('A')
   })
 
-  it('caracterização: hoje a mensagem "B" já está na versão publicada', async () => {
-    const { flow, pub } = await publishedA()
+  it('o GET do editor devolve o rascunho (B) e avisa que há alterações não publicadas', async () => {
+    const { flow } = await publishedA()
     await routes.patchWorkflow('wf-live', autosaveBody(editInStore(flow, 'B')))
-    expect(publishedMessage('wf-live')).toBe('B')
-    expect(h.db.row('workflows', { id: 'wf-live' })!.active_version_id).toBe(pub.versionId)
+    const get = await routes.getWorkflow('wf-live')
+    const body = get.body as { tree: Flow; hasUnpublishedChanges?: boolean }
+    expect(findStep(body.tree, 'w1')!.config.message).toBe('B')
+    expect(body.hasUnpublishedChanges).toBe(true)
+    expect(publishedMessage('wf-live')).toBe('A')
   })
 
-  it('publicar de novo cria a versão seguinte e arquiva a anterior', async () => {
+  it('publicar de novo cria uma versão mais nova e arquiva a anterior', async () => {
     const { flow, pub } = await publishedA()
     const pub2 = await publishFlow(h.db, editInStore(flow, 'C'), { workflowId: 'wf-live' })
-    expect(pub2.version).toBe(pub.version + 1)
+    // o rascunho intermediário também consome um número de versão
+    expect(pub2.version).toBeGreaterThan(pub.version)
     expect(h.db.row('workflow_versions', { id: pub.versionId })!.status).toBe('archived')
     expect(publishedMessage('wf-live')).toBe('C')
   })
 })
 
 describe('RT-04 versão publicada ao reabrir o builder', () => {
-  // BUG(no-last-published): o GET por id usa ensureWorkflowRecord/fetchWorkflowRecord, que
-  // não calcula lastPublishedVersion (só a listagem calcula); toSavedWorkflow faz ?? null.
-  // O hook inicializa publishedVersion com isso, então ao recarregar a página o badge
-  // "vN publicada" some do cabeçalho.
-  it.fails('GET devolve lastPublishedVersion = versão publicada', async () => {
+  // no-last-published: o GET por id devolve a versão publicada, e o badge "vN
+  // publicada" continua no cabeçalho depois de recarregar a página.
+  it('GET devolve lastPublishedVersion = versão publicada', async () => {
     const { pub } = await publishedA()
     const get = await routes.getWorkflow('wf-live')
     expect((get.body as { lastPublishedVersion: number | null }).lastPublishedVersion).toBe(pub.version)
-  })
-
-  it('caracterização: hoje vem null mesmo com status published', async () => {
-    await publishedA()
-    const get = await routes.getWorkflow('wf-live')
-    expect(get.body).toMatchObject({ status: 'published', lastPublishedVersion: null })
   })
 })

@@ -43,12 +43,8 @@ async function publishedFixture() {
 }
 
 describe('WS-03 PATCH só com settings (o que a sheet manda)', () => {
-  // BUG(settings-never-save): normalizeWorkflowPatch transforma `nodes` ausente em [] e o
-  // schema exige exatamente 1 trigger → 400 "encontrado 0". Reentrada, parar-ao-responder
-  // e janela de horário NUNCA são gravados; a sheet só mostra "Falha ao salvar as
-  // configurações". (E se só a validação fosse relaxada, updateWorkflowRecord faria
-  // patch.nodes ?? existing com [] e apagaria o grafo.)
-  it.fails('responde 200 e grava workflows.settings sem tocar no grafo da versão', async () => {
+  // settings-never-save: PATCH parcial (só settings) não valida nem toca o grafo.
+  it('responde 200 e grava workflows.settings sem tocar no grafo da versão', async () => {
     const { version, before } = await publishedFixture()
     const res = await routes.patchWorkflow('wf-settings', SHEET_BODY)
     expect(res.status).toBe(200)
@@ -56,15 +52,6 @@ describe('WS-03 PATCH só com settings (o que a sheet manda)', () => {
     expect(version().nodes).toEqual(before.nodes)
     expect(version().edges).toEqual(before.edges)
     expect(version().tree).toEqual(before.tree)
-  })
-
-  it('caracterização: hoje responde 400 e não grava nada', async () => {
-    const { version, before } = await publishedFixture()
-    const res = await routes.patchWorkflow('wf-settings', SHEET_BODY)
-    expect(res.status).toBe(400)
-    expect(JSON.stringify(res.body)).toMatch(/gatilho|trigger/i)
-    expect(h.db.row('workflows', { id: 'wf-settings' })!.settings ?? {}).not.toMatchObject({ allowReentry: false })
-    expect(version().nodes).toEqual(before.nodes)
   })
 
   it('controle: settings enviados JUNTO com o grafo (save do builder) são gravados', async () => {

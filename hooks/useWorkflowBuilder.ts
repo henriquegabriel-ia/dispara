@@ -6,16 +6,23 @@
 //   - injeta no zustand store (components/flow-builder/store.ts).
 //   - autosave: debounce 1s para config/nome, flush imediato para operações
 //     estruturais; cada save envia { name, tree, nodes, edges } com
-//     nodes/edges = compileFlow(tree). Se compileFlow lançar FlowCompileError
-//     (ex.: passo vazio, tipo não suportado), salva só a tree mantendo os
-//     nodes/edges anteriores e mostra aviso não-bloqueante.
-//   - publish: compila (bloqueia se inválido), flusha o save e chama a rota real.
+//     nodes/edges = compileFlow(tree). Se compileFlow lançar (ex.: passo vazio,
+//     tipo não suportado), salva a tree mantendo os nodes/edges anteriores; as
+//     pendências aparecem na tela (components/flow-builder/issues.ts), sem toast.
+//   - saves enfileirados (um PATCH por vez, o último estado vence), retry após
+//     erro, aviso ao fechar a aba com edição pendente; a carga espera o save do
+//     unmount anterior e não reaproveita cache (gcTime 0).
+//   - publish: bloqueia com pendências, flusha o save e chama a rota real.
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "@/lib/toast";
 import type { SaveState } from "@/components/flow-builder/BuilderHeader";
-import { useFlowBuilderStore } from "@/components/flow-builder/store";
+import { collectFlowIssues } from "@/components/flow-builder/issues";
+import {
+  TRIGGER_SELECTION_ID,
+  useFlowBuilderStore,
+} from "@/components/flow-builder/store";
 import { api } from "@/lib/builder/api-client";
 import { compileFlow, FlowCompileError } from "@/lib/builder/flow/compile";
 import { createEmptyFlow } from "@/lib/builder/flow/operations";
@@ -49,6 +56,7 @@ function isFlowTree(tree: unknown): tree is Flow {
 }
 
 export function useWorkflowBuilder(workflowId: string) {
+  const queryClient = useQueryClient();
   const workflowQuery = useQuery({
     queryKey: ["builder-workflow", workflowId],
     queryFn: () => loadWorkflowAfterPendingSave(workflowId),
@@ -72,11 +80,11 @@ export function useWorkflowBuilder(workflowId: string) {
   );
   const loadedRef = useRef<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastCompileWarningRef = useRef<string | null>(null);
   /** há mudança debounced ainda não enviada — flush no unmount */
   const dirtyRef = useRef(false);
-  /** fila de saves: um por vez, na ordem (o último estado sempre vence) */
-  const saveChainRef = useRef<Promise<boolean>>(Promise.resolve(true));
+  /** save no ar (um por vez) e o próximo da fila (sempre com o estado mais novo) */
+  const inFlightRef = useRef<Promise<boolean> | null>(null);
+  const queuedRef = useRef<{ flow: Flow; promise: Promise<boolean> } | null>(null);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Carga inicial → injeta no store ──────────────────────────────────────
@@ -97,76 +105,112 @@ export function useWorkflowBuilder(workflowId: string) {
   }, [workflowQuery.data, workflowId]);
 
   // ── Save ──────────────────────────────────────────────────────────────────
-  const runSave = useCallback(async (): Promise<boolean> => {
-    const flow = useFlowBuilderStore.getState().flow;
-    if (!flow) return false;
-    dirtyRef.current = false;
-    setSaveState("saving");
+  /** Grava UM snapshot da árvore (capturado por quem enfileirou). */
+  const runSave = useCallback(
+    async (flow: Flow): Promise<boolean> => {
+      setSaveState("saving");
 
-    let nodes = lastGraphRef.current?.nodes ?? [];
-    let edges = lastGraphRef.current?.edges ?? [];
-    try {
-      const compiled = compileFlow(flow);
-      nodes = compiled.nodes as WorkflowNode[];
-      edges = compiled.edges as WorkflowEdge[];
-      lastGraphRef.current = { nodes, edges };
-      lastCompileWarningRef.current = null;
-    } catch (error) {
-      if (error instanceof FlowCompileError) {
-        // Aviso não-bloqueante (deduplicado): a árvore é salva mesmo assim.
-        if (lastCompileWarningRef.current !== error.message) {
-          lastCompileWarningRef.current = error.message;
-          toast.warning("Fluxo salvo como rascunho", {
-            description: error.message,
-          });
+      let nodes = lastGraphRef.current?.nodes ?? [];
+      let edges = lastGraphRef.current?.edges ?? [];
+      try {
+        const compiled = compileFlow(flow);
+        nodes = compiled.nodes as WorkflowNode[];
+        edges = compiled.edges as WorkflowEdge[];
+        lastGraphRef.current = { nodes, edges };
+      } catch (error) {
+        // A árvore é salva mesmo assim (rascunho) com o último grafo bom. Sem
+        // toast: as pendências aparecem no header/canvas (useFlowIssues) e o
+        // Publicar as lista — um toast a cada passo novo cobria o painel.
+        if (!(error instanceof FlowCompileError)) {
+          console.error("Falha ao compilar o fluxo:", error);
         }
-      } else {
-        // Erro inesperado no compile: salva só a árvore com o último grafo bom.
-        console.error("Falha ao compilar o fluxo:", error);
       }
-    }
 
-    try {
-      const saved = await api.workflow.update(workflowId, {
-        name: flow.name,
-        tree: flow,
-        nodes,
-        edges,
-      });
-      if (saved && typeof saved === "object" && "hasUnpublishedChanges" in saved) {
-        setHasUnpublishedChanges(Boolean(saved.hasUnpublishedChanges));
+      try {
+        const saved = await api.workflow.update(workflowId, {
+          name: flow.name,
+          tree: flow,
+          nodes,
+          edges,
+        });
+        if (saved && typeof saved === "object" && "hasUnpublishedChanges" in saved) {
+          setHasUnpublishedChanges(Boolean(saved.hasUnpublishedChanges));
+        }
+        // Gravou o estado atual da tela: nada mais a re-tentar.
+        if (useFlowBuilderStore.getState().flow === flow) {
+          dirtyRef.current = false;
+          if (retryTimerRef.current) {
+            clearTimeout(retryTimerRef.current);
+            retryTimerRef.current = null;
+          }
+        }
+        // Há edição mais nova (debounce ou save na fila): o indicador fica com
+        // o save seguinte.
+        if (!dirtyRef.current && !queuedRef.current) setSaveState("saved");
+        return true;
+      } catch (error) {
+        console.error("Falha ao salvar o fluxo:", error);
+        // Continua sujo: o unmount/sair da aba re-tenta, e há um retry automático.
+        dirtyRef.current = true;
+        setSaveState("error");
+        toast.error("Falha ao salvar o fluxo", {
+          description: "Vamos tentar de novo em instantes.",
+          id: `builder-save-error-${workflowId}`,
+        });
+        if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = setTimeout(() => {
+          retryTimerRef.current = null;
+          if (dirtyRef.current) void doSaveRef.current();
+        }, SAVE_RETRY_MS);
+        return false;
       }
-      // Houve nova edição enquanto este save estava no ar: o indicador fica
-      // com o save seguinte.
-      if (!dirtyRef.current) setSaveState("saved");
-      return true;
-    } catch (error) {
-      console.error("Falha ao salvar o fluxo:", error);
-      // Continua sujo: o unmount/sair da aba re-tenta, e há um retry automático.
-      dirtyRef.current = true;
-      setSaveState("error");
-      toast.error("Falha ao salvar o fluxo", {
-        description: "Vamos tentar de novo em instantes.",
-        id: `builder-save-error-${workflowId}`,
-      });
-      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
-      retryTimerRef.current = setTimeout(() => {
-        retryTimerRef.current = null;
-        if (dirtyRef.current) void doSaveRef.current();
-      }, SAVE_RETRY_MS);
-      return false;
-    }
-  }, [workflowId]);
+    },
+    [workflowId]
+  );
 
-  /** Enfileira um save (nunca dois PATCH simultâneos fora de ordem). */
+  /**
+   * Enfileira um save: nunca dois PATCH simultâneos (fora de ordem). O flow é
+   * capturado AGORA (o flush do unmount roda antes do reset do store); sem
+   * save no ar o PATCH sai na hora, senão fica UM na fila com o estado mais
+   * novo (saves seguintes só atualizam o snapshot da fila).
+   */
   const doSave = useCallback((): Promise<boolean> => {
-    const next = saveChainRef.current.catch(() => false).then(() => runSave());
-    saveChainRef.current = next;
-    pendingSaves.set(workflowId, next);
-    void next.finally(() => {
-      if (pendingSaves.get(workflowId) === next) pendingSaves.delete(workflowId);
-    });
-    return next;
+    const flow = useFlowBuilderStore.getState().flow;
+    if (!flow) return Promise.resolve(false);
+    dirtyRef.current = false;
+
+    const start = (snapshot: Flow): Promise<boolean> => {
+      const running = runSave(snapshot);
+      inFlightRef.current = running;
+      pendingSaves.set(workflowId, running);
+      void running.finally(() => {
+        if (inFlightRef.current === running) inFlightRef.current = null;
+        if (pendingSaves.get(workflowId) === running) pendingSaves.delete(workflowId);
+      });
+      return running;
+    };
+
+    const inFlight = inFlightRef.current;
+    if (!inFlight) return start(flow);
+
+    const queued = queuedRef.current;
+    if (queued) {
+      queued.flow = flow;
+      return queued.promise;
+    }
+    const entry: { flow: Flow; promise: Promise<boolean> } = {
+      flow,
+      promise: Promise.resolve(false),
+    };
+    entry.promise = inFlight
+      .catch(() => false)
+      .then(() => {
+        if (queuedRef.current === entry) queuedRef.current = null;
+        return start(entry.flow);
+      });
+    queuedRef.current = entry;
+    pendingSaves.set(workflowId, entry.promise);
+    return entry.promise;
   }, [runSave, workflowId]);
   const doSaveRef = useRef(doSave);
   useEffect(() => {
@@ -221,8 +265,11 @@ export function useWorkflowBuilder(workflowId: string) {
       if (dirtyRef.current) void doSave();
       useFlowBuilderStore.getState().reset();
       loadedRef.current = null;
+      // Sem cache entre montagens: o gcTime 0 só coleta depois de um tick, e
+      // voltar ao builder antes disso mostraria a árvore velha.
+      queryClient.removeQueries({ queryKey: ["builder-workflow", workflowId], exact: true });
     },
-    [workflowId, doSave]
+    [workflowId, doSave, queryClient]
   );
 
   // ── Publish ───────────────────────────────────────────────────────────────
@@ -230,17 +277,22 @@ export function useWorkflowBuilder(workflowId: string) {
     const flow = useFlowBuilderStore.getState().flow;
     if (!flow || publishing) return;
 
-    // Publicar exige árvore compilável — melhor errar aqui do que publicar grafo velho.
-    try {
-      compileFlow(flow);
-    } catch (error) {
-      if (error instanceof FlowCompileError) {
-        toast.error("Corrija o fluxo antes de publicar", {
-          description: error.message,
-        });
-        return;
-      }
-      throw error;
+    // Publicar exige fluxo sem pendências (lint + compile) — melhor errar aqui
+    // do que publicar um grafo velho ou um fluxo que nunca dispara. A lista
+    // completa fica no header ("N pendências"); o passo da primeira é aberto.
+    const issues = collectFlowIssues(flow);
+    if (issues.length > 0) {
+      const [first] = issues;
+      toast.error("Corrija o fluxo antes de publicar", {
+        description:
+          issues.length > 1
+            ? `${first.message} (+${issues.length - 1} ${issues.length === 2 ? "pendência" : "pendências"})`
+            : first.message,
+      });
+      useFlowBuilderStore
+        .getState()
+        .select(first.stepId ?? TRIGGER_SELECTION_ID);
+      return;
     }
 
     setPublishing(true);

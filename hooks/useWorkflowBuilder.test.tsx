@@ -139,6 +139,12 @@ function mountScreen(wf: SavedWf = savedWorkflow()) {
   return { ...utils, ref, client }
 }
 
+/** Esvazia a fila de microtasks (a cadeia de promises do save enfileirado). */
+const flush = () =>
+  act(async () => {
+    for (let i = 0; i < 10; i += 1) await Promise.resolve()
+  })
+
 const lastUpdateBody = () => apiMock.update.mock.calls.at(-1)?.[1] as { name: string; tree: Flow; nodes: unknown[]; edges: unknown[] }
 
 const insertAt = (slot: Parameters<ReturnType<typeof store>['openPicker']>[0], type: Parameters<ReturnType<typeof store>['insertStep']>[0]) => {
@@ -266,28 +272,51 @@ describe('HK-02 autosave de config com debounce de 1s', () => {
 describe('HK-03 autosave estrutural imediato', () => {
   beforeEach(() => vi.useFakeTimers())
 
-  it('insert, remove, undo, addBranch e goto salvam na hora (1 save cada)', () => {
+  it('insert, remove, undo, addBranch e goto salvam na hora (1 save cada)', async () => {
     mountHook()
     act(() => insertAt({ kind: 'after', stepId: 'B' }, 'condition'))
     expect(apiMock.update).toHaveBeenCalledTimes(1)
+    await flush()
     const condId = store().selectedStepId!
     act(() => store().addBranchTo(condId))
     expect(apiMock.update).toHaveBeenCalledTimes(2)
+    await flush()
     act(() => insertAt({ kind: 'branch', stepId: condId, branchIndex: 0 }, 'goto'))
     expect(apiMock.update).toHaveBeenCalledTimes(3)
+    await flush()
     const gotoId = store().selectedStepId!
     act(() => {
       store().startGotoPick(gotoId)
       store().chooseGotoTarget('A')
     })
     expect(apiMock.update).toHaveBeenCalledTimes(4)
+    await flush()
     act(() => store().removeStep(condId))
     expect(apiMock.update).toHaveBeenCalledTimes(5)
+    await flush()
     act(() => store().undo())
     expect(apiMock.update).toHaveBeenCalledTimes(6)
+    await flush()
     expect(findStep(lastUpdateBody().tree, condId)).not.toBeNull()
     act(() => vi.advanceTimersByTime(5000))
     expect(apiMock.update).toHaveBeenCalledTimes(6)
+  })
+
+  it('estruturais em sequência com save no ar: um PATCH por vez e o último estado vence', async () => {
+    const first = deferred()
+    apiMock.update.mockReturnValueOnce(first.promise)
+    mountHook()
+    act(() => insertAt({ kind: 'after', stepId: 'B' }, 'tag'))
+    act(() => insertAt({ kind: 'after', stepId: 'A' }, 'tag_remove'))
+    act(() => store().renameFlow('Último'))
+    act(() => vi.advanceTimersByTime(1000))
+    // o 1º PATCH ainda está no ar: os outros esperam na fila (coalescidos)
+    expect(apiMock.update).toHaveBeenCalledTimes(1)
+    await act(async () => first.resolve({}))
+    await flush()
+    expect(apiMock.update).toHaveBeenCalledTimes(2)
+    expect(lastUpdateBody().tree).toBe(store().flow)
+    expect(lastUpdateBody().name).toBe('Último')
   })
 
   it('edição de config seguida de estrutural antes de 1s: 1 save imediato com as duas, sem save do timer', () => {
@@ -332,7 +361,23 @@ describe('HK-04 estados do save e indicador do header', () => {
     await act(async () => d.reject(new Error('500')))
     expect(screen.getByText('Erro ao salvar')).toBeInTheDocument()
     expect(ref.current?.saveState).toBe('error')
-    expect(toastMock.error).toHaveBeenCalledWith('Falha ao salvar o fluxo')
+    expect(toastMock.error).toHaveBeenCalledWith('Falha ao salvar o fluxo', expect.objectContaining({ description: expect.stringContaining('tentar de novo') }))
+  })
+
+  it('save que falhou é re-tentado sozinho depois de 5s', async () => {
+    vi.useFakeTimers()
+    apiMock.update.mockRejectedValueOnce(new Error('500'))
+    mountScreen()
+    await act(async () => insertAt({ kind: 'after', stepId: 'B' }, 'tag'))
+    await flush()
+    expect(screen.getByText('Erro ao salvar')).toBeInTheDocument()
+    await act(async () => vi.advanceTimersByTime(4999))
+    expect(apiMock.update).toHaveBeenCalledTimes(1)
+    await act(async () => vi.advanceTimersByTime(1))
+    await flush()
+    expect(apiMock.update).toHaveBeenCalledTimes(2)
+    expect(lastUpdateBody().tree).toBe(store().flow)
+    expect(screen.getByText('Salvo')).toBeInTheDocument()
   })
 
   it('o próximo save bem-sucedido limpa o erro', async () => {
@@ -350,36 +395,39 @@ describe('HK-04 estados do save e indicador do header', () => {
 describe('HK-05 árvore que não compila é salva como rascunho', () => {
   beforeEach(() => vi.useFakeTimers())
 
-  it('avisa uma vez, reaproveita o último grafo válido e sempre envia a tree', async () => {
+  // toast-covers-panel: todo passo novo nasce vazio; o aviso de rascunho virou
+  // pendência na tela (header/cards) em vez de um toast sobre o rodapé do painel.
+  it('sem toast; reaproveita o último grafo válido e sempre envia a tree', async () => {
     const wf = savedWorkflow()
     mountHook(wf)
     // 1) passo WhatsApp vazio (estrutural) → compile falha
     await act(async () => insertAt({ kind: 'after', stepId: 'B' }, 'whatsapp'))
+    await flush()
     const emptyId = store().selectedStepId!
-    expect(toastMock.warning).toHaveBeenCalledTimes(1)
-    expect(toastMock.warning).toHaveBeenCalledWith('Fluxo salvo como rascunho', {
-      description: expect.stringContaining('está vazio: defina template, mídia ou mensagem'),
-    })
+    expect(toastMock.warning).not.toHaveBeenCalled()
+    expect(toastMock.error).not.toHaveBeenCalled()
     expect(lastUpdateBody().nodes).toEqual(wf.nodes) // grafo da carga
     expect(findStep(lastUpdateBody().tree, emptyId)).not.toBeNull()
 
-    // 2) outra edição com o MESMO erro → sem novo aviso
+    // 2) outra edição com o MESMO erro → mesmo grafo
     act(() => store().patchStep('A', { config: { message: 'mudou' } }))
     await act(async () => vi.advanceTimersByTime(1000))
+    await flush()
     expect(apiMock.update).toHaveBeenCalledTimes(2)
-    expect(toastMock.warning).toHaveBeenCalledTimes(1)
     expect(lastUpdateBody().nodes).toEqual(wf.nodes)
 
     // 3) preenche → compila → grafo novo
     act(() => store().patchStep(emptyId, { config: { message: 'agora sim' } }))
     await act(async () => vi.advanceTimersByTime(1000))
+    await flush()
     const good = compileFlow(store().flow!)
     expect(lastUpdateBody().nodes).toEqual(good.nodes)
 
-    // 4) esvazia de novo → avisa de novo e usa o último grafo BOM (o do passo 3)
+    // 4) esvazia de novo → usa o último grafo BOM (o do passo 3)
     act(() => store().patchStep(emptyId, { config: { message: '' } }))
     await act(async () => vi.advanceTimersByTime(1000))
-    expect(toastMock.warning).toHaveBeenCalledTimes(2)
+    await flush()
+    expect(toastMock.warning).not.toHaveBeenCalled()
     expect(lastUpdateBody().nodes).toEqual(good.nodes)
     expect(apiMock.update).toHaveBeenCalledTimes(4)
   })
@@ -412,26 +460,35 @@ describe('HK-06 flush no unmount', () => {
     expect(apiMock.update).toHaveBeenCalledTimes(1)
   })
 
-  // BUG(save-error-lost): o dirtyRef é zerado ANTES do PATCH (useWorkflowBuilder.ts:315) e
-  // não há retry; se o save falha e o usuário sai, a mudança nunca é reenviada.
-  it.fails('save que falhou é reenviado ao sair da tela', async () => {
+  // save-error-lost: o save que falhou continua "sujo" — sair da tela reenvia.
+  it('save que falhou é reenviado ao sair da tela', async () => {
     apiMock.update.mockRejectedValueOnce(new Error('rede'))
     const { unmount } = mountHook()
     act(() => store().patchStep('A', { config: { message: 'importante' } }))
     await act(async () => vi.advanceTimersByTime(1000))
+    await flush()
     expect(apiMock.update).toHaveBeenCalledTimes(1)
     unmount()
     expect(apiMock.update).toHaveBeenCalledTimes(2)
+    expect(findStep(lastUpdateBody().tree, 'A')?.config.message).toBe('importante')
   })
 
-  // BUG(no-beforeunload): fechar a aba/recarregar durante o debounce de 1s perde a
-  // edição — o hook não registra beforeunload (nem grava, nem avisa).
-  it.fails('fechar a aba com edição pendente grava ou pede confirmação', () => {
+  // no-beforeunload: fechar a aba/recarregar durante o debounce de 1s grava e pede
+  // confirmação ao navegador.
+  it('fechar a aba com edição pendente grava ou pede confirmação', () => {
     mountHook()
     act(() => store().patchStep('A', { config: { message: 'quase' } }))
     const event = new Event('beforeunload', { cancelable: true })
     window.dispatchEvent(event)
-    expect(apiMock.update.mock.calls.length > 0 || event.defaultPrevented).toBe(true)
+    expect(apiMock.update).toHaveBeenCalledTimes(1)
+    expect(event.defaultPrevented).toBe(true)
+  })
+
+  it('sem edição pendente, fechar a aba não pede confirmação', () => {
+    mountHook()
+    const event = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(event)
+    expect(event.defaultPrevented).toBe(false)
   })
 })
 
@@ -461,14 +518,35 @@ describe('HK-07 publish bloqueia árvore inválida', () => {
     expect(apiMock.publish).not.toHaveBeenCalled()
   })
 
-  // BUG(empty-keywords-publish): gatilho "Palavra-chave" sem nenhuma palavra compila e
-  // publica sem aviso, mas o webhook ignora fluxos com keywords vazias — o fluxo
-  // publicado nunca dispara (validateTree não olha o trigger; compile.ts:724-727).
-  it.fails('gatilho de palavra-chave sem palavras não pode ser publicado em silêncio', async () => {
+  // empty-keywords-publish: gatilho "Palavra-chave" sem palavra é pendência (lintFlow):
+  // o Publicar é barrado, o toast explica e o painel do gatilho abre.
+  it('gatilho de palavra-chave sem palavras não pode ser publicado em silêncio', async () => {
     const tree: Flow = { ...validTree(), trigger: { type: 'keywords', label: 'Palavras-chave', keywords: [] } }
     const { result } = mountHook(savedWorkflow({ tree }))
     await act(async () => result.current.publish())
     expect(apiMock.publish).not.toHaveBeenCalled()
+    expect(toastMock.error).toHaveBeenCalledWith('Corrija o fluxo antes de publicar', {
+      description: expect.stringContaining('sem nenhuma palavra'),
+    })
+    expect(store().selectedStepId).toBe('__trigger')
+  })
+
+  it('condição com valor vazio bloqueia o publish e abre o passo', async () => {
+    const cond: Step = {
+      id: 'C',
+      type: 'condition',
+      name: 'Cond',
+      config: {},
+      next: null,
+      branches: [
+        { id: 'b0', label: 'Quer', child: null, field: 'Replied message', operator: 'contains', value: '' },
+        { id: 'bn', label: 'None', child: null, locked: true },
+      ],
+    }
+    const { result } = mountHook(savedWorkflow({ tree: { ...validTree(), root: wa('A', 'oi', cond) } }))
+    await act(async () => result.current.publish())
+    expect(apiMock.publish).not.toHaveBeenCalled()
+    expect(store().selectedStepId).toBe('C')
   })
 })
 
@@ -545,32 +623,36 @@ describe('HK-09 publish com falha', () => {
 
 // ─── HK-10 ─────────────────────────────────────────────────────────────────────
 
-describe('HK-10 respostas fora de ordem', () => {
-  // BUG(autosave-race): cada estrutural dispara um PATCH sem fila nem número de
-  // sequência (useWorkflowBuilder.ts:356-362). Se o save MAIS NOVO falha e um mais velho
-  // resolve depois, o indicador termina em "Salvo" com a última edição perdida.
-  it.fails('o save mais novo falhou → o estado final é "error"', async () => {
+describe('HK-10 saves em ordem', () => {
+  // autosave-race: um PATCH por vez; se o save MAIS NOVO falha depois de um mais
+  // velho ter resolvido, o indicador termina em "error" (e não em "Salvo").
+  it('o save mais novo falhou → o estado final é "error"', async () => {
     const first = deferred()
     const second = deferred()
     apiMock.update.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise)
     const { result } = mountHook()
     act(() => insertAt({ kind: 'after', stepId: 'B' }, 'tag'))
     act(() => insertAt({ kind: 'after', stepId: 'A' }, 'tag_remove'))
-    expect(apiMock.update).toHaveBeenCalledTimes(2)
-    await act(async () => second.reject(new Error('timeout')))
+    expect(apiMock.update).toHaveBeenCalledTimes(1) // o 2º espera o 1º
     await act(async () => first.resolve({}))
+    await flush()
+    expect(apiMock.update).toHaveBeenCalledTimes(2)
+    expect(result.current.saveState).toBe('saving')
+    await act(async () => second.reject(new Error('timeout')))
+    await flush()
     expect(result.current.saveState).toBe('error')
   })
 
-  it('caracterização: hoje termina em "saved"', async () => {
+  it('o PATCH seguinte só sai depois do anterior responder (mesmo se o anterior falhar)', async () => {
     const first = deferred()
-    const second = deferred()
-    apiMock.update.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise)
+    apiMock.update.mockReturnValueOnce(first.promise)
     const { result } = mountHook()
     act(() => insertAt({ kind: 'after', stepId: 'B' }, 'tag'))
     act(() => insertAt({ kind: 'after', stepId: 'A' }, 'tag_remove'))
-    await act(async () => second.reject(new Error('timeout')))
-    await act(async () => first.resolve({}))
+    await act(async () => first.reject(new Error('rede')))
+    await flush()
+    expect(apiMock.update).toHaveBeenCalledTimes(2)
+    expect(apiMock.update.mock.invocationCallOrder[1]).toBeGreaterThan(apiMock.update.mock.invocationCallOrder[0])
     expect(result.current.saveState).toBe('saved')
   })
 })
@@ -589,11 +671,9 @@ describe('HK-11 reabrir o builder com cache do React Query', () => {
     return { get: () => current }
   }
 
-  // BUG(stale-builder-cache): a query ['builder-workflow', id] tem staleTime Infinity e
-  // nada a atualiza depois do autosave (useWorkflowBuilder.ts:273-279). Com o gcTime de
-  // 5 min do app (app/providers.tsx), sair e voltar ao builder recarrega a árvore VELHA
-  // do cache; o próximo autosave sobrescreve o servidor e apaga o que foi salvo.
-  it.fails('voltar ao fluxo mostra a árvore salva, não a do cache', async () => {
+  // stale-builder-cache: a query do builder não sobrevive à saída (gcTime 0) e a
+  // carga espera o save do unmount — voltar ao fluxo mostra o que foi salvo.
+  it('voltar ao fluxo mostra a árvore salva, não a do cache', async () => {
     const server = fakeServer()
     const client = makeClient({ gcTime: 5 * 60 * 1000, staleTime: 30_000 })
     const first = renderHook(() => useWorkflowBuilder(WF_ID), { wrapper: wrapperFor(client) })
@@ -609,21 +689,25 @@ describe('HK-11 reabrir o builder com cache do React Query', () => {
     expect(findStep(store().flow!, inserted)).not.toBeNull()
   })
 
-  it('caracterização: o remount não refaz o GET e o próximo save apaga o passo salvo', async () => {
+  it('o save do unmount ainda no ar: a nova carga espera por ele', async () => {
     const server = fakeServer()
+    const slow = deferred()
     const client = makeClient({ gcTime: 5 * 60 * 1000, staleTime: 30_000 })
     const first = renderHook(() => useWorkflowBuilder(WF_ID), { wrapper: wrapperFor(client) })
     await waitFor(() => expect(store().flow).not.toBeNull())
-    await act(async () => insertAt({ kind: 'after', stepId: 'B' }, 'tag'))
-    const inserted = store().selectedStepId!
-    first.unmount()
-
+    act(() => store().patchStep('A', { config: { message: 'saindo agora' } }))
+    apiMock.update.mockImplementationOnce(async (_id: string, body: Record<string, unknown>) => {
+      await slow.promise
+      Object.assign(server.get(), body)
+      return {}
+    })
+    first.unmount() // flush do debounce: PATCH lento no ar
     renderHook(() => useWorkflowBuilder(WF_ID), { wrapper: wrapperFor(client) })
+    await flush()
+    expect(store().flow).toBeNull() // carga esperando o save
+    await act(async () => slow.resolve(undefined))
     await waitFor(() => expect(store().flow).not.toBeNull())
-    expect(apiMock.getById).toHaveBeenCalledTimes(1)
-    expect(findStep(store().flow!, inserted)).toBeNull()
-    await act(async () => store().removeStep('B'))
-    expect(findStep(server.get().tree as Flow, inserted)).toBeNull() // perdido no servidor
+    expect(findStep(store().flow!, 'A')?.config.message).toBe('saindo agora')
   })
 })
 
@@ -646,32 +730,21 @@ describe('HK-12 erro inesperado no compile', () => {
     }
   }
 
-  // BUG(save-stuck): doSave chama setSaveState('saving') e relança erros que não são
-  // FlowCompileError dentro de `void doSave()` (useWorkflowBuilder.ts:326-337): rejeição
-  // sem tratamento, nenhum toast, e o indicador fica em "Salvando…" para sempre.
-  it.fails('TypeError no compile → estado "error" com toast', async () => {
-    await withUnhandledRejections(async () => {
-      const { result } = mountHook()
-      vi.mocked(compileFlow).mockImplementationOnce(() => {
-        throw new TypeError('boom')
-      })
-      await act(async () => insertAt({ kind: 'after', stepId: 'B' }, 'tag'))
-      expect(result.current.saveState).toBe('error')
-      expect(toastMock.error).toHaveBeenCalled()
-    })
-  })
-
-  it('caracterização: fica preso em "saving" e a promise rejeita sem tratamento', async () => {
+  // save-stuck: erro inesperado no compile não trava o indicador em "Salvando…" nem
+  // vira rejeição sem tratamento — a árvore é salva com o último grafo bom.
+  it('TypeError no compile → salva a tree com o último grafo, sem travar', async () => {
     await withUnhandledRejections(async (seen) => {
-      const { result } = mountHook()
+      const wf = savedWorkflow()
+      const { result } = mountHook(wf)
       vi.mocked(compileFlow).mockImplementationOnce(() => {
         throw new TypeError('boom')
       })
       await act(async () => insertAt({ kind: 'after', stepId: 'B' }, 'tag'))
-      await new Promise((r) => setTimeout(r, 10))
-      expect(result.current.saveState).toBe('saving')
-      expect(apiMock.update).not.toHaveBeenCalled()
-      expect(seen).toEqual([expect.any(TypeError)])
+      await flush()
+      expect(apiMock.update).toHaveBeenCalledTimes(1)
+      expect(lastUpdateBody().nodes).toEqual(wf.nodes)
+      expect(result.current.saveState).toBe('saved')
+      expect(seen).toEqual([])
     })
   })
 })
