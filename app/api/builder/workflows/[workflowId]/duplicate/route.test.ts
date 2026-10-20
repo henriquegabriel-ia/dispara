@@ -89,31 +89,19 @@ describe('duplicate', () => {
 
   // PLAUSIBLE BUG(duplicate-sem-settings): createWorkflowRecord não recebe nem grava settings —
   // a cópia volta para allowReentry/stopOnResponse/timeWindow padrão. Correto: herdar settings.
-  it.fails('R13 BUG(duplicate-sem-settings): a cópia deveria herdar as configurações do original', async () => {
+  it('R13 duplicate-sem-settings: a cópia deveria herdar as configurações do original', async () => {
     await seedPublishedFlow(h.db, flow, { settings: { allowReentry: false, stopOnResponse: true } })
     const res = await duplicate('wf')
     const copy = h.db.row('workflows', { id: res.body.id as string })!
     expect(copy.settings).toEqual(h.db.row('workflows', { id: 'wf' })?.settings)
   })
 
-  it('R13 (fato) a cópia nasce com settings {}', async () => {
-    await seedPublishedFlow(h.db, flow, { settings: { allowReentry: false } })
-    expect(h.db.row('workflows', { id: 'wf' })?.settings).toMatchObject({ allowReentry: false })
-    const res = await duplicate('wf')
-    expect(h.db.row('workflows', { id: res.body.id as string })?.settings).toEqual({})
-  })
-
-  // BUG(ghost-workflow): duplicar um id inexistente cria o "Fluxo inicial" (ensureWorkflowRecord)
+  // Corrigido BUG(ghost-workflow): duplicar um id inexistente cria o "Fluxo inicial" (ensureWorkflowRecord)
   // E a cópia. Correto: 404 sem gravar nada.
-  it.fails('D02 BUG(ghost-workflow): duplicar id inexistente deveria dar 404', async () => {
+  it('D02 ghost-workflow: duplicar id inexistente deveria dar 404', async () => {
     const res = await duplicate('nao-existe')
     expect(res.status).toBe(404)
     expect(h.db.count('workflows')).toBe(0)
   })
 
-  it('D02 (fato) duplicar id inexistente cria 2 workflows ("Fluxo inicial" e "Fluxo inicial Copy")', async () => {
-    const res = await duplicate('nao-existe')
-    expect(res.status).toBe(200)
-    expect(h.db.rows('workflows').map((w) => w.name).sort()).toEqual(['Fluxo inicial', 'Fluxo inicial Copy'])
-  })
 })

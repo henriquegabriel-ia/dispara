@@ -2,6 +2,7 @@ import { nanoid } from "nanoid";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { SavedWorkflow, WorkflowData } from "./api-client";
 import type { WorkflowEdge, WorkflowNode } from "./graph-types";
+import { compileFlow } from "./flow/compile";
 import { createEmptyFlow } from "./flow/operations";
 import type { Flow } from "./flow/types";
 import { parseWorkflowSettings } from "./workflow-settings";
@@ -91,6 +92,25 @@ export function buildDefaultTree(args?: { id?: string; name?: string }): Flow {
   });
 }
 
+/**
+ * Fluxo novo do builder novo: árvore vazia ("Sem gatilho") + o grafo COMPILADO
+ * dela (nó "__trigger" None). Nunca o grafo legado — nodes/edges sempre derivam
+ * da árvore.
+ */
+export function buildDefaultWorkflow(args?: { id?: string; name?: string }): {
+  tree: Flow;
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+} {
+  const tree = buildDefaultTree(args);
+  const compiled = compileFlow(tree);
+  return {
+    tree,
+    nodes: compiled.nodes as unknown as WorkflowNode[],
+    edges: compiled.edges as unknown as WorkflowEdge[],
+  };
+}
+
 export async function getCompanyId(
   supabase: SupabaseClient
 ): Promise<string | null> {
@@ -168,7 +188,7 @@ export async function ensureWorkflowRecord(
   const existing = await fetchWorkflowRecord(supabase, workflowId);
   if (existing) return existing;
 
-  const graph = buildDefaultGraph();
+  const graph = buildDefaultWorkflow({ id: workflowId });
   const now = new Date().toISOString();
   const versionId = nanoid();
 
@@ -193,7 +213,7 @@ export async function ensureWorkflowRecord(
     status: "draft",
     nodes: graph.nodes,
     edges: graph.edges,
-    tree: buildDefaultTree({ id: workflowId }),
+    tree: graph.tree,
     created_at: now,
     updated_at: now,
   });
@@ -258,6 +278,20 @@ export async function ensureEditorRecord(
   return record;
 }
 
+/**
+ * Registro que o RUNTIME executa (webhook, /execute, /resume, cron, /enroll):
+ * a versão ativa, e só se ela estiver PUBLICADA. Fluxo nunca publicado (versão
+ * ativa ainda é o rascunho), excluído ou inexistente → null. Nunca cria nada.
+ */
+export async function fetchPublishedRecord(
+  supabase: SupabaseClient,
+  workflowId: string
+): Promise<WorkflowRecord | null> {
+  const record = await fetchWorkflowRecord(supabase, workflowId);
+  if (!record || record.version.status !== "published") return null;
+  return { ...record, lastPublishedVersion: record.version.version };
+}
+
 /** Há edições salvas que ainda não foram publicadas? */
 export function hasUnpublishedChanges(record: WorkflowRecord): boolean {
   return (
@@ -282,6 +316,7 @@ export async function createWorkflowRecord(
     status: "draft",
     owner_company_id: ownerCompanyId ?? null,
     active_version_id: null,
+    settings: input.settings === undefined ? {} : parseWorkflowSettings(input.settings),
     created_at: now,
     updated_at: now,
   });
@@ -322,9 +357,10 @@ export async function createWorkflowRecord(
 export async function updateWorkflowRecord(
   supabase: SupabaseClient,
   workflowId: string,
-  patch: Partial<WorkflowData>
+  patch: Partial<WorkflowData>,
+  ownerCompanyId?: string | null
 ): Promise<WorkflowRecord> {
-  await ensureWorkflowRecord(supabase, workflowId);
+  await ensureWorkflowRecord(supabase, workflowId, ownerCompanyId);
   const existing = await fetchEditorRecord(supabase, workflowId);
   if (!existing) throw new Error("Workflow missing active version");
   const now = new Date().toISOString();

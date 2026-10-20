@@ -171,22 +171,13 @@ describe('PATCH — tela de Configurações (WorkflowSettingsSheet manda só { s
     settings: { allowReentry: false, stopOnResponse: true, timeWindow: { enabled: false, start: '08:00', end: '18:00', days: [1, 2, 3, 4, 5] } },
   }
 
-  it('R03 (fato) hoje responde 400 "Invalid workflow" (0 triggers) e não grava nada', async () => {
-    await seedPublishedFlow(h.db, makeFlow({ id: 'wf', root: steps.whatsapp({ id: 'w', message: 'oi' }) }), { publish: false })
-    const before = snapshot()
-    const res = await routes.patchWorkflow('wf', sheetBody)
-    expect(res.status).toBe(400)
-    expect(JSON.stringify(res.body)).toContain('encontrado 0')
-    expect(snapshot()).toBe(before)
-  })
-
-  // BUG(settings-patch-400): components/flow-builder/WorkflowSettingsSheet.tsx salva com
+  // Corrigido BUG(settings-patch-400): components/flow-builder/WorkflowSettingsSheet.tsx salva com
   // api.workflow.update(id, { settings }) — PATCH sem nodes. normalizeWorkflowPatch transforma a
   // ausência em nodes [] e validateWorkflowSchema exige 1 trigger → 400 sempre: "Permitir
   // reentrada", "Parar ao responder" e "Janela de horário" nunca são salvas pela tela (toast "Falha
   // ao salvar as configurações"). E se passasse, updateWorkflowRecord gravaria nodes [] (só
   // preserva undefined) e APAGARIA o grafo. Correto: 200, settings gravado e grafo intacto.
-  it.fails('R03 BUG(settings-patch-400): salvar só as configurações deveria funcionar sem tocar no grafo', async () => {
+  it('R03 settings-patch-400: salvar só as configurações deveria funcionar sem tocar no grafo', async () => {
     const seeded = await seedPublishedFlow(h.db, makeFlow({ id: 'wf', root: steps.whatsapp({ id: 'w', message: 'oi' }) }))
     const res = await routes.patchWorkflow('wf', sheetBody)
     expect(res.status).toBe(200)
@@ -215,21 +206,15 @@ describe('GET', () => {
     expect((await routes.deleteWorkflow('wf')).status).toBe(400)
   })
 
-  // BUG(ghost-workflow): GET de um id inexistente (URL errada, link velho, fluxo apagado) passa por
+  // Corrigido BUG(ghost-workflow): GET de um id inexistente (URL errada, link velho, fluxo apagado) passa por
   // ensureWorkflowRecord e CRIA um workflow "Fluxo inicial" com o grafo legado — lixo na lista e
   // um fluxo publicável que ninguém criou. Correto: 404 e nenhuma linha nova.
-  it.fails('D02 BUG(ghost-workflow): GET de id inexistente deveria dar 404 sem criar nada', async () => {
+  it('D02 ghost-workflow: GET de id inexistente deveria dar 404 sem criar nada', async () => {
     const res = await routes.getWorkflow('nao-existe')
     expect(res.status).toBe(404)
     expect(h.db.count('workflows', { id: 'nao-existe' })).toBe(0)
   })
 
-  it('D02 (fato) hoje o GET de id inexistente cria "Fluxo inicial" draft', async () => {
-    const res = await routes.getWorkflow('nao-existe')
-    expect(res.status).toBe(200)
-    expect(res.body).toMatchObject({ id: 'nao-existe', name: 'Fluxo inicial', status: 'draft' })
-    expect(h.db.count('workflows', { id: 'nao-existe' })).toBe(1)
-  })
 })
 
 describe('DELETE', () => {
@@ -274,7 +259,7 @@ describe('DELETE', () => {
   // e o próximo tick do cron (drainWorkflowEnrollments) chama ensureWorkflowRecord para o
   // workflow_id do enrollment — RECRIANDO o fluxo apagado como "Fluxo inicial" (grafo legado).
   // Correto: depois do DELETE o enrollment não fica ativo/esperando e o drain não recria nada.
-  it.fails('R15 BUG(ghost-workflow): fluxo apagado não deveria voltar no próximo tick do cron', async () => {
+  it('R15 ghost-workflow: fluxo apagado não deveria voltar no próximo tick do cron', async () => {
     await publishedWithLeftovers()
     await routes.deleteWorkflow('wf')
     await routes.drain()
@@ -282,13 +267,4 @@ describe('DELETE', () => {
     expect(['waiting', 'active']).not.toContain(h.db.row('workflow_enrollments', { workflow_id: 'wf' })?.status)
   })
 
-  it('R15 (fato) hoje o drain recria o workflow apagado e marca o enrollment como failed', async () => {
-    await publishedWithLeftovers()
-    await routes.deleteWorkflow('wf')
-    const drained = await routes.drain()
-    expect(drained).toMatchObject({ claimed: 1 })
-    expect(h.db.row('workflows', { id: 'wf' })).toMatchObject({ name: 'Fluxo inicial', status: 'draft' })
-    expect(h.db.row('workflow_enrollments', { workflow_id: 'wf' })?.status).toBe('failed')
-    expect(h.meta.sent).toEqual([]) // pelo menos não envia nada
-  })
 })

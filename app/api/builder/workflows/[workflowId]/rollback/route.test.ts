@@ -20,6 +20,7 @@ import {
   readRoute,
   resetWorkflowCaches,
   routeParams,
+  routes,
   seedPublishedFlow,
   setupWorkflowTest,
   steps,
@@ -52,14 +53,17 @@ const kw = (keywords: string[], id = 'wf') =>
 const keywordListOf = (v: Row | undefined) =>
   ((v?.nodes as Array<{ data: { type: string; config: Row } }>) ?? []).find((n) => n.data.type === 'trigger')?.data.config.keywordList
 
-/** v1 draft → v2 (oi) published → v3 (menu) published; v1/v2 archived. */
+/**
+ * v1 draft → v2 (oi) published → edição "menu" vai para o rascunho v3 → publish v4 (menu).
+ * v1/v2/v3 archived; a v2 continua com "oi" (versão publicada é imutável).
+ */
 async function threeVersions() {
   freezeTime('2026-10-18T12:00:00.000Z')
   await seedPublishedFlow(h.db, kw(['oi']), { publish: false })
   await publishFlow(h.db, kw(['oi']))
   advanceTime(60_000)
   await publishFlow(h.db, kw(['menu']))
-  expect(statuses('wf')).toEqual(['1:archived', '2:archived', '3:published'])
+  expect(statuses('wf')).toEqual(['1:archived', '2:archived', '3:archived', '4:published'])
   return versions('wf')
 }
 
@@ -103,27 +107,30 @@ describe('rollback — efeitos', () => {
     const res = await rollback('wf', { versionId: v2.id })
     expect(res.status).toBe(200)
     expect(res.body).toEqual({ success: true, versionId: v2.id, companyId: TEST_COMPANY_ID })
-    expect(statuses('wf')).toEqual(['1:archived', '2:published', '3:archived'])
+    expect(statuses('wf')).toEqual(['1:archived', '2:published', '3:archived', '4:archived'])
     expect(h.db.row('workflows', { id: 'wf' })).toMatchObject({ active_version_id: v2.id, status: 'published', schedule_cron: null, schedule_active: false })
   })
 
-  // BUG(published-mutavel): o autosave grava IN-PLACE na versão ativa — que, depois do 1º
+  // Corrigido BUG(published-mutavel): o autosave grava IN-PLACE na versão ativa — que, depois do 1º
   // publish, é a PUBLICADA. Ao editar para "menu" e publicar a v3, a v2 também foi reescrita
   // com "menu". Resultado: o histórico de versões é mutável e o rollback para a v2 NÃO traz de
   // volta o que foi publicado na v2 ("oi"). Correto: a v2 é um snapshot imutável.
-  it.fails('R10 BUG(published-mutavel): rollback para a v2 deveria trazer de volta o fluxo publicado na v2 ("oi")', async () => {
+  it('R10 published-mutavel: rollback para a v2 deveria trazer de volta o fluxo publicado na v2 ("oi")', async () => {
     const [, v2] = await threeVersions()
     await rollback('wf', { versionId: v2.id })
     const { data } = await h.db.client.from('workflow_versions').select('workflow_id, nodes').eq('status', 'published')
     expect((data as Row[]).map((v) => keywordListOf(v))).toEqual(['oi'])
   })
 
-  it('R10 (fato) a v2 foi reescrita pelo autosave antes do 2º publish: o rollback traz "menu"', async () => {
+  it('R10 rollback preserva o rascunho em edição (continua "alterações não publicadas")', async () => {
     const [, v2] = await threeVersions()
-    expect(keywordListOf(v2)).toBe('menu')
+    await routes.patchWorkflow('wf', { tree: kw(['rascunho']) })
+    const draft = versions('wf').at(-1)!
+    expect(draft).toMatchObject({ version: 5, status: 'draft' })
     await rollback('wf', { versionId: v2.id })
-    const { data } = await h.db.client.from('workflow_versions').select('workflow_id, nodes').eq('status', 'published')
-    expect((data as Row[]).map((v) => keywordListOf(v))).toEqual(['menu'])
+    expect(h.db.row('workflow_versions', { id: draft.id })?.status).toBe('draft')
+    const get = await routes.getWorkflow('wf')
+    expect(get.body).toMatchObject({ hasUnpublishedChanges: true, lastPublishedVersion: 2, tree: kw(['rascunho']) })
   })
 
   it('R10 rollback com versões NÃO editadas in-place (publish direto) volta o conteúdo certo', async () => {
@@ -147,10 +154,10 @@ describe('rollback — efeitos', () => {
     await rollback('wf', { versionId: v2.id })
     expect(versions('wf').filter((v) => v.status === 'published')).toHaveLength(1)
     await rollback('wf', { versionId: v1.id })
-    expect(statuses('wf')).toEqual(['1:published', '2:archived', '3:archived'])
+    expect(statuses('wf')).toEqual(['1:published', '2:archived', '3:archived', '4:archived'])
     await publishFlow(h.db, kw(['tchau']))
-    // publicar a partir da v1 ativa: v1 (já reativada) vira archived e nasce a v4
-    expect(statuses('wf')).toEqual(['1:archived', '2:archived', '3:archived', '4:published'])
+    // a edição a partir da v1 publicada vira o rascunho v5; o publish gera a v6
+    expect(statuses('wf')).toEqual(['1:archived', '2:archived', '3:archived', '4:archived', '5:archived', '6:published'])
   })
 
   it('o rollback não toca outros workflows', async () => {
@@ -166,26 +173,17 @@ describe('rollback — efeitos', () => {
   // palavra-chave. O rollback marca a versão como published SEM atualizar published_at: ela
   // fica com a data antiga (ou null, se nunca foi publicada — e DESC põe NULLS FIRST no Postgres).
   // Correto: published_at = agora ao reativar.
-  it.fails('R11 BUG(rollback-published_at): reativar a v2 deveria atualizar published_at para agora', async () => {
+  it('R11 rollback-published_at: reativar a v2 deveria atualizar published_at para agora', async () => {
     const [, v2] = await threeVersions()
     advanceTime(60_000)
     await rollback('wf', { versionId: v2.id })
     expect(h.db.row('workflow_versions', { id: v2.id })?.published_at).toBe(new Date().toISOString())
   })
 
-  it('R11 (fato) published_at fica com a data do 1º publish; a v1 (rascunho) reativada fica null', async () => {
-    const [v1, v2] = await threeVersions()
-    advanceTime(60_000)
-    await rollback('wf', { versionId: v2.id })
-    expect(h.db.row('workflow_versions', { id: v2.id })?.published_at).toBe('2026-10-18T12:00:00.000Z')
-    await rollback('wf', { versionId: v1.id })
-    const v1Row = h.db.row('workflow_versions', { id: v1.id })
-    expect(v1Row).toMatchObject({ status: 'published', published_at: null })
-  })
-
-  it('R11 (fato) a v1 reativada com published_at null passa À FRENTE de um fluxo publicado agora (NULLS FIRST)', async () => {
+  it('R11 a v1 (rascunho nunca publicado) reativada ganha published_at e não passa à frente de um fluxo publicado depois', async () => {
     const [v1] = await threeVersions()
     await rollback('wf', { versionId: v1.id })
+    expect(h.db.row('workflow_versions', { id: v1.id })).toMatchObject({ status: 'published', published_at: new Date().toISOString() })
     advanceTime(60_000)
     await seedPublishedFlow(h.db, kw(['oi'], 'novo'))
     const { data } = await h.db.client
@@ -193,7 +191,7 @@ describe('rollback — efeitos', () => {
       .select('workflow_id, published_at')
       .eq('status', 'published')
       .order('published_at', { ascending: false })
-    expect((data as Row[]).map((v) => v.workflow_id)).toEqual(['wf', 'novo'])
+    expect((data as Row[]).map((v) => v.workflow_id)).toEqual(['novo', 'wf'])
   })
 })
 
@@ -205,13 +203,15 @@ describe('versions GET', () => {
     const res = await readRoute<Row[]>(await mod.GET(jsonRequest('/api/builder/workflows/wf/versions'), routeParams('wf')))
     expect(res.status).toBe(200)
     expect(res.body.map((v) => [v.version, v.status])).toEqual([
-      [3, 'published'],
+      [4, 'published'],
+      [3, 'archived'],
       [2, 'archived'],
       [1, 'archived'],
     ])
     expect(res.body[0].published_at).toBe('2026-10-18T12:01:00.000Z')
-    expect(res.body[1].published_at).toBe('2026-10-18T12:00:00.000Z')
-    expect(res.body[2].published_at).toBeNull()
+    expect(res.body[1].published_at).toBeNull() // o rascunho publicado (a v4 é a cópia)
+    expect(res.body[2].published_at).toBe('2026-10-18T12:00:00.000Z')
+    expect(res.body[3].published_at).toBeNull()
     expect((res.body[0].tree as { trigger: { keywords: string[] } }).trigger.keywords).toEqual(['menu'])
     expect(res.body.every((v) => v.workflow_id === 'wf')).toBe(true)
   })

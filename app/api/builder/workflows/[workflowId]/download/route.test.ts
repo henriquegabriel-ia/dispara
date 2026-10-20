@@ -82,9 +82,10 @@ describe('download', () => {
     expect(recompiled.edges).toEqual(version.edges)
   })
 
-  it('(fato) download de id inexistente cria o "Fluxo inicial" (ensureWorkflowRecord) — ver BUG(ghost-workflow)', async () => {
+  // Corrigido BUG(ghost-workflow): leitura nunca cria o workflow.
+  it('ghost-workflow: download de id inexistente → 404 sem criar nada', async () => {
     const res = await download('nao-existe')
-    expect(res.body.name).toBe('Fluxo inicial')
-    expect(h.db.count('workflows')).toBe(1)
+    expect(res.status).toBe(404)
+    expect(h.db.count('workflows')).toBe(0)
   })
 })

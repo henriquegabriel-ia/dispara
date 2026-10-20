@@ -39,7 +39,7 @@ import { vi } from 'vitest'
 import { NextRequest } from 'next/server'
 import { compileFlow, TRIGGER_NODE_ID, type CompiledWorkflow } from '@/lib/builder/flow/compile'
 import type { Branch, Flow, FlowTrigger, Step } from '@/lib/builder/flow/types'
-import { createNewVersion, createWorkflowRecord } from '@/lib/builder/workflow-db'
+import { createNewVersion, createWorkflowRecord, fetchEditorRecord } from '@/lib/builder/workflow-db'
 import { parseWorkflowSettings, type WorkflowSettings } from '@/lib/builder/workflow-settings'
 import type { WorkflowEdge, WorkflowNode } from '@/lib/builder/graph-types'
 import {
@@ -414,7 +414,9 @@ export async function publishFlow(
     ...(opts.settings ? { settings: opts.settings } : {}),
   })
   if (patch.status >= 300) throw new Error(`[workflow-harness] PATCH falhou (${patch.status}): ${JSON.stringify(patch.body)}`)
-  const draftVersionId = (db.row('workflows', { id: workflowId })?.active_version_id as string | null) ?? null
+  // versão que o editor acabou de salvar (rascunho mais novo; a ativa se nunca publicou)
+  const editor = await fetchEditorRecord(db.client as never, workflowId)
+  const draftVersionId = editor?.version.id ?? null
   const publish = await routes.publish(workflowId)
   if (publish.status >= 300) throw new Error(`[workflow-harness] publish falhou (${publish.status}): ${JSON.stringify(publish.body)}`)
   const body = publish.body as { versionId: string; version: number }

@@ -13,6 +13,8 @@ import {
   createNewVersion,
   createWorkflowRecord,
   ensureWorkflowRecord,
+  fetchEditorRecord,
+  fetchPublishedRecord,
   fetchWorkflowRecord,
   getCompanyId,
   listWorkflowRecords,
@@ -125,11 +127,11 @@ describe('workflow-db — ensureWorkflowRecord', () => {
     expect(db.ops.filter((o) => o.op !== 'select').length).toBe(writesBefore)
   })
 
-  it('(fato) id inexistente: CRIA "Fluxo inicial" draft com grafo legado e tree vazia — é o que GET/publish/execute/drain usam', async () => {
+  it('id inexistente: cria "Fluxo inicial" draft com a árvore vazia e o grafo COMPILADO dela (só o PATCH do editor usa o ensure)', async () => {
     const { db, client } = setup()
     const record = await ensureWorkflowRecord(client, 'id-digitado-errado', TEST_COMPANY_ID)
     expect(record.workflow).toMatchObject({ id: 'id-digitado-errado', name: 'Fluxo inicial', status: 'draft' })
-    expect(record.version.nodes.find((n) => n.data.type === 'trigger')?.data.config).toEqual({ triggerType: 'Webhook' })
+    expect(record.version.nodes.find((n) => n.data.type === 'trigger')).toMatchObject({ id: '__trigger', data: { config: { triggerType: 'None' } } })
     expect(record.version.tree).toMatchObject({ id: 'id-digitado-errado', trigger: { type: 'none' }, root: null })
     expect(db.count('workflows')).toBe(1)
   })
@@ -139,12 +141,8 @@ describe('workflow-db — ensureWorkflowRecord', () => {
     await expect(ensureWorkflowRecord(client, 'quebrado')).rejects.toThrow(/Failed to create workflow: duplicate key/)
   })
 
-  // BUG(create-grafo-legado): o registro criado pelo ensure (e pelo create sem nodes) grava nodes do
-  // grafo LEGADO (trigger nanoid "Webhook" + "Send Message" vazio) junto com uma tree "Sem gatilho".
-  // Até o 1º autosave, nodes e tree divergem: publicar pela lista publica esse grafo, o /enroll
-  // responde 409 (nenhuma edge sai de "__trigger") e, como fluxo padrão, o execute tenta mandar uma
-  // mensagem vazia. Correto: nodes/edges = compileFlow(tree).
-  it.fails('BUG(create-grafo-legado): grafo do registro novo deveria ser o compileFlow(tree)', async () => {
+  // Corrigido BUG(create-grafo-legado): o registro novo nasce com nodes/edges = compileFlow(tree).
+  it('create-grafo-legado: grafo do registro novo é o compileFlow(tree)', async () => {
     const { client } = setup()
     const record = await ensureWorkflowRecord(client, 'novo')
     const expected = compileFlow(record.version.tree as Parameters<typeof compileFlow>[0])
@@ -153,7 +151,7 @@ describe('workflow-db — ensureWorkflowRecord', () => {
   })
 })
 
-describe('workflow-db — updateWorkflowRecord (save IN-PLACE na versão ativa)', () => {
+describe('workflow-db — updateWorkflowRecord (save do editor: rascunho; a versão publicada é imutável)', () => {
   async function seeded() {
     const ctx = setup()
     await createWorkflowRecord(ctx.client, { id: 'wf-1', name: 'Boas-vindas', ...graph, tree: flow })
@@ -190,16 +188,44 @@ describe('workflow-db — updateWorkflowRecord (save IN-PLACE na versão ativa)'
     expect(updated.version.tree).toBeNull()
   })
 
-  it('(fato) grava na versão ATIVA sem mexer no status dela — inclusive se ela for a publicada', async () => {
+  it('nunca publicado: grava no próprio rascunho ativo (sem versão nova)', async () => {
+    const { db, client } = await seeded()
+    const edited = compileFlow({ ...flow, trigger: triggers.keywords(['tchau']) })
+    const updated = await updateWorkflowRecord(client, 'wf-1', { nodes: edited.nodes as never, edges: edited.edges as never })
+    expect(updated.version.status).toBe('draft')
+    expect(updated.version.id).toBe(db.row('workflows', { id: 'wf-1' })?.active_version_id)
+    expect(db.count('workflow_versions')).toBe(1)
+  })
+
+  it('depois de publicar: a versão publicada fica intacta e a edição vai para um rascunho mais novo (reaproveitado nos saves seguintes)', async () => {
     const { db, client } = await seeded()
     const published = await createNewVersion(client, 'wf-1', { ...graph, tree: flow, status: 'published' })
     db.update('workflows', { id: 'wf-1' }, { active_version_id: published.id, status: 'published' })
     const edited = compileFlow({ ...flow, trigger: triggers.keywords(['tchau']) })
-    await updateWorkflowRecord(client, 'wf-1', { nodes: edited.nodes as never, edges: edited.edges as never })
+    const first = await updateWorkflowRecord(client, 'wf-1', { nodes: edited.nodes as never, edges: edited.edges as never })
     const row = db.row('workflow_versions', { id: published.id })!
     expect(row.status).toBe('published')
-    expect((row.nodes as WorkflowNode[])[0].data.config).toEqual({ triggerType: 'Keywords', keywordList: 'tchau' })
-    expect(db.count('workflow_versions')).toBe(2)
+    expect((row.nodes as WorkflowNode[])[0].data.config).toEqual({ triggerType: 'Keywords', keywordList: 'oi' })
+    expect(db.row('workflows', { id: 'wf-1' })?.active_version_id).toBe(published.id)
+    expect(first.version).toMatchObject({ status: 'draft', version: 3 })
+    expect(first.lastPublishedVersion).toBe(2)
+    expect(toSavedWorkflow(first).hasUnpublishedChanges).toBe(true)
+
+    await updateWorkflowRecord(client, 'wf-1', { name: 'Só o nome' })
+    const again = await updateWorkflowRecord(client, 'wf-1', { tree: { ...flow, name: 'v3' } })
+    expect(again.version.id).toBe(first.version.id)
+    expect(db.count('workflow_versions')).toBe(3)
+
+    // o runtime só enxerga a publicada; o editor enxerga o rascunho
+    expect((await fetchPublishedRecord(client, 'wf-1'))?.version.id).toBe(published.id)
+    expect((await fetchEditorRecord(client, 'wf-1'))?.version.id).toBe(first.version.id)
+  })
+
+  it('fetchPublishedRecord: rascunho nunca publicado, inexistente ou excluído → null (e nunca cria nada)', async () => {
+    const { db, client } = await seeded()
+    expect(await fetchPublishedRecord(client, 'wf-1')).toBeNull()
+    expect(await fetchPublishedRecord(client, 'nao-existe')).toBeNull()
+    expect(db.count('workflows')).toBe(1)
   })
 })
 
@@ -295,6 +321,7 @@ describe('workflow-db — toSavedWorkflow', () => {
       isOwner: true,
       status: 'draft',
       lastPublishedVersion: null,
+      hasUnpublishedChanges: false,
     })
     expect(toSavedWorkflow({ ...record, lastPublishedVersion: 3 }, { isOwner: false })).toMatchObject({ isOwner: false, lastPublishedVersion: 3 })
   })

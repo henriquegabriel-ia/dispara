@@ -56,23 +56,17 @@ describe('create', () => {
     expect(((await list.json()) as Row[]).map((w) => w.id)).toEqual([id])
   })
 
-  it('R01 (fato) sem nodes grava o grafo LEGADO (trigger "Webhook" nanoid + "Send Message" vazio) e tree null', async () => {
+  // Corrigido BUG(create-grafo-legado): o fluxo novo nasce no builder novo — árvore vazia
+  // ("Sem gatilho", com o id e o nome do fluxo) e o grafo compilado dela (nó "__trigger" None).
+  it('R01 create-grafo-legado: fluxo novo nasce com a árvore vazia e o grafo compilado dela', async () => {
     const res = await create({ name: 'x', nodes: [], edges: [] })
-    const version = h.db.row('workflow_versions', { workflow_id: res.body.id as string })!
-    const trigger = (version.nodes as Array<{ id: string; data: Row }>).find((n) => n.data.type === 'trigger')!
-    expect(trigger.id).not.toBe('__trigger')
-    expect(trigger.data.config).toEqual({ triggerType: 'Webhook' })
-    expect((version.nodes as Array<{ data: Row }>).some((n) => (n.data.config as Row)?.actionType === 'Send Message')).toBe(true)
-    expect(version.tree).toBeNull()
-  })
-
-  // PLAUSIBLE BUG(create-grafo-legado): até o 1º autosave o fluxo novo tem nodes legados e
-  // tree null. Publicar pela lista publica esse grafo; o /enroll responde 409 (não há edge saindo
-  // de "__trigger"). Correto: o grafo inicial é o compileFlow(createEmptyFlow()) (trigger "__trigger" None).
-  it.fails('R01 BUG(create-grafo-legado): fluxo novo deveria nascer com o grafo compilado da árvore vazia', async () => {
-    const res = await create({ name: 'x', nodes: [], edges: [] })
-    const version = h.db.row('workflow_versions', { workflow_id: res.body.id as string })!
+    const id = res.body.id as string
+    const version = h.db.row('workflow_versions', { workflow_id: id })!
     expect(version.nodes).toEqual(compileFlow(createEmptyFlow()).nodes)
+    expect(version.edges).toEqual([])
+    expect(version.tree).toEqual({ schemaVersion: 1, id, name: 'x', trigger: { type: 'none', label: '', keywords: [] }, root: null })
+    // o GET devolve a árvore para a tela
+    expect(((await routes.getWorkflow(id)).body as Row).tree).toEqual(version.tree)
   })
 
   it('R01 com tree válida + nodes compilados: persiste exatamente o que veio (tree as-is)', async () => {
@@ -88,11 +82,12 @@ describe('create', () => {
     expect((get.body as Row).tree).toEqual(flow)
   })
 
-  it('(fato) com tree mas SEM nodes: grava a tree e o grafo LEGADO (divergentes até o 1º autosave)', async () => {
+  it('com tree mas SEM nodes: grava a tree e o grafo compilado DELA (nunca o legado)', async () => {
     const res = await create({ name: 'x', nodes: [], edges: [], tree: flow })
     const version = h.db.row('workflow_versions', { workflow_id: res.body.id as string })!
     expect(version.tree).toEqual(flow)
-    expect(JSON.stringify(version.nodes)).toContain('Webhook')
+    expect(version.nodes).toEqual(compileFlow(flow).nodes)
+    expect(JSON.stringify(version.nodes)).not.toContain('Webhook')
   })
 
   it.each([

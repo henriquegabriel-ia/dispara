@@ -2,9 +2,11 @@
 /**
  * POST /api/builder/workflows/[workflowId]/publish com estado real (Supabase em memória).
  *
- * Publicar copia nodes/edges/tree da versão ATIVA para uma versão nova "published" (com
- * published_at), arquiva a anterior e marca workflows.status = published. O webhook da Meta
- * só enxerga workflow_versions.status = 'published' (ver ../../round-trip.qa.test.ts).
+ * Publicar compila a árvore do EDITOR (o rascunho mais novo, ou a versão ativa se nunca
+ * publicou) numa versão nova "published" (com published_at), arquiva o rascunho e a versão
+ * anterior e marca workflows.status = published. A versão publicada é imutável: o autosave
+ * seguinte grava num rascunho novo. O webhook da Meta só enxerga workflow_versions.status =
+ * 'published' (ver ../../round-trip.qa.test.ts).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -118,7 +120,8 @@ describe('publish — caminho feliz', () => {
         ? { ...n, data: { ...(n.data as Row), config: { triggerType: 'Schedule', scheduleCron: '0 9 * * 1', scheduleTimezone: 'America/Sao_Paulo' } } }
         : n
     )
-    h.db.update('workflow_versions', { id: draft.versionId }, { nodes })
+    // fluxo legado: sem árvore (o publish só recompila quando há tree do builder novo)
+    h.db.update('workflow_versions', { id: draft.versionId }, { nodes, tree: null })
     expect((await routes.publish('wf')).status).toBe(200)
     expect(h.db.row('workflows', { id: 'wf' })).toMatchObject({
       schedule_cron: '0 9 * * 1',
@@ -127,7 +130,7 @@ describe('publish — caminho feliz', () => {
     })
   })
 
-  it('R09 publicar → editar → publicar: 1 archived, 2 archived, 3 published; sempre 1 published por fluxo', async () => {
+  it('R09 publicar → editar → publicar: 1 archived, 2 archived, 3 archived (rascunho), 4 published; sempre 1 published por fluxo', async () => {
     freezeTime('2026-10-18T12:00:00.000Z')
     // como na tela: o fluxo nasce pelo /create (com owner_company_id) e só depois é salvo/publicado
     await seedPublishedFlow(h.db, keywordsFlow(['oi']), { publish: false })
@@ -135,25 +138,24 @@ describe('publish — caminho feliz', () => {
     expect(statuses('wf')).toEqual(['1:archived', '2:published'])
     advanceTime(60_000)
     await publishFlow(h.db, keywordsFlow(['menu']))
-    expect(statuses('wf')).toEqual(['1:archived', '2:archived', '3:published'])
+    // a edição depois do 1º publish foi para o rascunho v3; o publish gerou a v4
+    expect(statuses('wf')).toEqual(['1:archived', '2:archived', '3:archived', '4:published'])
     expect(versions('wf').filter((v) => v.status === 'published')).toHaveLength(1)
-    const v3 = versions('wf')[2]
-    expect(h.db.row('workflows', { id: 'wf' })?.active_version_id).toBe(v3.id)
-    expect(keywordListOf(v3)).toBe('menu')
+    const v4 = versions('wf')[3]
+    expect(h.db.row('workflows', { id: 'wf' })?.active_version_id).toBe(v4.id)
+    expect(keywordListOf(v4)).toBe('menu')
 
     const list = await (await import('@/app/api/builder/workflows/route')).GET()
     const [item] = (await list.json()) as Array<{ id: string; lastPublishedVersion: number }>
-    expect(item).toMatchObject({ id: 'wf', lastPublishedVersion: 3 })
+    expect(item).toMatchObject({ id: 'wf', lastPublishedVersion: 4 })
   })
 
-  it('(fato) PATCH/publish num id que ainda não existe cria o workflow SEM owner_company_id — some da lista', async () => {
-    // updateWorkflowRecord chama ensureWorkflowRecord(supabase, id) sem companyId
-    await publishFlow(h.db, keywordsFlow(['oi'], 'sem-dono'))
-    expect(h.db.row('workflows', { id: 'sem-dono' })?.owner_company_id).toBeNull()
+  it('PATCH (upsert do editor) num id novo cria o workflow COM owner_company_id — aparece na lista', async () => {
+    await publishFlow(h.db, keywordsFlow(['oi'], 'novo'))
+    expect(h.db.row('workflows', { id: 'novo' })?.owner_company_id).toBe('company-test')
     const list = await (await import('@/app/api/builder/workflows/route')).GET()
-    expect(await list.json()).toEqual([])
-    // ...mas o webhook continua disparando o fluxo publicado
-    expect((await publishedVersionsSeenByWebhook()).map((v) => v.workflow_id)).toEqual(['sem-dono'])
+    expect(((await list.json()) as Row[]).map((w) => w.id)).toEqual(['novo'])
+    expect((await publishedVersionsSeenByWebhook()).map((v) => v.workflow_id)).toEqual(['novo'])
   })
 
   it('(fato) publicar 2x sem mudar nada cria outra versão idêntica (v3)', async () => {
@@ -187,12 +189,12 @@ describe('publish — rascunhos, validação e o que o webhook passa a ver', () 
     expect(JSON.stringify([h.db.rows('workflows'), h.db.rows('workflow_versions')])).toBe(before)
   })
 
-  // BUG(publish-nao-compila): o botão "Publicar" da LISTA (app/(dashboard)/workflows/page.tsx
+  // Corrigido BUG(publish-nao-compila): o botão "Publicar" da LISTA (app/(dashboard)/workflows/page.tsx
   // handlePublish) chama esta rota direto, sem compilar. Quando o autosave encontrou um
   // FlowCompileError (ex.: passo Split), ele grava a tree nova com os nodes ANTIGOS ("Fluxo salvo
   // como rascunho"). A rota publica esses nodes velhos, que não correspondem à árvore exibida.
   // Correto: o servidor compila a tree antes de publicar e recusa (400) a que não compila.
-  it.fails('R08 BUG(publish-nao-compila): publish deveria recusar árvore que não compila', async () => {
+  it('R08 publish-nao-compila: publish deveria recusar árvore que não compila', async () => {
     const draft = await seedPublishedFlow(h.db, keywordsFlow(['oi']), { publish: false })
     const brokenTree = keywordsFlow(['oi'])
     brokenTree.root!.next = steps.split({ id: 's', paths: [{ label: 'A', percent: 50 }, { label: 'B', percent: 50 }] })
@@ -206,18 +208,6 @@ describe('publish — rascunhos, validação e o que o webhook passa a ver', () 
     expect(versions('wf')).toHaveLength(1)
   })
 
-  it('R08 (fato) hoje publica nodes que não correspondem à tree salva', async () => {
-    const draft = await seedPublishedFlow(h.db, keywordsFlow(['oi']), { publish: false })
-    const brokenTree = keywordsFlow(['oi'])
-    brokenTree.root!.next = steps.split({ id: 's', paths: [{ label: 'A', percent: 50 }, { label: 'B', percent: 50 }] })
-    await routes.patchWorkflow('wf', { name: brokenTree.name, tree: brokenTree, nodes: draft.nodes, edges: draft.edges })
-    expect((await routes.publish('wf')).status).toBe(200)
-    const published = versions('wf')[1]
-    expect(published.status).toBe('published')
-    expect(JSON.stringify(published.tree)).toContain('"split"')
-    expect(JSON.stringify(published.nodes)).not.toContain('"s"')
-  })
-
   // PLAUSIBLE BUG(guard-incompleto): só PATCH/create rodam validateWorkflowSchema. Uma versão
   // gravada sem gatilho (ex.: pelo /current, que aceita nodes []), ou com edge para nó ausente, é
   // publicada e só falha no runtime (execute devolve "Invalid workflow" para toda mensagem).
@@ -229,15 +219,15 @@ describe('publish — rascunhos, validação e o que o webhook passa a ver', () 
     expect(res.status).toBe(400)
   })
 
-  // BUG(ghost-workflow): publicar um id inexistente cria E publica um "Fluxo inicial" com o grafo
+  // Corrigido BUG(ghost-workflow): publicar um id inexistente cria E publica um "Fluxo inicial" com o grafo
   // legado (trigger "Webhook" + "Send Message" vazio). Correto: 404 e nada gravado.
-  it.fails('D02 BUG(ghost-workflow): publish de id inexistente deveria dar 404', async () => {
+  it('D02 ghost-workflow: publish de id inexistente deveria dar 404', async () => {
     const res = await routes.publish('nao-existe')
     expect(res.status).toBe(404)
     expect(h.db.count('workflows')).toBe(0)
   })
 
-  it('(fato) fluxo recém-criado pela lista e publicado sem abrir o editor publica o grafo legado', async () => {
+  it('fluxo recém-criado pela lista e publicado sem abrir o editor publica o grafo da árvore vazia ("Sem gatilho")', async () => {
     const created = await (await import('@/app/api/builder/workflows/create/route')).POST(
       new Request('http://localhost/api/builder/workflows/create', {
         method: 'POST',
@@ -249,19 +239,19 @@ describe('publish — rascunhos, validação e o que o webhook passa a ver', () 
     expect((await routes.publish(id)).status).toBe(200)
     const [, published] = versions(id)
     const trigger = (published.nodes as Row[]).find((n) => (n.data as Row).type === 'trigger') as { id: string; data: Row }
-    expect(trigger.data.config).toEqual({ triggerType: 'Webhook' })
-    expect(trigger.id).not.toBe('__trigger')
-    expect(published.tree).toBeNull()
+    expect(trigger.data.config).toEqual({ triggerType: 'None' })
+    expect(trigger.id).toBe('__trigger')
+    expect(published.tree).toMatchObject({ schemaVersion: 1, id, trigger: { type: 'none' }, root: null })
   })
 })
 
 describe('publish → autosave depois de publicar', () => {
-  // BUG(published-mutavel): depois do 1º publish, active_version_id aponta para a versão
+  // Corrigido BUG(published-mutavel): depois do 1º publish, active_version_id aponta para a versão
   // PUBLICADA e o autosave (PATCH) grava nela in-place. O webhook lê status = 'published' e passa a
   // responder às edições na hora, sem o usuário clicar em "Publicar" (e o histórico de versões vira
   // mutável: o rollback para N traz o que foi editado depois). Correto: a versão publicada é um
   // snapshot imutável e as edições ficam num rascunho até o próximo publish.
-  it.fails('R07 BUG(published-mutavel): editar depois de publicar NÃO deveria alterar o que o webhook vê', async () => {
+  it('R07 published-mutavel: editar depois de publicar NÃO deveria alterar o que o webhook vê', async () => {
     await publishFlow(h.db, keywordsFlow(['oi']))
     const res = await routes.patchWorkflow('wf', savePayload(keywordsFlow(['tchau'])))
     expect(res.status).toBe(200)
@@ -269,23 +259,33 @@ describe('publish → autosave depois de publicar', () => {
     expect(keywordListOf(seen)).toBe('oi')
   })
 
-  it('R07 (fato) hoje o autosave reescreve a versão publicada (keywords passam a valer sem publicar)', async () => {
-    const published = await publishFlow(h.db, keywordsFlow(['oi']))
-    await routes.patchWorkflow('wf', savePayload(keywordsFlow(['tchau'])))
-    const row = h.db.row('workflow_versions', { id: published.versionId })!
-    expect(row.status).toBe('published')
-    expect(keywordListOf(row)).toBe('tchau')
-    expect(versions('wf')).toHaveLength(2) // nenhuma versão de rascunho nova
-  })
-
-  it('R07 (fato) com árvore incompilável a versão PUBLICADA fica com tree nova e nodes velhos', async () => {
+  it('R07 árvore incompilável salva depois de publicar fica no rascunho; a versão PUBLICADA continua intacta e o publish recusa', async () => {
     const published = await publishFlow(h.db, keywordsFlow(['oi']))
     const broken = keywordsFlow(['oi'])
     broken.root!.next = steps.goto({ id: 'g', targetId: 'w1' })
     expect(() => compileFlow(broken)).toThrow(FlowCompileError)
     await routes.patchWorkflow('wf', { name: broken.name, tree: broken, nodes: published.nodes, edges: published.edges })
     const row = h.db.row('workflow_versions', { id: published.versionId })!
-    expect(JSON.stringify(row.tree)).toContain('"goto"')
-    expect(row.nodes).toEqual(published.nodes)
+    expect(row.status).toBe('published')
+    expect(JSON.stringify(row.tree)).not.toContain('"goto"')
+    expect(statuses('wf')).toEqual(['1:archived', '2:published', '3:draft'])
+    const get = await routes.getWorkflow('wf')
+    expect(get.body).toMatchObject({ hasUnpublishedChanges: true, lastPublishedVersion: 2 })
+    expect(JSON.stringify((get.body as Row).tree)).toContain('"goto"')
+
+    const res = await routes.publish('wf')
+    expect(res.status).toBe(400)
+    expect((res.body as { error: string }).error).toMatch(/^Não foi possível publicar: .*ainda não é suportado/)
+    expect(statuses('wf')).toEqual(['1:archived', '2:published', '3:draft'])
+  })
+
+  it('R07 publicar de novo leva o rascunho ao ar e arquiva rascunho + versão anterior', async () => {
+    await publishFlow(h.db, keywordsFlow(['oi']))
+    await routes.patchWorkflow('wf', savePayload(keywordsFlow(['tchau'])))
+    expect(keywordListOf((await publishedVersionsSeenByWebhook())[0])).toBe('oi')
+    expect((await routes.publish('wf')).status).toBe(200)
+    expect(statuses('wf')).toEqual(['1:archived', '2:archived', '3:archived', '4:published'])
+    expect(keywordListOf((await publishedVersionsSeenByWebhook())[0])).toBe('tchau')
+    expect((await routes.getWorkflow('wf')).body).toMatchObject({ hasUnpublishedChanges: false, lastPublishedVersion: 4 })
   })
 })

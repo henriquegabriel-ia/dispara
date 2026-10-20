@@ -1,10 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import {
-  ensureWorkflowRecord,
-  getCompanyId,
-  toSavedWorkflow,
-} from "@/lib/builder/workflow-db";
+import { fetchWorkflowRecord, toSavedWorkflow } from "@/lib/builder/workflow-db";
 import { validateWorkflowSchema } from "@/lib/shared/workflow-schema";
 
 type RouteParams = {
@@ -20,8 +16,11 @@ export async function POST(_request: Request, { params }: RouteParams) {
       { status: 400 }
     );
   }
-  const companyId = await getCompanyId(supabase);
-  const record = await ensureWorkflowRecord(supabase, workflowId, companyId);
+  // Nunca cria o workflow: id inexistente → 404.
+  const record = await fetchWorkflowRecord(supabase, workflowId);
+  if (!record) {
+    return NextResponse.json({ error: "Workflow não encontrado" }, { status: 404 });
+  }
   const workflow = toSavedWorkflow(record);
   const validation = validateWorkflowSchema(workflow);
   if (!validation.success) {
