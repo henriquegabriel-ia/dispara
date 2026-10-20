@@ -90,10 +90,14 @@ function getTriggerLabel(workflow: WorkflowItem): string {
       return "Sem gatilho";
     case "Webhook":
     case "Manual": {
-      // Grafo default de um fluxo recém-criado (só o gatilho): o builder o abre
-      // como "Sem gatilho". Com passos, é um fluxo do builder antigo.
-      const hasSteps = workflow.nodes.some((node) => node?.data?.type !== "trigger");
-      if (!hasSteps) return "Sem gatilho";
+      // Grafo default de um fluxo recém-criado (buildDefaultGraph: gatilho +
+      // "Send Message" de exemplo): o builder o abre como "Sem gatilho". Com
+      // outros passos, é um fluxo do builder antigo.
+      const steps = workflow.nodes.filter((node) => node?.data?.type !== "trigger");
+      const isDefaultGraph =
+        steps.length === 0 ||
+        (steps.length === 1 && steps[0]?.data?.config?.actionType === "Send Message");
+      if (isDefaultGraph) return "Sem gatilho";
       return triggerType === "Webhook" ? "Webhook (legado)" : "Manual (legado)";
     }
     default:

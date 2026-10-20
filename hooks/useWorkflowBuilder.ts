@@ -268,6 +268,8 @@ export function useWorkflowBuilder(workflowId: string) {
       // Sem cache entre montagens: o gcTime 0 só coleta depois de um tick, e
       // voltar ao builder antes disso mostraria a árvore velha.
       queryClient.removeQueries({ queryKey: ["builder-workflow", workflowId], exact: true });
+      // A lista (/workflows) mostra nome/status/versão: o que mudou aqui vale lá.
+      void queryClient.invalidateQueries({ queryKey: ["builder-workflows"] });
     },
     [workflowId, doSave, queryClient]
   );
