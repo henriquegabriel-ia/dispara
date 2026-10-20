@@ -19,7 +19,7 @@ vi.mock('@/lib/inbox/inbox-webhook', () => ({
   handleDeliveryStatus: vi.fn(async () => {}),
 }))
 
-import { completeConversation, createConversation, getPendingConversation } from '@/lib/builder/workflow-conversations'
+import { claimConversation, completeConversation, createConversation, getPendingConversation } from '@/lib/builder/workflow-conversations'
 import { drainWorkflowEnrollments } from '@/lib/cron/workflow-enrollments'
 import { addStep, createEmptyFlow, findStep } from '@/lib/builder/flow/operations'
 import { FlowCompileError } from '@/lib/builder/flow/compile'
@@ -204,10 +204,17 @@ describe('resume: a resposta escolhe a branch certa', () => {
     expect(run.finished_at).not.toBeNull()
   })
 
-  it('RES-03: igualdade exata e sensível a maiúsculas; o trim é feito na rota (caracterização)', async () => {
+  it('RES-03: a resposta casa o botão ignorando maiúsculas, acentos e espaços; a variável guarda o rótulo exato', async () => {
     const a = await startAsk(askFlow('wf-case-a'))
     await resume(a.workflowId, a.conversation.id, 'sim')
-    expect(h.meta.texts()).toEqual(['Quer a proposta?', 'Obrigado pela resposta.']) // 'sim' cai no else
+    expect(h.meta.texts()).toEqual(['Quer a proposta?', 'Enviando a proposta!', 'Obrigado pela resposta.'])
+    expect(conv(a.conversation.id).variables).toMatchObject({ reply_ask: 'Sim' })
+
+    h.meta.reset()
+    const n = await startAsk(askFlow('wf-case-n'))
+    await resume(n.workflowId, n.conversation.id, '  NAO ')
+    expect(h.meta.texts()).toEqual(['Quer a proposta?', 'Tudo bem, até logo.', 'Obrigado pela resposta.'])
+    expect(conv(n.conversation.id).variables).toMatchObject({ reply_ask: 'Não' })
 
     h.meta.reset()
     const b = await startAsk(askFlow('wf-case-b'))
@@ -216,12 +223,12 @@ describe('resume: a resposta escolhe a branch certa', () => {
     expect(conv(b.conversation.id).variables).toMatchObject({ reply_ask: 'Sim' })
   })
 
-  // BUG(perguntar-sem-botoes): a tela configura 1-3 botões (limite de 20 caracteres, o do
+  // Corrigido BUG(perguntar-sem-botoes): a tela configura 1-3 botões (limite de 20 caracteres, o do
   // WhatsApp), mas o compile emite whatsapp/ask-question SEM botões e o passo monta uma
   // mensagem de texto (type 'text'). O contato nunca vê botões e precisa digitar o rótulo
   // exato ('sim' cai em "Outra resposta"). lib/builder/flow/compile.ts:418-429 +
   // lib/builder/steps/whatsapp/ask-question.ts:51.
-  it.fails('RES-04: BUG(perguntar-sem-botoes) — Perguntar deveria enviar botões interativos com os rótulos', async () => {
+  it('RES-04: perguntar-sem-botoes — Perguntar deveria enviar botões interativos com os rótulos', async () => {
     await startAsk()
     const [sent] = h.meta.sent
     expect(sent.type).toBe('interactive')
@@ -229,9 +236,23 @@ describe('resume: a resposta escolhe a branch certa', () => {
     expect(action?.buttons?.map((b) => b.reply.title)).toEqual(['Sim', 'Não'])
   })
 
-  it('RES-04a: hoje a Pergunta sai como texto puro (caracterização)', async () => {
-    await startAsk()
-    expect(h.meta.sent[0]).toMatchObject({ type: 'text', text: 'Quer a proposta?', to: TEST_PHONES.ana })
+  it('RES-04a: o id do botão clicado (replyId) escolhe a branch mesmo com título diferente', async () => {
+    const { workflowId, conversation } = await startAsk()
+    const res = await routes.resume(workflowId, {
+      conversationId: conversation.id,
+      input: { from: TEST_PHONES.ana, to: TEST_PHONES.ana, message: 'Pode mandar', replyId: 'Sim' },
+    })
+    expect(res.body).toMatchObject({ status: 'success' })
+    expect(h.meta.texts()).toEqual(['Quer a proposta?', 'Enviando a proposta!', 'Obrigado pela resposta.'])
+  })
+
+  it('RES-04b: com 4+ opções a pergunta sai como LISTA interativa', async () => {
+    await startAsk(flowOf('wf-lista', steps.interactive({ id: 'ask', message: 'Qual plano?', buttons: ['Básico', 'Pro', 'Max', 'Enterprise'] })))
+    const [sent] = h.meta.sent
+    expect(sent.type).toBe('interactive')
+    const interactive = sent.body.interactive as { type: string; action: { button: string; sections: Array<{ rows: Array<{ id: string; title: string }> }> } }
+    expect(interactive.type).toBe('list')
+    expect(interactive.action.sections[0].rows.map((r) => r.title)).toEqual(['Básico', 'Pro', 'Max', 'Enterprise'])
   })
 
   it('RES-05: resume repetido em sequência é idempotente (2ª chamada não reenvia nada)', async () => {
@@ -245,28 +266,29 @@ describe('resume: a resposta escolhe a branch certa', () => {
     expect(runsOf(workflowId, 'Resume')).toHaveLength(1)
   })
 
-  // BUG(resume-sem-claim): a rota lê a conversa 'waiting' sem CAS, executa o fluxo inteiro e
+  // Corrigido BUG(resume-sem-claim): a rota lê a conversa 'waiting' sem CAS, executa o fluxo inteiro e
   // só no fim chama completeConversation. O dedupe do webhook é por message.id: duas
   // mensagens rápidas (ids diferentes) acham a conversa ainda pendente, disparam dois
   // /resume e a branch é enviada duas vezes. Falta um claim waiting→processing antes de
   // executar. app/api/builder/workflow/[workflowId]/resume/route.ts:75-80,159-175.
-  it.fails('RES-06: BUG(resume-sem-claim) — dois resumes simultâneos não podem executar a resposta duas vezes', async () => {
+  it('RES-06: resume-sem-claim — dois resumes simultâneos não podem executar a resposta duas vezes', async () => {
     const { workflowId, conversation } = await startAsk()
     await Promise.all([resume(workflowId, conversation.id, 'Sim'), resume(workflowId, conversation.id, 'Sim')])
     expect(h.meta.texts().filter((t) => t === 'Enviando a proposta!')).toHaveLength(1)
   })
 
-  it('RES-06a: caracterização — hoje os dois resumes simultâneos enviam a branch duas vezes', async () => {
+  it('RES-06a: a retomada que perde o claim responde "Conversation already answered" e não cria run', async () => {
     const { workflowId, conversation } = await startAsk()
-    await Promise.all([resume(workflowId, conversation.id, 'Sim'), resume(workflowId, conversation.id, 'Sim')])
-    expect(h.meta.texts().filter((t) => t === 'Enviando a proposta!')).toHaveLength(2)
-    expect(runsOf(workflowId, 'Resume')).toHaveLength(2)
+    const results = await Promise.all([resume(workflowId, conversation.id, 'Sim'), resume(workflowId, conversation.id, 'Não')])
+    expect(results.map((r) => r.body.status).sort()).toEqual(['failed', 'success'])
+    expect(results.find((r) => r.body.status === 'failed')?.body.error).toBe('Conversation already answered')
+    expect(runsOf(workflowId, 'Resume')).toHaveLength(1)
   })
 
-  // BUG(run-pergunta-orfa): o run do /execute que pausou na Pergunta é marcado 'waiting' e
+  // Corrigido BUG(run-pergunta-orfa): o run do /execute que pausou na Pergunta é marcado 'waiting' e
   // nunca mais é tocado — o /resume cria um run NOVO ('Resume') e a conversa nem guarda o
   // run_id. Todo contato que respondeu deixa um run 'waiting' eterno no painel.
-  it.fails('RES-09: BUG(run-pergunta-orfa) — o run que pausou na Pergunta deveria ser finalizado após a resposta', async () => {
+  it('RES-09: run-pergunta-orfa — o run que pausou na Pergunta deveria ser finalizado após a resposta', async () => {
     const { workflowId, conversation, executeRunId } = await startAsk()
     await resume(workflowId, conversation.id, 'Sim')
     expect(h.db.row('workflow_runs', { id: executeRunId })?.status).not.toBe('waiting')
@@ -420,8 +442,6 @@ describe('workflow-conversations: create / getPending / complete', () => {
     advanceTime(MIN)
     const recent = await createConversation({ supabase: client(), workflowId: 'wf-c2', phone: TEST_PHONES.ana, resumeNodeId: 'b', variableKey: 'k' })
     advanceTime(MIN)
-    const done = await createConversation({ supabase: client(), workflowId: 'wf-c1', phone: TEST_PHONES.ana, resumeNodeId: 'c', variableKey: 'k' })
-    await completeConversation(client(), done!.id, {})
     await createConversation({ supabase: client(), workflowId: 'wf-c1', phone: TEST_PHONES.bruno, resumeNodeId: 'd', variableKey: 'k' })
 
     expect((await getPendingConversation(client(), TEST_PHONES.ana))?.id).toBe(recent!.id)
@@ -430,6 +450,24 @@ describe('workflow-conversations: create / getPending / complete', () => {
     await completeConversation(client(), old!.id, {})
     expect(await getPendingConversation(client(), TEST_PHONES.ana)).toBeNull()
     expect(await getPendingConversation(client(), TEST_PHONES.carla)).toBeNull()
+  })
+
+  it('CONV-01d: uma pergunta pendente por contato + fluxo — a nova supera (cancelled) a anterior do MESMO fluxo', async () => {
+    const first = await createConversation({ supabase: client(), workflowId: 'wf-c1', phone: TEST_PHONES.ana, resumeNodeId: 'a', variableKey: 'k' })
+    const other = await createConversation({ supabase: client(), workflowId: 'wf-c2', phone: TEST_PHONES.ana, resumeNodeId: 'b', variableKey: 'k' })
+    advanceTime(MIN)
+    const second = await createConversation({ supabase: client(), workflowId: 'wf-c1', phone: '5511999990001', resumeNodeId: 'c', variableKey: 'k' })
+    expect(conv(first!.id).status).toBe('cancelled')
+    expect(conv(other!.id).status).toBe('waiting')
+    expect(conv(second!.id).status).toBe('waiting')
+  })
+
+  it('CONV-01e: claimConversation — só um claim vence (waiting → processing)', async () => {
+    const created = await createConversation({ supabase: client(), workflowId: 'wf-c1', phone: TEST_PHONES.ana, resumeNodeId: 'a', variableKey: 'k' })
+    const [a, b] = await Promise.all([claimConversation(client(), created!.id), claimConversation(client(), created!.id)])
+    expect([a, b].filter(Boolean)).toHaveLength(1)
+    expect(conv(created!.id).status).toBe('processing')
+    expect(await getPendingConversation(client(), TEST_PHONES.ana)).toBeNull()
   })
 
   it('CONV-01c: completeConversation marca completed, grava as variáveis e o updated_at', async () => {
@@ -486,11 +524,11 @@ describe('Perguntar × Timeout', () => {
     expect(h.db.rows('workflow_conversations').filter((c) => c.workflow_id === workflowId).map((c) => c.status)).not.toContain('waiting')
   })
 
-  // BUG(pergunta-sequestra-palavra-chave): consequência do GAP acima — getPendingConversation
+  // Corrigido BUG(pergunta-sequestra-palavra-chave): consequência do GAP acima — getPendingConversation
   // pega a conversa 'waiting' mais recente de QUALQUER workflow e o webhook dá `continue`.
   // Semanas depois, uma palavra-chave de OUTRO fluxo é consumida como resposta da pergunta
   // antiga e o fluxo novo nunca dispara. app/api/webhook/route.ts:1385-1403.
-  it.fails('RES-13: BUG(pergunta-sequestra-palavra-chave) — pergunta esquecida não deveria engolir a palavra-chave de outro fluxo', async () => {
+  it('RES-13: pergunta-sequestra-palavra-chave — pergunta esquecida não deveria engolir a palavra-chave de outro fluxo', async () => {
     const { workflowId: askWf } = await startAsk(askFlow('wf-velha'))
     await publishFlow(h.db, flowOf('wf-promo', chain(steps.whatsapp({ id: 'p', message: 'Promoção do dia!' })), triggers.keywords(['promo'])))
     advanceTime(30 * DAY)
@@ -501,15 +539,15 @@ describe('Perguntar × Timeout', () => {
     expect(h.meta.texts()).toContain('Promoção do dia!')
   })
 
-  it('RES-13a: caracterização — hoje a palavra-chave vira resposta da pergunta antiga', async () => {
+  it('RES-13a: a regra vale só para palavra-chave de OUTRO fluxo que não é opção da pergunta — o botão ainda responde', async () => {
     const { workflowId: askWf, conversation } = await startAsk(askFlow('wf-velha-a'))
-    await publishFlow(h.db, flowOf('wf-promo-a', chain(steps.whatsapp({ id: 'p', message: 'Promoção do dia!' })), triggers.keywords(['promo'])))
-    advanceTime(30 * DAY)
-    await routes.webhook(metaWebhookBody({ messages: [metaInbound.text({ from: TEST_PHONES.ana, body: 'promo' })] }))
+    // "Sim" é palavra-chave de outro fluxo, mas é uma opção da pergunta pendente: a pergunta vence
+    await publishFlow(h.db, flowOf('wf-sim-a', chain(steps.whatsapp({ id: 'p', message: 'Fluxo do sim' })), triggers.keywords(['sim'])))
+    await routes.webhook(metaWebhookBody({ messages: [metaInbound.text({ from: TEST_PHONES.ana, body: 'sim' })] }))
     const flushed = await flushSelfInvokes()
     expect(flushed.map((f) => f.path)).toEqual([`/api/builder/workflow/${askWf}/resume`])
-    expect(conv(conversation.id)).toMatchObject({ status: 'completed', variables: expect.objectContaining({ reply_ask: 'promo' }) })
-    expect(h.meta.texts()).not.toContain('Promoção do dia!')
+    expect(conv(conversation.id)).toMatchObject({ status: 'completed', variables: expect.objectContaining({ reply_ask: 'Sim' }) })
+    expect(h.meta.texts()).not.toContain('Fluxo do sim')
   })
 
   it('RES-14: resposta antes de qualquer prazo retoma pela branch certa e encerra a espera da pergunta', async () => {

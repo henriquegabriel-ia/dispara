@@ -121,16 +121,14 @@ describe('CV-03: getPendingConversation', () => {
     expect(await getPendingConversation(client(), ANA)).toBeNull()
   })
 
-  it('o telefone casa EXATO (sem normalização): "5511999990001" (sem +) não acha a conversa de "+5511999990001"', async () => {
+  it('o telefone casa pelas variantes: "5511999990001" (sem +) acha a conversa de "+5511999990001"', async () => {
     seed({ id: 'x', updatedAt: '2026-10-17T10:00:00.000Z' })
-    expect(await getPendingConversation(client(), '5511999990001')).toBeNull()
+    expect((await getPendingConversation(client(), '5511999990001'))?.id).toBe('x')
   })
 
-  // BUG(pendente-nono-digito): o webhook já resolve variantes do 9 brasileiro (buildPhoneLookupVariants)
-  // no AutoReply e no Stop on Response, mas a busca da pergunta pendente usa eq exato. Uma conversa
-  // gravada com o 9 (telefone do contato, inscrição manual) não é achada pelo wa_id legado sem o 9.
-  // lib/builder/workflow-conversations.ts:50-65; app/api/webhook/route.ts:1386-1391.
-  it.fails('BUG(pendente-nono-digito): conversa gravada com o 9 deveria ser achada pelo número sem o 9', async () => {
+  // Corrigido BUG(pendente-nono-digito): a busca da pergunta pendente usa as variantes do 9
+  // brasileiro (lib/builder/phone-variants), como o AutoReply e o Stop on Response.
+  it('pendente-nono-digito: conversa gravada com o 9 é achada pelo número sem o 9', async () => {
     seed({ id: 'com-9', phone: '+5511988887777', updatedAt: '2026-10-17T10:00:00.000Z' })
     expect((await getPendingConversation(client(), '+551188887777'))?.id).toBe('com-9')
   })

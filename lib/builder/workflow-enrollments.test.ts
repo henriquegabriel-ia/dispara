@@ -150,9 +150,9 @@ describe('workflow-enrollments: persistDelayWait (pausa do Aguardar → linha du
     expect(db.row('workflow_enrollments', { id: 'old-f' })).toMatchObject({ status: 'failed', last_error: 'boom' })
   })
 
-  it('ENR-04: não pisa num enrollment "active" (dreno em voo): a linha fica intacta e nada novo entra (o 23505 é engolido)', async () => {
+  it('ENR-04: não pisa num enrollment "active" (dreno em voo): a linha fica intacta, nada novo entra e devolve false', async () => {
     const db = memDb({ workflow_enrollments: [enrollment({ id: 'e-active', status: 'active', locked_by: 'w1', locked_at: T, attempts: 2 })] })
-    await expect(persistDelayWait(client(db), waitParams())).resolves.toBeUndefined()
+    await expect(persistDelayWait(client(db), waitParams())).resolves.toBe(false)
 
     expect(db.count('workflow_enrollments')).toBe(1)
     expect(db.row('workflow_enrollments', { id: 'e-active' })).toMatchObject({ status: 'active', locked_by: 'w1', attempts: 2 })
@@ -161,11 +161,18 @@ describe('workflow-enrollments: persistDelayWait (pausa do Aguardar → linha du
     expect(ops).toEqual(['select', 'insert', 'update'])
   })
 
-  it('ENR-04b: erro genérico no INSERT (ex.: rede) também é engolido — a pausa some sem sinal para quem chamou', async () => {
+  it('ENR-04b: erro genérico no INSERT (ex.: rede) devolve false — quem chamou não deixa a run "waiting"', async () => {
     const db = memDb()
     db.failNext('workflow_enrollments', 'fetch failed', { op: 'insert', code: '08006' })
-    await expect(persistDelayWait(client(db), waitParams())).resolves.toBeUndefined()
+    await expect(persistDelayWait(client(db), waitParams())).resolves.toBe(false)
     expect(db.count('workflow_enrollments')).toBe(0)
+  })
+
+  it('ENR-04d: pausa gravada devolve true (insert e atualização da espera existente)', async () => {
+    const db = memDb()
+    await expect(persistDelayWait(client(db), waitParams())).resolves.toBe(true)
+    await expect(persistDelayWait(client(db), waitParams())).resolves.toBe(true)
+    expect(db.count('workflow_enrollments')).toBe(1)
   })
 
   it('ENR-04c: duas pausas concorrentes do mesmo contato viram 1 enrollment (23505 tratado pelo fallback)', async () => {
@@ -313,7 +320,8 @@ describe('workflow-enrollments: reaper, reschedule, backoff, complete e fail', (
       outputs: { m2: { label: 'm2', data: { ok: true } } },
       locked_at: null,
       locked_by: null,
-      run_id: 'r1', // caracterização: o reschedule não troca o run_id
+      attempts: 0, // retomada OK zera as tentativas
+      run_id: 'r1', // sem runId o reschedule mantém o run_id
       updated_at: T,
     })
   })
@@ -353,13 +361,9 @@ describe('workflow-enrollments: reaper, reschedule, backoff, complete e fail', (
     expect(String(ko.last_error)).toBe('y'.repeat(500))
   })
 
-  // BUG(attempts-acumulam): todo claim faz attempts+1 — inclusive nas retomadas que deram
-  // certo — e nem rescheduleEnrollment nem persistDelayWait zeram o contador. Como o
-  // anti-poison do dreno falha quando attempts > MAX_ENROLLMENT_ATTEMPTS (5), um fluxo
-  // saudável com vários "Aguardar" seguidos esgota o orçamento de tentativas e é marcado
-  // 'failed' ("Máximo de tentativas") sem nenhum erro real. O contador deveria medir só
-  // falhas consecutivas da MESMA retomada. Ver DRN-12 em lib/cron/workflow-enrollments.test.ts.
-  it.fails('ENR-11: BUG(attempts-acumulam) — retomada bem-sucedida reagendada não deveria consumir tentativas', async () => {
+  // Corrigido BUG(attempts-acumulam): rescheduleEnrollment zera attempts — o contador mede só
+  // falhas consecutivas da MESMA retomada (anti-poison), não quantos "Aguardar" o fluxo tem.
+  it('ENR-11: attempts-acumulam — retomada bem-sucedida reagendada não consome tentativas', async () => {
     const db = memDb({ workflow_enrollments: [enrollment({ id: 'e1' })] })
     for (let i = 0; i < MAX_ENROLLMENT_ATTEMPTS + 1; i += 1) {
       const [row] = await claimDueEnrollments(client(db), `w${i}`)
@@ -569,7 +573,7 @@ describe('executor: passo Aguardar (pausa durável e ponto de continuação)', (
     const res = await run(graph, { message: 'oi', timeWindow: WINDOW_9_18_UTC })
 
     expect(res.paused).toBe(true)
-    expect(res.wait).toEqual({ kind: 'delay', resumeNodeIds: ['m1'], resumeInMs: 13 * HOUR }) // terça 09:00
+    expect(res.wait).toEqual({ kind: 'delay', reason: 'window', resumeNodeIds: ['m1'], resumeInMs: 13 * HOUR }) // terça 09:00
     expect(res.resolvedNodeIds).toEqual(expect.arrayContaining([TRIGGER_NODE_ID, 't']))
     expect(res.resolvedNodeIds).not.toContain('m1')
     expect(h.db.row('contacts', { phone: TEST_PHONES.ana })?.tags).toEqual(['lead', 'noturno'])
@@ -585,7 +589,7 @@ describe('executor: passo Aguardar (pausa durável e ponto de continuação)', (
 
     freezeTime('2026-10-24T10:00:00.000Z') // sábado
     const weekend = await run(graph, { message: 'oi', timeWindow: WINDOW_9_18_UTC })
-    expect(weekend.wait).toEqual({ kind: 'delay', resumeNodeIds: ['m1'], resumeInMs: (2 * 24 - 1) * HOUR })
+    expect(weekend.wait).toEqual({ kind: 'delay', reason: 'window', resumeNodeIds: ['m1'], resumeInMs: (2 * 24 - 1) * HOUR })
   })
 
   it('EXW-07c: janela respeita o fuso (America/Sao_Paulo): 07:00 local espera 2h até 09:00 local', async () => {
@@ -599,7 +603,7 @@ describe('executor: passo Aguardar (pausa durável e ponto de continuação)', (
     freezeTime('2026-10-19T20:00:00.000Z')
     const graph = compile(makeFlow({ root: steps.interactive({ id: 'ask', message: 'Quer a proposta?', buttons: ['Sim', 'Não'] }) }))
     const res = await run(graph, { message: 'oi', timeWindow: WINDOW_9_18_UTC, workflowId: 'wf', executionId: 'r1' })
-    expect(res.wait).toEqual({ kind: 'delay', resumeNodeIds: ['ask'], resumeInMs: 13 * HOUR })
+    expect(res.wait).toEqual({ kind: 'delay', reason: 'window', resumeNodeIds: ['ask'], resumeInMs: 13 * HOUR })
     expect(h.db.count('workflow_conversations')).toBe(0)
     expect(h.meta.sent).toHaveLength(0)
   })
@@ -659,12 +663,8 @@ describe('executor: passo Aguardar (pausa durável e ponto de continuação)', (
     expect(h.meta.texts()).toEqual(['ramo None'])
   })
 
-  // BUG(run-skipped-error): skipNode grava results[n] = { success: false, error: 'skipped' } e
-  // o executor calcula finalSuccess = every(r => r.success). Toda Perguntar/Condição com
-  // passos na branch NÃO escolhida termina com success=false e o run é gravado 'error'
-  // (error: 'skipped') — as rotas respondem 'failed' e as métricas contam como falha, mesmo
-  // o contato tendo seguido o caminho certo. (lib/builder/workflow-executor.workflow.ts:1282)
-  it.fails('EXW-11: BUG(run-skipped-error) — escolher uma branch não deveria fazer o run terminar como erro', async () => {
+  // Corrigido BUG(run-skipped-error): nós pulados (branch não escolhida) não contam no status final.
+  it('EXW-11: run-skipped-error — escolher uma branch não faz o run terminar como erro', async () => {
     const graph = compile(
       makeFlow({
         root: steps.interactive({

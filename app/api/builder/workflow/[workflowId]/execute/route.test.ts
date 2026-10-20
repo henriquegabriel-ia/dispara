@@ -176,7 +176,7 @@ describe('execute: filtro de palavra-chave (Keywords)', () => {
     expect(h.meta.sent).toHaveLength(0)
   })
 
-  it.each([['quero'], ['INSCREVER'], ['eu quero me inscrever agora']])('EXE-03c: "%s" casa (minúsculas + substring) e executa', async (message) => {
+  it.each([['quero'], ['INSCREVER'], ['  Quero ']])('EXE-03c: "%s" casa (match exato normalizado: caixa/acento/espaços nas pontas) e executa', async (message) => {
     const { workflowId } = await kwFlow('wf-kw-c', ['quero', 'inscrever'])
     const res = await exec(workflowId, message)
     expect(res.body.status).toBe('success')
@@ -197,6 +197,13 @@ describe('execute: filtro de palavra-chave (Keywords)', () => {
     expect(h.meta.texts()).toEqual(['Olá'])
   })
 
+  it('EXE-03g: substring não casa — "eu quero me inscrever agora" é skipped (mesma regra do webhook)', async () => {
+    const { workflowId } = await kwFlow('wf-kw-g', ['quero', 'inscrever'])
+    const res = await exec(workflowId, 'eu quero me inscrever agora')
+    expect(res.body).toMatchObject({ status: 'skipped', output: { reason: 'keyword_not_matched' } })
+    expect(h.meta.sent).toHaveLength(0)
+  })
+
   it('EXE-03f: o run é criado ANTES do filtro — mensagens que não casam deixam rastro "skipped" (caracterização)', async () => {
     const { workflowId } = await kwFlow('wf-kw-f', ['quero'])
     await exec(workflowId, 'a')
@@ -204,15 +211,15 @@ describe('execute: filtro de palavra-chave (Keywords)', () => {
     expect(runsOf(workflowId).map((r) => r.status)).toEqual(['skipped', 'skipped'])
   })
 
-  // BUG(keyword-acento): o webhook despacha quando normalizeInboundText(msg) === normalizeInboundText(kw)
+  // Corrigido BUG(keyword-acento): o webhook despacha quando normalizeInboundText(msg) === normalizeInboundText(kw)
   // (sem acento, minúsculas) e a UI promete "ignora maiúsculas/acentos", mas o /execute refaz o
   // filtro com msg.toLowerCase().includes(kw.toLowerCase()) — SEM tirar acento. O webhook casa,
   // o execute grava 'skipped keyword_not_matched' e o fluxo morre em silêncio.
   // app/api/builder/workflow/[workflowId]/execute/route.ts:113,131-133.
-  it.fails.each([
+  it.each([
     ['promoção', 'promocao'],
     ['ola', 'Olá'],
-  ])('EXE-04: BUG(keyword-acento) — palavra "%s" deveria casar a mensagem "%s"', async (keyword, message) => {
+  ])('EXE-04: keyword-acento — palavra "%s" deveria casar a mensagem "%s"', async (keyword, message) => {
     const { workflowId } = await kwFlow('wf-acento', [keyword])
     const res = await exec(workflowId, message)
     expect(res.body.status).toBe('success')
@@ -327,13 +334,13 @@ describe('execute: Aguardar persiste a espera durável', () => {
     expect(enrollments(workflowId).map((e) => e.phone).sort()).toEqual([TEST_PHONES.ana, TEST_PHONES.bruno].sort())
   })
 
-  // BUG(wait-perdido-conflito): se o dreno está processando (status 'active') o mesmo
+  // Corrigido BUG(wait-perdido-conflito): se o dreno está processando (status 'active') o mesmo
   // (workflow, phone) e chega um /execute que pausa num Delay, o INSERT viola o índice
   // único parcial ux_workflow_enrollments_active (23505); o fallback só atualiza linhas
   // 'waiting' (nenhuma) e persistDelayWait retorna sem sinalizar. A rota marca o run
   // 'waiting' mesmo assim: o contato nunca continua e não há rastro do problema.
   // lib/builder/workflow-enrollments.ts:95-114 + execute/route.ts:167-189.
-  it.fails('EXE-10: BUG(wait-perdido-conflito) — espera que conflita com um enrollment "active" não pode sumir em silêncio', async () => {
+  it('EXE-10: wait-perdido-conflito — espera que conflita com um enrollment "active" não pode sumir em silêncio', async () => {
     const { workflowId } = await publishFlow(h.db, flowOf('wf-conflict', msgWaitMsg(5)))
     h.db.insert('workflow_enrollments', {
       workflow_id: workflowId,
@@ -418,12 +425,12 @@ describe('execute: erro no meio deixa o estado consistente', () => {
     }
   })
 
-  // BUG(wait-perdido-erro-db): persistDelayWait engole QUALQUER erro do INSERT (não só o
+  // Corrigido BUG(wait-perdido-erro-db): persistDelayWait engole QUALQUER erro do INSERT (não só o
   // 23505): numa falha transitória do banco o fallback só tenta UPDATE em linhas 'waiting'
   // (nenhuma) e retorna sem sinal. A rota marca o run 'waiting' e responde 'waiting' — o
   // contato fica parado para sempre, sem enrollment para o cron retomar e sem erro visível.
   // lib/builder/workflow-enrollments.ts:95-114 + execute/route.ts:167-189.
-  it.fails('EXE-13: BUG(wait-perdido-erro-db) — falha ao gravar a espera não pode deixar o run "waiting" sem enrollment', async () => {
+  it('EXE-13: wait-perdido-erro-db — falha ao gravar a espera não pode deixar o run "waiting" sem enrollment', async () => {
     const { workflowId } = await publishFlow(h.db, flowOf('wf-dbfail', msgWaitMsg(5)))
     h.db.failNext('workflow_enrollments', 'connection reset by peer', 'insert')
     const res = await exec(workflowId)
@@ -431,12 +438,14 @@ describe('execute: erro no meio deixa o estado consistente', () => {
     expect(persisted || runRow(res.body.executionId).status !== 'waiting').toBe(true)
   })
 
-  it('EXE-13a: falha ao gravar a espera — caracterização do estado atual (resposta "waiting", nenhum enrollment)', async () => {
+  it('EXE-13a: falha ao gravar a espera — resposta "failed", run "failed" com o motivo e nenhum enrollment', async () => {
     const { workflowId } = await publishFlow(h.db, flowOf('wf-dbfail-a', msgWaitMsg(5)))
     h.db.failNext('workflow_enrollments', 'connection reset by peer', 'insert')
     const res = await exec(workflowId)
     expect(res.status).toBe(200)
-    expect(res.body.status).toBe('waiting')
+    expect(res.body.status).toBe('failed')
+    expect(runRow(res.body.executionId)).toMatchObject({ status: 'failed', error: expect.stringContaining('Não foi possível gravar a espera') })
+    expect(runRow(res.body.executionId).finished_at).not.toBeNull()
     expect(enrollments(workflowId)).toHaveLength(0)
     expect(h.meta.texts()).toEqual(['Antes'])
   })
@@ -462,11 +471,11 @@ describe('POST /api/builder/workflows/[id]/webhook × Aguardar', () => {
     return { status: response.status, body: (await response.json()) as ExecBody }
   }
 
-  // BUG(webhook-builder-perde-delay): a rota do webhook do builder chama executeWorkflow sem
+  // Corrigido BUG(webhook-builder-perde-delay): a rota do webhook do builder chama executeWorkflow sem
   // tratar paused/wait (e sem passar workflowSettings). Um fluxo com Aguardar pausa sem
   // persistir nada: responde 'success', o run fica 'running' e o resto do fluxo nunca roda.
   // app/api/builder/workflows/[workflowId]/webhook/route.ts:54-66.
-  it.fails('WH-01: BUG(webhook-builder-perde-delay) — gatilho por webhook deveria persistir o Aguardar', async () => {
+  it('WH-01: webhook-builder-perde-delay — gatilho por webhook deveria persistir o Aguardar', async () => {
     const { workflowId } = await publishFlow(h.db, flowOf('wf-hook', msgWaitMsg(5), triggers.none()))
     const res = await callBuilderWebhook(workflowId, { from: waId(TEST_PHONES.ana), to: waId(TEST_PHONES.ana) })
     expect(res.status).toBe(200)
@@ -474,12 +483,14 @@ describe('POST /api/builder/workflows/[id]/webhook × Aguardar', () => {
     expect(runRow(res.body.executionId).status).toBe('waiting')
   })
 
-  it('WH-01a: hoje o webhook do builder responde "success" mas não grava espera e deixa o run "running" (caracterização)', async () => {
+  it('WH-01a: o webhook do builder responde "waiting" e o cron retoma o Aguardar depois', async () => {
     const { workflowId } = await publishFlow(h.db, flowOf('wf-hook-a', msgWaitMsg(5), triggers.none()))
     const res = await callBuilderWebhook(workflowId, { from: waId(TEST_PHONES.ana), to: waId(TEST_PHONES.ana) })
-    expect(res.body.status).toBe('success')
+    expect(res.body.status).toBe('waiting')
     expect(h.meta.texts()).toEqual(['Antes'])
-    expect(enrollments(workflowId)).toHaveLength(0)
-    expect(runRow(res.body.executionId).status).toBe('running')
+    advanceTime(5 * MIN)
+    expect(await routes.drain()).toMatchObject({ claimed: 1, completed: 1 })
+    expect(h.meta.texts()).toEqual(['Antes', 'Depois'])
+    expect(runRow(res.body.executionId).status).toBe('success')
   })
 })

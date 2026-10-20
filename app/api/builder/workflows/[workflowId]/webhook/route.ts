@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
 import { nanoid } from "nanoid";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import {
-  ensureWorkflowRecord,
-  getCompanyId,
-  toSavedWorkflow,
-} from "@/lib/builder/workflow-db";
+import { fetchPublishedRecord, toSavedWorkflow } from "@/lib/builder/workflow-db";
 import { executeWorkflow } from "@/lib/builder/workflow-executor.workflow";
 import { safeSecretEqual } from "@/lib/builder/utils/secret-compare";
 import { settingsDb } from "@/lib/supabase-db";
+import {
+  settleExecution,
+  type ExecutionShape,
+} from "@/lib/builder/workflow-run-outcome";
 
 type RouteParams = {
   params: Promise<{ workflowId: string }>;
@@ -36,32 +36,51 @@ export async function POST(request: Request, { params }: RouteParams) {
   }
 
   const body = await request.json().catch(() => ({}));
-  const companyId = await getCompanyId(supabase);
-  const record = await ensureWorkflowRecord(supabase, workflowId, companyId);
+  // Só a versão PUBLICADA roda (nunca cria o workflow nem executa rascunho).
+  const record = await fetchPublishedRecord(supabase, workflowId);
+  if (!record) {
+    return NextResponse.json(
+      { error: "Workflow não encontrado ou ainda não publicado" },
+      { status: 404 }
+    );
+  }
   const workflow = toSavedWorkflow(record);
+  const versionId = record.version.id;
 
   const executionId = nanoid();
   await supabase.from("workflow_runs").insert({
     id: executionId,
     workflow_id: workflowId,
-    version_id: record.workflow.active_version_id,
+    version_id: versionId,
     status: "running",
     trigger_type: "Webhook",
     input: body ?? {},
     started_at: new Date().toISOString(),
   });
 
-  const execution = await executeWorkflow({
+  const execution = (await executeWorkflow({
     nodes: workflow.nodes,
     edges: workflow.edges,
     triggerInput: body ?? {},
     executionId,
     workflowId,
+    workflowSettings: workflow.settings,
+  })) as ExecutionShape;
+
+  // Pausa num Aguardar/janela → enrollment durável (o cron retoma depois).
+  const input = (body ?? {}) as Record<string, unknown>;
+  const status = await settleExecution(supabase, {
+    workflowId,
+    versionId,
+    executionId,
+    phoneRaw: String(input.from || input.to || input.phone || ""),
+    execution,
+    logPrefix: "[builder/webhook]",
   });
 
   return NextResponse.json({
     executionId,
-    status: execution.success ? "success" : "failed",
+    status,
     output: execution,
   });
 }

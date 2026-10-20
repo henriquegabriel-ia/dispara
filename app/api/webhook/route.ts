@@ -29,10 +29,20 @@ import {
 import { getWhatsAppCredentials } from '@/lib/whatsapp-credentials'
 import { applyFlowMappingToContact } from '@/lib/flow-mapping'
 import { settingsDb } from '@/lib/supabase-db'
-import { ensureWorkflowRecord, getCompanyId } from '@/lib/builder/workflow-db'
+import { fetchPublishedRecord } from '@/lib/builder/workflow-db'
 import { reinvokeSelf } from '@/lib/self-invoke'
-import { getPendingConversation } from '@/lib/builder/workflow-conversations'
+import {
+  cancelPendingConversations,
+  getPendingConversation,
+} from '@/lib/builder/workflow-conversations'
 import { parseWorkflowSettings } from '@/lib/builder/workflow-settings'
+import {
+  matchesKeyword,
+  normalizeKeywordText,
+  parseKeywordList,
+} from '@/lib/builder/keyword-match'
+import { phoneLookupVariants } from '@/lib/builder/phone-variants'
+import { answerMatchesButton, askButtonsForResumeNode } from '@/lib/builder/ask-reply'
 
 // T046-T048: Inbox integration
 import {
@@ -417,13 +427,8 @@ function humanizeOptionId(value: string): string {
   return withSpaces.charAt(0).toUpperCase() + withSpaces.slice(1)
 }
 
-function normalizeInboundText(input: string): string {
-  return String(input || '')
-    .trim()
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/\p{Diacritic}/gu, '')
-}
+// Mesma normalização do gate do /execute (lib/builder/keyword-match).
+const normalizeInboundText = normalizeKeywordText
 
 type KeywordWorkflow = {
   workflowId: string
@@ -448,11 +453,7 @@ async function loadKeywordWorkflows(
       )
       const triggerType = triggerNode?.data?.config?.triggerType
       if (triggerType !== 'Keywords') return null
-      const keywordListRaw = triggerNode?.data?.config?.keywordList as string | undefined
-      const keywords = (keywordListRaw || '')
-        .split(/\r?\n/)
-        .map((entry) => normalizeInboundText(entry))
-        .filter(Boolean)
+      const keywords = parseKeywordList(triggerNode?.data?.config?.keywordList)
       if (!version.workflow_id || keywords.length === 0) return null
       return {
         workflowId: version.workflow_id,
@@ -462,36 +463,58 @@ async function loadKeywordWorkflows(
     .filter((entry): entry is KeywordWorkflow => Boolean(entry))
 }
 
+/** Match exato normalizado — a MESMA regra do gate do /execute (keyword-match). */
 function findMatchingWorkflow(
   workflows: KeywordWorkflow[],
-  message: string
+  message: string,
+  excludeWorkflowId: string | null = null
 ): string | null {
-  const normalizedMessage = normalizeInboundText(message)
-  if (!normalizedMessage) return null
   for (const workflow of workflows) {
-    if (workflow.keywords.some((keyword) => keyword === normalizedMessage)) {
+    if (workflow.workflowId === excludeWorkflowId) continue
+    if (matchesKeyword(workflow.keywords, message)) {
       return workflow.workflowId
     }
   }
   return null
 }
 
-// Variantes do telefone para lookup (bug do 9 brasileiro + prefixo "+") —
-// mesma lógica do bloco AutoReply, extraída para os hooks de workflow.
-function buildPhoneLookupVariants(rawPhone: string): string[] {
-  const digits = String(rawPhone).replace(/\D/g, '')
-  if (!digits) return []
-  const variants = new Set<string>([digits, `+${digits}`])
-  if (digits.startsWith('55') && digits.length === 12) {
-    const withNine = `${digits.slice(0, 4)}9${digits.slice(4)}`
-    variants.add(withNine)
-    variants.add(`+${withNine}`)
-  } else if (digits.startsWith('55') && digits.length === 13 && digits[4] === '9') {
-    const withoutNine = `${digits.slice(0, 4)}${digits.slice(5)}`
-    variants.add(withoutNine)
-    variants.add(`+${withoutNine}`)
-  }
-  return Array.from(variants)
+// Variantes do telefone para lookup (bug do 9 brasileiro + prefixo "+").
+const buildPhoneLookupVariants = phoneLookupVariants
+
+/** id do botão/item clicado numa mensagem interativa (Perguntar). */
+function extractInteractiveReplyId(message: any): string | null {
+  const id = message?.interactive?.button_reply?.id ?? message?.interactive?.list_reply?.id
+  return typeof id === 'string' && id.trim() ? id : null
+}
+
+/**
+ * Mensagens que contam como "o contato respondeu" para o Stop on Response:
+ * qualquer conteúdo (texto, botão, mídia, áudio, localização...) — não reação nem
+ * aviso de sistema.
+ */
+function isContactResponse(message: any): boolean {
+  const type = String(message?.type || '')
+  return Boolean(type) && !['reaction', 'system', 'unsupported', 'ephemeral'].includes(type)
+}
+
+/**
+ * Regra "pergunta esquecida × palavra-chave de outro fluxo": a mensagem que é
+ * EXATAMENTE a palavra-chave de OUTRO fluxo publicado e NÃO é uma das opções da
+ * pergunta pendente dispara o outro fluxo (e encerra a pergunta). Se não dá
+ * para saber as opções (fluxo antigo/sem versão publicada), a pergunta vence.
+ */
+async function pendingQuestionYieldsToKeyword(
+  db: NonNullable<ReturnType<typeof getSupabaseAdmin>>,
+  pending: { workflow_id: string; resume_node_id?: string | null },
+  text: string,
+  replyId: string | null
+): Promise<boolean> {
+  if (!pending.resume_node_id) return false
+  const record = await fetchPublishedRecord(db, pending.workflow_id)
+  if (!record) return false
+  const buttons = askButtonsForResumeNode(record.version, pending.resume_node_id)
+  if (buttons.length === 0) return false
+  return !answerMatchesButton(buttons, text, replyId)
 }
 
 type CampaignReplyWorkflow = {
@@ -566,10 +589,14 @@ async function cancelDelayWaitsOnResponse(
   const variants = buildPhoneLookupVariants(rawPhone)
   if (variants.length === 0) return
 
+  // Só "Aguardar" (wait_kind 'delay'): o pontapé da inscrição manual ('enroll') e
+  // a pausa da janela de horário ('window') não são cancelados. Inclui o
+  // enrollment 'active' (o dreno está retomando agora): o CAS do reschedule/
+  // complete em 'active' faz o cancelamento valer — o fluxo para no próximo Aguardar.
   const { data: waits } = await db
     .from('workflow_enrollments')
     .select('id, workflow_id')
-    .eq('status', 'waiting')
+    .in('status', ['waiting', 'active'])
     .eq('wait_kind', 'delay')
     .in('phone', variants)
   if (!waits || waits.length === 0) return
@@ -593,7 +620,7 @@ async function cancelDelayWaitsOnResponse(
     .from('workflow_enrollments')
     .update({ status: 'cancelled', updated_at: new Date().toISOString() })
     .in('id', cancelIds)
-    .eq('status', 'waiting') // CAS: não pisa em linha que o drain claimou
+    .in('status', ['waiting', 'active'])
   console.log('[StopOnResponse] cancelled delay waits:', cancelIds.length)
 }
 
@@ -1144,6 +1171,36 @@ export async function POST(request: NextRequest) {
           }
 
           // =================================================================
+          // Opt-out por palavra ("PARAR", "sair"...): registrado ANTES de qualquer
+          // workflow — nem pergunta pendente, nem gatilho, nem fluxo padrão rodam
+          // para quem pediu para sair, e as perguntas pendentes são encerradas.
+          // =================================================================
+          const isOptOut = Boolean(text) && isOptOutKeyword(text)
+          if (isOptOut && from) {
+            console.log(`📵 Opt-out keyword detected from ${maskPhone(from)}: "${text}"`)
+            await markContactOptOutAndSuppress({
+              phoneRaw: from,
+              source: 'inbound_keyword',
+              reason: 'Usuário solicitou opt-out via mensagem inbound',
+              metadata: {
+                messageType,
+                text,
+                messageId: message?.id || null,
+                timestamp: message?.timestamp || null,
+              },
+            })
+            try {
+              await cancelPendingConversations(supabaseAdmin, String(from))
+            } catch (e) {
+              console.warn('[Webhook] Falha ao encerrar perguntas pendentes no opt-out:', e)
+            }
+          }
+          const replyId = extractInteractiveReplyId(message)
+          // Fluxos já despachados por esta mensagem (CampaignReply): o bloco de
+          // palavra-chave/padrão não despacha o mesmo fluxo de novo.
+          const dispatchedWorkflowIds = new Set<string>()
+
+          // =================================================================
           // Campaign auto-reply (Story 001): responde conforme config da campanha
           //   - quick_reply match (texto == botão) → envia resposta mapeada
           //   - senão, fallback_response (se configurado)
@@ -1190,12 +1247,14 @@ export async function POST(request: NextRequest) {
                 const phoneVariants = Array.from(variants)
                 console.log('[AutoReply] check phone:', maskPhone(from), 'variants:', phoneVariants.length, 'text:', JSON.stringify(text))
 
-                // 1) Acha o campaign_contact (qualquer status exceto replied/failed — mais permissivo)
+                // 1) Acha o campaign_contact que RECEBEU o disparo (sent/delivered/read).
+                // 'pending' = ainda na fila (nada enviado): uma mensagem qualquer não é
+                // "resposta ao disparo" — marcar replied tiraria o contato da fila.
                 const { data: ccRows, error: ccErr } = await db
                   .from('campaign_contacts')
                   .select('id, campaign_id, status, sent_at')
                   .in('phone', phoneVariants)
-                  .in('status', ['pending', 'sent', 'delivered', 'read'])
+                  .in('status', ['sent', 'delivered', 'read'])
                   .order('sent_at', { ascending: false, nullsFirst: false })
                   .limit(1)
 
@@ -1276,6 +1335,7 @@ export async function POST(request: NextRequest) {
                           continue
                         }
                         console.log('[CampaignReply] dispatching workflow:', wf.workflowId)
+                        dispatchedWorkflowIds.add(wf.workflowId)
                         reinvokeSelf(`/api/builder/workflow/${wf.workflowId}/execute`, {
                           input: {
                             from,
@@ -1356,7 +1416,7 @@ export async function POST(request: NextRequest) {
           const inboundMsgId = String(message?.id || '')
           let isNewInboundForWorkflow = true
           if (inboundMsgId) {
-            const { data: dedupeRow } = await supabaseAdmin
+            const { data: dedupeRow, error: dedupeError } = await supabaseAdmin
               .from('processed_inbound_messages')
               .upsert(
                 { message_id: inboundMsgId },
@@ -1364,6 +1424,22 @@ export async function POST(request: NextRequest) {
               )
               .select('message_id')
               .maybeSingle()
+            if (dedupeError) {
+              // Falha do dedupe ≠ mensagem repetida: não dá para garantir "uma vez só",
+              // então os fluxos NÃO rodam (na dúvida, não enviar) — mas fica registrado.
+              console.warn(
+                `[Webhook] dedupe de inbound falhou (processed_inbound_messages) — fluxos não disparados para ${maskPhone(from)}:`,
+                dedupeError.message || dedupeError
+              )
+              try {
+                supabaseAdmin.from('webhook_debug_logs').insert({
+                  phase: 'inbound_dedupe_failed',
+                  phone: from,
+                  text_preview: text?.slice(0, 100) || null,
+                  details: { messageId: inboundMsgId, error: String(dedupeError.message || dedupeError) },
+                }).then(() => {})
+              } catch {}
+            }
             // Sem linha retornada = conflito (já processado) → não redisparar o fluxo.
             isNewInboundForWorkflow = !!dedupeRow
           }
@@ -1372,7 +1448,7 @@ export async function POST(request: NextRequest) {
           // Stop on Response (settings do workflow): resposta cancela waits
           // de Delay dos fluxos com a opção ligada.
           // =================================================================
-          if (isNewInboundForWorkflow && text && from) {
+          if (isNewInboundForWorkflow && from && isContactResponse(message)) {
             try {
               await cancelDelayWaitsOnResponse(supabaseAdmin, from)
             } catch (sorErr) {
@@ -1384,43 +1460,92 @@ export async function POST(request: NextRequest) {
           // Workflow Builder (MVP): resume pending conversation if any
           // =================================================================
           const normalizedFrom = normalizePhoneNumber(from)
-          if (isNewInboundForWorkflow && normalizedFrom && text) {
+          if (isNewInboundForWorkflow && normalizedFrom && text && !isOptOut) {
             const pendingConversation = await getPendingConversation(
               supabaseAdmin,
               normalizedFrom
             )
             if (pendingConversation) {
-              // Fase D: chamada interna autenticada (verifyCronRequest), fire-and-forget
-              // via after() — responde rápido ao Meta. Antes já era fetch direto.
-              reinvokeSelf(
-                `/api/builder/workflow/${pendingConversation.workflow_id}/resume`,
-                {
-                  conversationId: pendingConversation.id,
-                  input: { from: normalizedFrom, to: normalizedFrom, message: text },
-                }
+              const otherKeywordWorkflowId = findMatchingWorkflow(
+                allKeywordWorkflows,
+                text,
+                pendingConversation.workflow_id
               )
-              continue
+              let yieldToKeyword = false
+              if (otherKeywordWorkflowId) {
+                try {
+                  yieldToKeyword = await pendingQuestionYieldsToKeyword(
+                    supabaseAdmin,
+                    pendingConversation,
+                    text,
+                    replyId
+                  )
+                } catch (e) {
+                  console.warn('[Webhook] Falha ao avaliar pergunta pendente × palavra-chave:', e)
+                }
+              }
+              if (yieldToKeyword) {
+                // A palavra-chave de outro fluxo vence: a pergunta antiga é encerrada.
+                console.log('[Webhook] pergunta pendente encerrada pela palavra-chave de outro fluxo:', otherKeywordWorkflowId)
+                await cancelPendingConversations(supabaseAdmin, normalizedFrom, {
+                  conversationId: pendingConversation.id,
+                })
+              } else {
+                // Fase D: chamada interna autenticada (verifyCronRequest), fire-and-forget
+                // via after() — responde rápido ao Meta. Antes já era fetch direto.
+                reinvokeSelf(
+                  `/api/builder/workflow/${pendingConversation.workflow_id}/resume`,
+                  {
+                    conversationId: pendingConversation.id,
+                    input: {
+                      from: normalizedFrom,
+                      to: normalizedFrom,
+                      message: text,
+                      ...(replyId ? { replyId } : {}),
+                    },
+                  }
+                )
+                continue
+              }
             }
           }
 
           // =================================================================
           // Workflow Builder (MVP): run keyword/default workflow
+          // Só fluxos PUBLICADOS: as palavras-chave vêm das versões publicadas e o
+          // padrão precisa existir e estar publicado (nunca cria/recria o fluxo).
           // =================================================================
           const matchedWorkflowId = findMatchingWorkflow(keywordWorkflows, text)
           const targetWorkflowId = matchedWorkflowId || defaultWorkflowId
 
-          if (isNewInboundForWorkflow && targetWorkflowId && text && from) {
+          if (
+            isNewInboundForWorkflow &&
+            targetWorkflowId &&
+            text &&
+            from &&
+            !isOptOut &&
+            !dispatchedWorkflowIds.has(targetWorkflowId)
+          ) {
             try {
-              const companyId = await getCompanyId(supabaseAdmin)
-              await ensureWorkflowRecord(supabaseAdmin, targetWorkflowId, companyId)
-
-              // Fase D (migração QStash→pg_cron): dispara o workflow via chamada interna
-              // autenticada (verifyCronRequest) em vez do QStash WorkflowClient.trigger.
-              // Fire-and-forget via after() — o webhook responde rápido ao Meta.
-              reinvokeSelf(
-                `/api/builder/workflow/${targetWorkflowId}/execute`,
-                { input: { from, to: from, message: text } }
-              )
+              const isDefaultDispatch = !matchedWorkflowId
+              const publishedDefault = isDefaultDispatch
+                ? await fetchPublishedRecord(supabaseAdmin, targetWorkflowId)
+                : null
+              if (isDefaultDispatch && !publishedDefault) {
+                console.log('[Webhook] fluxo padrão inexistente ou não publicado — ignorado:', targetWorkflowId)
+              } else {
+                // Fase D (migração QStash→pg_cron): dispara o workflow via chamada interna
+                // autenticada (verifyCronRequest) em vez do QStash WorkflowClient.trigger.
+                // Fire-and-forget via after() — o webhook responde rápido ao Meta.
+                // dispatch "default": a mensagem não casou palavra-chave nenhuma — o
+                // /execute não reaplica o gate de Palavras-chave do padrão.
+                reinvokeSelf(
+                  `/api/builder/workflow/${targetWorkflowId}/execute`,
+                  isDefaultDispatch
+                    ? { input: { from, to: from, message: text }, dispatch: 'default' }
+                    : { input: { from, to: from, message: text } }
+                )
+              }
             } catch (e) {
               console.error('[Webhook] Failed to trigger builder workflow:', e)
             }
@@ -1956,21 +2081,8 @@ export async function POST(request: NextRequest) {
             console.warn('[Webhook] Falha ao processar Flow submission (best-effort):', e)
           }
 
-          // Opt-out real: usuário envia palavra-chave
-          if (text && isOptOutKeyword(text)) {
-            console.log(`📵 Opt-out keyword detected from ${from}: "${text}"`)
-            await markContactOptOutAndSuppress({
-              phoneRaw: from,
-              source: 'inbound_keyword',
-              reason: 'Usuário solicitou opt-out via mensagem inbound',
-              metadata: {
-                messageType,
-                text,
-                messageId: message?.id || null,
-                timestamp: message?.timestamp || null,
-              },
-            })
-          }
+          // Opt-out por palavra: registrado no início do processamento da mensagem
+          // (antes de qualquer workflow) — ver "Opt-out por palavra" acima.
 
           // Bloco Campaign auto-reply foi movido para ANTES do workflow builder
           // para evitar ser pulado por "continue" de pending_conversation.

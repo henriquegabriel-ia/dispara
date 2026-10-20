@@ -90,10 +90,26 @@ describe('execute — gate de Keywords', () => {
     expect(run(res.body.executionId)).toMatchObject({ version_id: seeded.versionId, trigger_type: 'Keywords' })
   })
 
-  it('(fato) o gate do execute usa SUBSTRING ("quero oi") enquanto o webhook exige match exato', async () => {
+  it('E02 o gate do execute usa a MESMA regra do webhook: match exato normalizado (substring não casa)', async () => {
     await seedPublishedFlow(h.db, kw(['oi']))
     const res = await exec('wf', { input: { from: ANA, to: ANA, message: 'quero oi agora' } })
+    expect(res.body).toMatchObject({ status: 'skipped', output: { reason: 'keyword_not_matched' } })
+    expect(h.meta.sent).toHaveLength(0)
+  })
+
+  it('E02 fluxo despachado como PADRÃO (dispatch "default") não passa pelo gate de Palavras-chave', async () => {
+    await seedPublishedFlow(h.db, kw(['oi']))
+    const res = await exec('wf', { input: { from: ANA, to: ANA, message: 'bom dia' }, dispatch: 'default' })
     expect(res.body.status).toBe('success')
+    expect(textsTo(ANA)).toEqual(['resposta'])
+  })
+
+  it('E02 contato com opt-out/supressão ativa não recebe o fluxo (run "skipped" contact_opted_out)', async () => {
+    await seedPublishedFlow(h.db, kw(['oi']))
+    h.db.insert('phone_suppressions', { phone: ANA, is_active: true, source: 'inbound_keyword', reason: 'PARAR' })
+    const res = await exec('wf', { input: { from: ANA, to: ANA, message: 'oi' } })
+    expect(res.body).toMatchObject({ status: 'skipped', output: { reason: 'contact_opted_out' } })
+    expect(h.meta.sent).toHaveLength(0)
   })
 
   it('E02 com startNodeIds (retomada) o gate não se aplica', async () => {
@@ -111,48 +127,35 @@ describe('execute — gate de Keywords', () => {
     expect(textsTo(ANA)).toEqual(['cr', 'nn'])
   })
 
-  // BUG(keyword-acento): o webhook normaliza acentos (keyword "ola" casa "Olá", como a dica da
+  // Corrigido BUG(keyword-acento): o webhook normaliza acentos (keyword "ola" casa "Olá", como a dica da
   // tela promete) e despacha; o gate do /execute só faz toLowerCase + includes, então
   // "olá".includes("ola") é false e a run vira "skipped keyword_not_matched". Correto: executar.
-  it.fails('E01 BUG(keyword-acento): "Olá" deveria passar no gate de uma keyword "ola"', async () => {
+  it('E01 keyword-acento: "Olá" deveria passar no gate de uma keyword "ola"', async () => {
     await seedPublishedFlow(h.db, kw(['ola']))
     const res = await exec('wf', { input: { from: ANA, to: ANA, message: 'Olá' } })
     expect(res.body.status).toBe('success')
   })
 
-  it.fails('E01 BUG(keyword-acento): "promocao" deveria passar no gate de uma keyword "Promoção"', async () => {
+  it('E01 keyword-acento: "promocao" deveria passar no gate de uma keyword "Promoção"', async () => {
     await seedPublishedFlow(h.db, kw(['Promoção']))
     const res = await exec('wf', { input: { from: ANA, to: ANA, message: 'promocao' } })
     expect(res.body.status).toBe('success')
   })
 
-  it('E01 (fato) hoje os dois casos viram "skipped keyword_not_matched"', async () => {
-    await seedPublishedFlow(h.db, kw(['ola']))
-    await seedPublishedFlow(h.db, kw(['Promoção'], undefined, 'promo'))
-    expect((await exec('wf', { input: { from: ANA, message: 'Olá' } })).body).toMatchObject({ status: 'skipped', output: { reason: 'keyword_not_matched' } })
-    expect((await exec('promo', { input: { from: ANA, message: 'promocao' } })).body).toMatchObject({ status: 'skipped' })
-    expect(h.meta.sent).toHaveLength(0)
-  })
 })
 
 describe('execute — rascunho', () => {
-  // BUG(default-draft): o webhook despacha o "fluxo padrão" para toda mensagem sem keyword e o
+  // Corrigido BUG(default-draft): o webhook despacha o "fluxo padrão" para toda mensagem sem keyword e o
   // /execute roda a versão ATIVA sem checar workflows.status: um rascunho nunca publicado (ou
   // um None/CampaignReply marcado como padrão) roda para toda mensagem inbound.
   // Correto: o /execute recusa (skip) fluxo que não está publicado.
-  it.fails('E03 BUG(default-draft): execute não deveria rodar um fluxo nunca publicado', async () => {
+  it('E03 default-draft: execute não deveria rodar um fluxo nunca publicado', async () => {
     await seedPublishedFlow(h.db, makeFlow({ id: 'wf', trigger: triggers.none(), root: steps.whatsapp({ id: 'w', message: 'rascunho' }) }), { publish: false })
     const res = await exec('wf', { input: { from: ANA, to: ANA, message: 'qualquer coisa' } })
     expect(res.body.status).not.toBe('success')
     expect(h.meta.sent).toHaveLength(0)
   })
 
-  it('E03 (fato) hoje o rascunho executa e envia', async () => {
-    await seedPublishedFlow(h.db, makeFlow({ id: 'wf', trigger: triggers.none(), root: steps.whatsapp({ id: 'w', message: 'rascunho' }) }), { publish: false })
-    const res = await exec('wf', { input: { from: ANA, to: ANA, message: 'qualquer coisa' } })
-    expect(res.body.status).toBe('success')
-    expect(textsTo(ANA)).toEqual(['rascunho'])
-  })
 })
 
 describe('execute — Delay durável', () => {
@@ -200,7 +203,7 @@ describe('execute — Delay durável', () => {
   it('E02 Delay sem telefone (sem from/to) → run "failed" "Delay sem telefone de retomada" e nenhum enrollment', async () => {
     await seedPublishedFlow(h.db, makeFlow({ id: 'nn', trigger: triggers.none(), root: chain(steps.wait({ id: 'wt' }), steps.whatsapp({ id: 'w', message: 'x' })) }))
     const res = await exec('nn', { input: {} })
-    expect(res.body.status).toBe('waiting')
+    expect(res.body.status).toBe('failed')
     expect(run(res.body.executionId)).toMatchObject({ status: 'failed', error: 'Delay sem telefone de retomada' })
     expect(h.db.count('workflow_enrollments')).toBe(0)
   })
@@ -267,8 +270,8 @@ describe('resume — validações', () => {
 
     const res = await resume('wf', { conversationId: conv.id, input: { from: ANA, message: 'Não' } })
     expect(textsTo(ANA)).toEqual(['Topa?', 'Pena'])
-    // ver BUG(branch-pulada-falha) abaixo: a branch "Sim" pulada faz a execução sair "failed"
-    expect(res.body.status).toBe('failed')
+    // a branch "Sim" pulada não conta como falha
+    expect(res.body.status).toBe('success')
     expect(h.db.row('workflow_conversations', { id: conv.id })).toMatchObject({ status: 'completed' })
     expect((h.db.row('workflow_conversations', { id: conv.id })?.variables as Row).reply_q).toBe('Não')
     expect(run(res.body.executionId)).toMatchObject({ trigger_type: 'Resume', workflow_id: 'wf' })
@@ -320,12 +323,12 @@ describe('status da execução com ramificação', () => {
       })
     )
 
-  // BUG(branch-pulada-falha): o executor grava { success: false, error: "skipped" } para cada nó
+  // Corrigido BUG(branch-pulada-falha): o executor grava { success: false, error: "skipped" } para cada nó
   // de uma branch NÃO escolhida e calcula success = every(results.success). Toda execução com
   // condição/Perguntar (onde sempre sobra uma branch não escolhida) termina como "failed" na
   // resposta e "error"/"skipped" na workflow_runs, mesmo tendo enviado tudo certo — as métricas
   // contam como falha. Correto: branch pulada não é falha; status "success".
-  it.fails('BUG(branch-pulada-falha): execução que seguiu a branch certa deveria terminar "success"', async () => {
+  it('branch-pulada-falha: execução que seguiu a branch certa deveria terminar "success"', async () => {
     await seedPublishedFlow(h.db, branchFlow())
     const res = await exec('wf', { input: { from: ANA, to: ANA, message: 'promo' } })
     expect(textsTo(ANA)).toEqual(['PROMO'])
@@ -333,14 +336,4 @@ describe('status da execução com ramificação', () => {
     expect(run(res.body.executionId)?.status).toBe('success')
   })
 
-  it('(fato) hoje a resposta é "failed", a run fica com status de erro "skipped" e o metrics conta como falha', async () => {
-    await seedPublishedFlow(h.db, branchFlow())
-    const res = await exec('wf', { input: { from: ANA, to: ANA, message: 'promo' } })
-    expect(textsTo(ANA)).toEqual(['PROMO'])
-    expect(res.body.status).toBe('failed')
-    expect(run(res.body.executionId)).toMatchObject({ status: 'error', error: 'skipped' })
-    const metrics = await import('@/app/api/builder/workflows/metrics/route')
-    const m = (await (await metrics.GET(new Request('http://localhost/api/builder/workflows/metrics'))).json()) as { totals: Row }
-    expect(m.totals).toEqual({ runs: 1, success: 0, failed: 1 })
-  })
 })

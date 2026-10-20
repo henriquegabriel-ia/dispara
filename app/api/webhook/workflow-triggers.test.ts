@@ -14,7 +14,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
  * - Stop on Response, opt-out, assinatura e resiliência;
  * - o gate de palavra-chave do /execute e a validação do /resume.
  *
- * Bugs de produto ficam em it.fails, com o comportamento CORRETO e um comentário BUG(...).
+ * Bugs de produto ficam em it.fails, com o comportamento CORRETO e um comentário BUG(...);
+ * os já corrigidos viraram `it` com o comentário "Corrigido BUG(...)".
  */
 
 vi.mock('server-only', () => ({}))
@@ -304,15 +305,15 @@ describe('Gatilho Palavras-chave: despacho pelo webhook', () => {
       expect(textsTo(ANA)).toEqual(['Resposta wf-kw'])
     })
 
-    // BUG(gate-acento): o webhook casa "ola" com a palavra "olá" (NFD sem diacríticos) e despacha,
+    // Corrigido BUG(gate-acento): o webhook casa "ola" com a palavra "olá" (NFD sem diacríticos) e despacha,
     // mas o /execute reaplica o gate com message.toLowerCase().includes(keyword.toLowerCase()), SEM
     // tirar acento → run 'skipped' (keyword_not_matched) e nada é enviado. A tela promete "ignora
     // acentos" (ConfigPanel). execute/route.ts:105-148 × webhook/route.ts:420-477.
-    it.fails.each([
+    it.each([
       ['olá', 'ola'],
       ['ola', 'Olá'],
       ['ação', 'acao'],
-    ])('BUG(gate-acento): palavra "%s" × mensagem "%s" deveria enviar a resposta', async (keyword, message) => {
+    ])('gate-acento: palavra "%s" × mensagem "%s" deveria enviar a resposta', async (keyword, message) => {
       await publishKeywords('wf-kw', [keyword])
       await receiveText(message)
       expect(executedIds()).toEqual(['wf-kw'])
@@ -371,10 +372,11 @@ describe('Gatilho Palavras-chave: despacho pelo webhook', () => {
     expect(executedIds()).toEqual(['wf-novo', 'wf-antigo'])
   })
 
-  it('WH-06: "Sem gatilho", palavras-chave vazias e "Respondeu ao disparo" nunca disparam numa mensagem comum', async () => {
+  it('WH-06: "Sem gatilho" e "Respondeu ao disparo" nunca disparam numa mensagem comum; palavras-chave vazias nem publicam', async () => {
     await publishFlow(h.db, noneFlow('wf-none'))
-    await publishKeywords('wf-vazio', [])
-    await publishKeywords('wf-so-espacos', ['   ', ''])
+    // gatilho "Palavras-chave" sem palavra válida não compila (a tela/publish recusam)
+    await expect(publishKeywords('wf-vazio', [])).rejects.toThrow(/sem nenhuma palavra/)
+    await expect(publishKeywords('wf-so-espacos', ['   ', ''])).rejects.toThrow(/sem nenhuma palavra/)
     await publishCampaignReply('wf-cr') // sem campaign_contact para o telefone
     for (const text of ['oi', 'None', 'Keywords', 'CampaignReply', 'qualquer coisa']) await receiveText(text)
     expect(selfInvokeCalls).toEqual([])
@@ -462,11 +464,11 @@ describe('Gatilho Palavras-chave: despacho pelo webhook', () => {
     expect(executeCalls().map((c) => inputOf(c).message)).toEqual(['oi'])
   })
 
-  // BUG(edicao-pos-publicacao-vai-ao-ar): o publish aponta active_version_id para a própria versão
+  // Corrigido BUG(edicao-pos-publicacao-vai-ao-ar): o publish aponta active_version_id para a própria versão
   // 'published', e o autosave (PATCH → updateWorkflowRecord) faz UPDATE nessa versão. Trocar a
   // palavra no canvas vai ao ar em ~1s, sem clicar em Publicar, e o header continua "vN publicada".
   // lib/builder/workflow-db.ts:292-302 + publish/route.ts:41-54 + hooks/useWorkflowBuilder.ts:76-138.
-  it.fails('BUG(edicao-pos-publicacao-vai-ao-ar): editar a palavra sem republicar não deveria mudar o gatilho no ar', async () => {
+  it('edicao-pos-publicacao-vai-ao-ar: editar a palavra sem republicar não deveria mudar o gatilho no ar', async () => {
     const flow = keywordFlow('wf-edit', ['quero'])
     await publishFlow(h.db, flow)
 
@@ -529,11 +531,11 @@ describe('Fluxo padrão (settings workflow_builder_default_id / env WORKFLOW_BUI
     expect(selfInvokeCalls).toEqual([])
   })
 
-  // BUG(default-gate-palavra): o webhook despacha o padrão para qualquer mensagem que não casou
+  // Corrigido BUG(default-gate-palavra): o webhook despacha o padrão para qualquer mensagem que não casou
   // (targetWorkflowId = matched || default), mas o /execute reaplica o gate de Palavras-chave
   // (message.includes(keyword)) e pula o run → um padrão com gatilho "Palavras-chave" NUNCA
   // responde a "bom dia" (e responde a "boi", que contém "oi"). execute/route.ts:104-149.
-  it.fails('BUG(default-gate-palavra): padrão com gatilho Palavras-chave deveria responder a mensagem que não casou', async () => {
+  it('default-gate-palavra: padrão com gatilho Palavras-chave deveria responder a mensagem que não casou', async () => {
     await publishKeywords('wf-boas-vindas', ['oi'])
     await markAsDefault('wf-boas-vindas')
     await receiveText('bom dia')
@@ -543,10 +545,10 @@ describe('Fluxo padrão (settings workflow_builder_default_id / env WORKFLOW_BUI
     expect(textsTo(ANA)).toEqual(['Resposta wf-boas-vindas'])
   })
 
-  // BUG(default-rascunho): targetWorkflowId = matched || default não olha workflows.status, e o
+  // Corrigido BUG(default-rascunho): targetWorkflowId = matched || default não olha workflows.status, e o
   // /execute roda a versão ATIVA sem checar publicação. Um fluxo nunca publicado marcado como
   // padrão responde a todos os contatos. webhook/route.ts:1409-1423; execute/route.ts:72-102.
-  it.fails('BUG(default-rascunho): padrão em rascunho (nunca publicado) não deveria disparar', async () => {
+  it('default-rascunho: padrão em rascunho (nunca publicado) não deveria disparar', async () => {
     await seedPublishedFlow(h.db, noneFlow('wf-rascunho'), { publish: false })
     await markAsDefault('wf-rascunho')
     await receiveText('olá tudo bem')
@@ -555,10 +557,10 @@ describe('Fluxo padrão (settings workflow_builder_default_id / env WORKFLOW_BUI
     expect(executeCalls()).toEqual([])
   })
 
-  // BUG(default-duplica-campaign-reply): o laço do CampaignReply despacha o fluxo e, como nenhuma
+  // Corrigido BUG(default-duplica-campaign-reply): o laço do CampaignReply despacha o fluxo e, como nenhuma
   // palavra casou, o bloco keyword/padrão despacha o MESMO fluxo como padrão → 2 execuções e
   // mensagens duplicadas. Só existe exclusão do padrão na lista de keywords (route.ts:732-734).
-  it.fails('BUG(default-duplica-campaign-reply): padrão com gatilho "Respondeu ao disparo" deveria executar 1x na resposta', async () => {
+  it('default-duplica-campaign-reply: padrão com gatilho "Respondeu ao disparo" deveria executar 1x na resposta', async () => {
     await publishCampaignReply('wf-cr')
     await markAsDefault('wf-cr')
     seedCampaignContact()
@@ -566,10 +568,10 @@ describe('Fluxo padrão (settings workflow_builder_default_id / env WORKFLOW_BUI
     expect(executedIds()).toEqual(['wf-cr'])
   })
 
-  // BUG(default-fantasma): apagar o fluxo padrão não limpa settings.workflow_builder_default_id; na
+  // Corrigido BUG(default-fantasma): apagar o fluxo padrão não limpa settings.workflow_builder_default_id; na
   // próxima mensagem o webhook chama ensureWorkflowRecord, que RECRIA um "Fluxo inicial" (rascunho,
   // gatilho Webhook + Send Message) e o despacha. workflow-db.ts:162-216; webhook/route.ts:1414-1423.
-  it.fails('BUG(default-fantasma): padrão apagado não deveria recriar um "Fluxo inicial" nem disparar', async () => {
+  it('default-fantasma: padrão apagado não deveria recriar um "Fluxo inicial" nem disparar', async () => {
     await publishFlow(h.db, noneFlow('wf-padrao'))
     await markAsDefault('wf-padrao')
     expect((await routes.deleteWorkflow('wf-padrao')).status).toBe(200)
@@ -757,11 +759,11 @@ describe('Gatilho "Respondeu ao disparo" (CampaignReply)', () => {
     })
   })
 
-  // BUG(campaign-reply-pending): o lookup aceita status 'pending' (contato ainda na FILA do disparo,
+  // Corrigido BUG(campaign-reply-pending): o lookup aceita status 'pending' (contato ainda na FILA do disparo,
   // nada enviado). Uma mensagem qualquer vira "resposta ao disparo": o cc vai para 'replied' (o
   // dispatcher, que só pega 'pending', nunca mais envia) e o fluxo roda para uma campanha que o
   // contato não recebeu. webhook/route.ts:1194-1200 e 1246-1249; campaign/workflow/route.ts:332,369.
-  it.fails('BUG(campaign-reply-pending): contato ainda na fila (pending, sem sent_at) não respondeu ao disparo', async () => {
+  it('campaign-reply-pending: contato ainda na fila (pending, sem sent_at) não respondeu ao disparo', async () => {
     await publishCampaignReply('wf-cr')
     const cc = seedCampaignContact({ status: 'pending', sentAt: null })
     await receiveText('oi')
@@ -846,7 +848,7 @@ describe('Resposta a pergunta pendente (Perguntar → /resume)', () => {
     await receive(metaInbound.interactiveButton({ from: ANA, title: 'Sim' }))
     expect(resumeCalls()).toHaveLength(1)
     const [resumed] = await flushSelfInvokes()
-    expect(resumed.result?.status).toBe(200) // status do corpo: ver BUG(status-skipped)
+    expect(resumed.result?.body).toMatchObject({ status: 'success' })
 
     expect(textsTo(ANA)).toEqual(['Quer a proposta?', 'A', 'fim'])
     expect(h.db.row('workflow_conversations', { id: conversation!.id as string })).toMatchObject({
@@ -860,13 +862,35 @@ describe('Resposta a pergunta pendente (Perguntar → /resume)', () => {
     expect(executedIds()).toEqual(['wf-menu'])
   })
 
-  it('RS-04: resposta digitada que não é o rótulo exato do botão ("sim" × "Sim") cai em "Outra resposta" (só a continuação) — casamento case-sensitive', async () => {
+  it('RS-04: resposta digitada que difere do botão só em maiúsculas/acentos/espaços ("  sim ", "NAO") segue o ramo do botão', async () => {
     await publishFlow(h.db, menuFlow())
     await receiveText('menu')
     await flushSelfInvokes()
-    await receiveText('sim')
+    await receiveText('  sim ')
     await flushSelfInvokes()
-    expect(textsTo(ANA)).toEqual(['Quer a proposta?', 'fim'])
+    expect(textsTo(ANA)).toEqual(['Quer a proposta?', 'A', 'fim'])
+
+    await receiveText('menu')
+    await flushSelfInvokes()
+    await receiveText('NAO')
+    await flushSelfInvokes()
+    expect(textsTo(ANA)).toEqual(['Quer a proposta?', 'A', 'fim', 'Quer a proposta?', 'B', 'fim'])
+  })
+
+  it('RS-04: o id do botão clicado vale mesmo com o título diferente; texto que não é botão cai em "Outra resposta"', async () => {
+    await publishFlow(h.db, menuFlow())
+    await receiveText('menu')
+    await flushSelfInvokes()
+    await receive(metaInbound.interactiveButton({ from: ANA, title: 'Pode mandar!', replyId: 'Sim' }))
+    expect(resumeCalls()[0].body).toMatchObject({ input: { message: 'Pode mandar!', replyId: 'Sim' } })
+    await flushSelfInvokes()
+    expect(textsTo(ANA)).toEqual(['Quer a proposta?', 'A', 'fim'])
+
+    await receiveText('menu')
+    await flushSelfInvokes()
+    await receiveText('talvez')
+    await flushSelfInvokes()
+    expect(textsTo(ANA)).toEqual(['Quer a proposta?', 'A', 'fim', 'Quer a proposta?', 'fim'])
   })
 
   it('RS-04: resposta "Não" segue o ramo do segundo botão', async () => {
@@ -878,11 +902,11 @@ describe('Resposta a pergunta pendente (Perguntar → /resume)', () => {
     expect(textsTo(ANA)).toEqual(['Quer a proposta?', 'B', 'fim'])
   })
 
-  // BUG(perguntar-sem-botoes): a tela edita "Botões / opções" (≤20 chars, "limite dos botões do
+  // Corrigido BUG(perguntar-sem-botoes): a tela edita "Botões / opções" (≤20 chars, "limite dos botões do
   // WhatsApp"), mas o compile emite ask-question só com `message` e o step usa buildTextMessage: a
   // pergunta sai como TEXTO puro, sem botões, e o contato precisa digitar o rótulo exato.
   // lib/builder/flow/compile.ts:417-429; lib/builder/steps/whatsapp/ask-question.ts:51-55.
-  it.fails('BUG(perguntar-sem-botoes): a pergunta deveria sair como mensagem interativa com os botões', async () => {
+  it('perguntar-sem-botoes: a pergunta deveria sair como mensagem interativa com os botões', async () => {
     await publishFlow(h.db, menuFlow())
     await receiveText('menu')
     await flushSelfInvokes()
@@ -892,11 +916,11 @@ describe('Resposta a pergunta pendente (Perguntar → /resume)', () => {
     expect(buttons.map((b) => b.reply.title)).toEqual(['Sim', 'Não'])
   })
 
-  // BUG(resume-corrida): cada mensagem nova (wamid diferente) vê a mesma conversa 'waiting' e
+  // Corrigido BUG(resume-corrida): cada mensagem nova (wamid diferente) vê a mesma conversa 'waiting' e
   // despacha um /resume; o /resume só lê status 'waiting' e marca 'completed' DEPOIS de executar.
   // Dois toques rápidos no botão executam o ramo duas vezes (envio duplicado). Falta CAS
   // waiting→processing antes de executar. resume/route.ts:75-80,159-175.
-  it.fails('BUG(resume-corrida): duas respostas quase simultâneas deveriam executar o ramo uma vez só', async () => {
+  it('resume-corrida: duas respostas quase simultâneas deveriam executar o ramo uma vez só', async () => {
     await publishFlow(h.db, menuFlow())
     await receiveText('menu')
     await flushSelfInvokes()
@@ -915,11 +939,11 @@ describe('Resposta a pergunta pendente (Perguntar → /resume)', () => {
     expect(textsTo(ANA).filter((t) => t === 'A')).toHaveLength(1)
   })
 
-  // BUG(pergunta-duplicada): duas mensagens do gatilho antes do primeiro /execute terminar (nenhuma
+  // Corrigido BUG(pergunta-duplicada): duas mensagens do gatilho antes do primeiro /execute terminar (nenhuma
   // vê conversa pendente, porque o execute é fire-and-forget) criam DUAS conversas 'waiting'. A
   // resposta retoma só a mais recente; a outra fica órfã e captura a PRÓXIMA mensagem do contato.
   // createConversation não checa existentes e não há UNIQUE. workflow-conversations.ts:18-48.
-  it.fails('BUG(pergunta-duplicada): dois gatilhos rápidos não deveriam deixar duas perguntas pendentes', async () => {
+  it('pergunta-duplicada: dois gatilhos rápidos não deveriam deixar duas perguntas pendentes', async () => {
     await publishFlow(h.db, menuFlow())
     await receiveText('menu')
     await receiveText('menu')
@@ -928,21 +952,21 @@ describe('Resposta a pergunta pendente (Perguntar → /resume)', () => {
     expect(h.db.count('workflow_conversations', { workflow_id: 'wf-menu', status: 'waiting' })).toBeLessThanOrEqual(1)
   })
 
-  // BUG(optout-pendente): com pergunta pendente, o `continue` do resume encerra a iteração antes do
+  // Corrigido BUG(optout-pendente): com pergunta pendente, o `continue` do resume encerra a iteração antes do
   // bloco de opt-out: "PARAR" vira a resposta da pergunta, o fluxo continua mandando mensagens e a
   // supressão não é gravada. webhook/route.ts:1392-1403 × 1960-1972.
-  it.fails('BUG(optout-pendente): "PARAR" com pergunta pendente deveria registrar o opt-out e não retomar o fluxo', async () => {
+  it('optout-pendente: "PARAR" com pergunta pendente deveria registrar o opt-out e não retomar o fluxo', async () => {
     seedConversation({ id: 'cv1', workflowId: 'wf-pergunta' })
     await receiveText('PARAR')
     expect(h.db.rows('phone_suppressions')).toEqual([expect.objectContaining({ phone: ANA, source: 'inbound_keyword' })])
     expect(resumeCalls()).toEqual([])
   })
 
-  // BUG(pendente-nono-digito): getPendingConversation faz eq exato no telefone normalizado. A
+  // Corrigido BUG(pendente-nono-digito): getPendingConversation faz eq exato no telefone normalizado. A
   // conversa de um fluxo iniciado por inscrição manual é salva com o telefone do contato (com 9);
   // se a Meta manda o wa_id legado (sem 9), a resposta não retoma a pergunta e cai no gatilho/
   // padrão. O próprio webhook já usa buildPhoneLookupVariants no AutoReply e no Stop on Response.
-  it.fails('BUG(pendente-nono-digito): conversa salva com 9 deveria ser retomada pela resposta sem 9', async () => {
+  it('pendente-nono-digito: conversa salva com 9 deveria ser retomada pela resposta sem 9', async () => {
     seedConversation({ id: 'cv1', workflowId: 'wf-pergunta', phone: '+5511988887777' })
     await receiveText('Sim', '551188887777')
     expect(resumeCalls().map((c) => c.body.conversationId)).toEqual(['cv1'])
@@ -1035,8 +1059,8 @@ describe('Resposta a pergunta pendente (Perguntar → /resume)', () => {
       seedConversation({ id: 'cv1', workflowId: 'wf-menu' })
       h.db.update('workflow_conversations', { id: 'cv1' }, { variables: { origem: 'teste' } })
       const res = await call({ conversationId: 'cv1', input: { ...input, message: '  Sim  ' } })
-      // status do corpo: ver BUG(status-skipped) abaixo (ramo "Não" pulado conta como falha)
       expect(res.status).toBe(200)
+      expect(res.body).toMatchObject({ status: 'success' })
       expect(h.db.row('workflow_conversations', { id: 'cv1' })).toMatchObject({
         status: 'completed',
         variables: { origem: 'teste', reply_ask: 'Sim' },
@@ -1045,11 +1069,11 @@ describe('Resposta a pergunta pendente (Perguntar → /resume)', () => {
       expect(textsTo(ANA)).toEqual(['A', 'fim'])
     })
 
-    // BUG(status-skipped): skipNode grava { success:false, error:'skipped' } para os nós do ramo NÃO
+    // Corrigido BUG(status-skipped): skipNode grava { success:false, error:'skipped' } para os nós do ramo NÃO
     // tomado e finalSuccess = every(r.success) — toda resposta a um Perguntar com 2+ botões fecha o
     // run como 'error' e o /resume responde status 'failed', mesmo com as mensagens certas enviadas.
     // lib/builder/workflow-executor.workflow.ts:775-788 e 1283. (Também em workflow-executor.branches.test.ts.)
-    it.fails('BUG(status-skipped): resposta "Sim" (ramo "Não" pulado) deveria fechar o /resume como success', async () => {
+    it('status-skipped: resposta "Sim" (ramo "Não" pulado) deveria fechar o /resume como success', async () => {
       seedConversation({ id: 'cv1', workflowId: 'wf-menu' })
       const res = await call({ conversationId: 'cv1', input })
       expect(textsTo(ANA)).toEqual(['A', 'fim'])
@@ -1062,7 +1086,7 @@ describe('Resposta a pergunta pendente (Perguntar → /resume)', () => {
 // ─── Stop on Response ──────────────────────────────────────────────────────────
 
 describe('Stop on Response (settings.stopOnResponse)', () => {
-  it('WH-24: a resposta cancela só os Aguardar dos fluxos com a opção; não toca "active", outros fluxos nem outros contatos', async () => {
+  it('WH-24: a resposta cancela só os Aguardar dos fluxos com a opção (inclusive o que o dreno está retomando agora); não toca outros fluxos nem outros contatos', async () => {
     seedWorkflowRow('wf-stop', { stopOnResponse: true })
     seedWorkflowRow('wf-keep', {})
     seedWorkflowRow('wf-stop-ativo', { stopOnResponse: true })
@@ -1076,7 +1100,9 @@ describe('Stop on Response (settings.stopOnResponse)', () => {
 
     await receiveText('ok')
 
-    expect([e1, e2, e3, e4, e5].map((e) => enrollmentStatus(e.id))).toEqual(['cancelled', 'waiting', 'active', 'cancelled', 'waiting'])
+    // e3 está 'active' (dreno em voo): fica 'cancelled' e o CAS do reschedule/complete em 'active'
+    // impede que o dreno o devolva à fila (ver STOP-03 em lib/cron/workflow-enrollments.test.ts)
+    expect([e1, e2, e3, e4, e5].map((e) => enrollmentStatus(e.id))).toEqual(['cancelled', 'waiting', 'cancelled', 'cancelled', 'waiting'])
   })
 
   it('ponta a ponta: resposta durante o Aguardar cancela a espera e o passo seguinte nunca sai', async () => {
@@ -1115,10 +1141,10 @@ describe('Stop on Response (settings.stopOnResponse)', () => {
     expect(enrollmentStatus(e1.id)).toBe('waiting')
   })
 
-  // BUG(stop-on-response-midia): a condição exige texto (route.ts:1375). A tela diz "Quando o contato
+  // Corrigido BUG(stop-on-response-midia): a condição exige texto (route.ts:1375). A tela diz "Quando o contato
   // responde, os passos de espera (Aguardar) pendentes deste fluxo são cancelados", mas uma resposta
   // em áudio/imagem não cancela.
-  it.fails('BUG(stop-on-response-midia): resposta em áudio também deveria cancelar o Aguardar', async () => {
+  it('stop-on-response-midia: resposta em áudio também deveria cancelar o Aguardar', async () => {
     seedWorkflowRow('wf-stop', { stopOnResponse: true })
     const e1 = seedWait({ workflowId: 'wf-stop' })
     await receive({
@@ -1131,11 +1157,11 @@ describe('Stop on Response (settings.stopOnResponse)', () => {
     expect(enrollmentStatus(e1.id)).toBe('cancelled')
   })
 
-  // BUG(stop-on-response-cancela-inscricao): a inscrição manual grava o pontapé como
+  // Corrigido BUG(stop-on-response-cancela-inscricao): a inscrição manual grava o pontapé como
   // waiting/wait_kind='delay' com resume_at=now (drenado a ~25/min). O cancelamento filtra só por
   // wait_kind='delay', então quem mandar QUALQUER mensagem antes do drain chegar nele perde o fluxo
   // inteiro — a tela promete cancelar só os "Aguardar". enroll/route.ts:134-138 × webhook:562-598.
-  it.fails('BUG(stop-on-response-cancela-inscricao): inscrição manual ainda não iniciada não deveria ser cancelada', async () => {
+  it('stop-on-response-cancela-inscricao: inscrição manual ainda não iniciada não deveria ser cancelada', async () => {
     await publishFlow(h.db, noneFlow('wf-stop'), { settings: { stopOnResponse: true } })
     const enroll = await routes.enroll('wf-stop', { contactIds: [SEED_IDS.contacts.ana] })
     expect(enroll.body).toMatchObject({ enrolled: 1 })
@@ -1147,10 +1173,10 @@ describe('Stop on Response (settings.stopOnResponse)', () => {
     expect(textsTo(ANA)).toEqual(['Resposta wf-stop'])
   })
 
-  // BUG(stop-on-response-janela): a pausa por janela de horário também é persistida como
+  // Corrigido BUG(stop-on-response-janela): a pausa por janela de horário também é persistida como
   // wait_kind='delay' (executor 943-968 + execute/route.ts:163), então a próxima mensagem do contato
   // cancela um fluxo que nem enviou a 1ª mensagem — não é um "Aguardar".
-  it.fails('BUG(stop-on-response-janela): pausa fora da janela de horário não deveria ser cancelada pela resposta', async () => {
+  it('stop-on-response-janela: pausa fora da janela de horário não deveria ser cancelada pela resposta', async () => {
     freezeTime('2026-10-18T12:00:00.000Z') // 09:00 em São Paulo
     await publishKeywords('wf-janela', ['quero'], {
       settings: {
@@ -1162,7 +1188,7 @@ describe('Stop on Response (settings.stopOnResponse)', () => {
     const [run] = await flushSelfInvokes()
     expect(run.result?.body).toMatchObject({ status: 'waiting' })
     const paused = h.db.row('workflow_enrollments', { workflow_id: 'wf-janela' })
-    expect(paused).toMatchObject({ status: 'waiting', wait_kind: 'delay' })
+    expect(paused).toMatchObject({ status: 'waiting', wait_kind: 'window' })
 
     await receiveText('alguém aí?')
     expect(enrollmentStatus(paused!.id)).toBe('waiting')
@@ -1185,11 +1211,11 @@ describe('Opt-out por palavra', () => {
     expect(selfInvokeCalls).toEqual([])
   })
 
-  // BUG(optout-dispara-padrao): o bloco keyword/padrão não checa isOptOutKeyword (o AutoReply checa,
+  // Corrigido BUG(optout-dispara-padrao): o bloco keyword/padrão não checa isOptOutKeyword (o AutoReply checa,
   // route.ts:1171). "parar" com fluxo padrão configurado despacha o padrão ANTES de gravar a
   // supressão, e os passos do executor não consultam phone_suppressions: quem pediu para sair
   // recebe a mensagem do fluxo. webhook/route.ts:1409-1427 × 1960-1972.
-  it.fails('BUG(optout-dispara-padrao): mensagem de opt-out não deveria disparar o fluxo padrão', async () => {
+  it('optout-dispara-padrao: mensagem de opt-out não deveria disparar o fluxo padrão', async () => {
     await publishFlow(h.db, noneFlow('wf-padrao'))
     await markAsDefault('wf-padrao')
     await receiveText('parar')
@@ -1264,10 +1290,10 @@ describe('Robustez do despacho', () => {
     expect(executeCalls()).toEqual([])
   })
 
-  // BUG(dedupe-erro-silencioso): o erro do upsert em processed_inbound_messages é ignorado; data fica
+  // Corrigido BUG(dedupe-erro-silencioso): o erro do upsert em processed_inbound_messages é ignorado; data fica
   // null e a mensagem é tratada como DUPLICADA — resume, execute e Stop on Response são pulados sem
   // nenhum log, e o webhook responde 200 (a Meta não reenvia). route.ts:1359-1368.
-  it.fails('BUG(dedupe-erro-silencioso): falha no dedupe não deveria descartar o gatilho em silêncio', async () => {
+  it('dedupe-erro-silencioso: falha no dedupe não deveria descartar o gatilho em silêncio', async () => {
     await publishKeywords('wf-quero', ['quero'])
     h.db.failNext('processed_inbound_messages', 'dedupe store down', { op: 'upsert' })
     await receiveText('quero')
@@ -1348,10 +1374,10 @@ describe('/execute (o que o webhook despacha)', () => {
     expect(h.db.count('workflow_enrollments')).toBe(0)
   })
 
-  // BUG(execute-rascunho): o /execute carrega a versão ATIVA via ensureWorkflowRecord e não checa
+  // Corrigido BUG(execute-rascunho): o /execute carrega a versão ATIVA via ensureWorkflowRecord e não checa
   // workflows.status — um fluxo em rascunho roda se alguém (o padrão, um cron, o admin) o chamar.
   // execute/route.ts:72-102.
-  it.fails('BUG(execute-rascunho): /execute não deveria rodar fluxo nunca publicado', async () => {
+  it('execute-rascunho: /execute não deveria rodar fluxo nunca publicado', async () => {
     await seedPublishedFlow(h.db, keywordFlow('wf-rascunho', ['quero']), { publish: false })
     await routes.execute('wf-rascunho', { input: { from: ANA_WA, to: ANA_WA, message: 'quero' } })
     expect(h.meta.sent).toEqual([])
