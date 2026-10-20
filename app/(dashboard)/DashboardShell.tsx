@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback, useMemo, useRef, type Ref } from 'react'
+import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, type Ref } from 'react'
 import { cn } from '@/lib/utils'
 import { usePathname, useRouter } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -67,13 +67,24 @@ export function DashboardShell({
     const queryClient = useQueryClient()
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
     const [isLoggingOut, setIsLoggingOut] = useState(false)
-    const [isSidebarExpanded, setIsSidebarExpanded] = useState(false)
+    // Expandida é o padrão (o SSR já pinta assim). A preferência salva é lida
+    // ANTES da primeira pintura do cliente (layout effect) e as transições da
+    // sidebar/padding só ligam depois — nada desliza na carga (sidebar-load-slide).
+    const [isSidebarExpanded, setIsSidebarExpanded] = useState(true)
+    const [sidebarAnimated, setSidebarAnimated] = useState(false)
 
-    // Read sidebar preference from localStorage on mount
-    useEffect(() => {
-        if (typeof window === 'undefined') return
-        const isCollapsed = window.localStorage.getItem('app-sidebar-collapsed') === 'true'
-        setIsSidebarExpanded(!isCollapsed)
+    useLayoutEffect(() => {
+        let isCollapsed = false
+        try {
+            isCollapsed = window.localStorage.getItem('app-sidebar-collapsed') === 'true'
+        } catch {
+            /* storage bloqueado: fica o padrão */
+        }
+        if (isCollapsed) setIsSidebarExpanded(false)
+        let frame = requestAnimationFrame(() => {
+            frame = requestAnimationFrame(() => setSidebarAnimated(true))
+        })
+        return () => cancelAnimationFrame(frame)
     }, [])
 
     const updateSidebarExpanded = useCallback((value: boolean) => {
@@ -452,10 +463,12 @@ export function DashboardShell({
         onLogout: handleLogout,
         onPrefetchRoute: prefetchRoute,
         mobileCloseButtonRef,
+        animated: sidebarAnimated,
     }), [
         pathname,
         navItems,
         isSidebarExpanded,
+        sidebarAnimated,
         isMobileMenuOpen,
         isLoggingOut,
         companyName,
@@ -511,7 +524,7 @@ export function DashboardShell({
                     <div
                         className={cn(
                             'flex-1 min-w-0',
-                            CONTENT_PADDING_TRANSITION,
+                            sidebarAnimated && CONTENT_PADDING_TRANSITION,
                             isSidebarExpanded ? 'lg:pl-56' : 'lg:pl-14'
                         )}
                     >
@@ -538,7 +551,7 @@ export function DashboardShell({
                         inert={isMobileMenuOpen}
                         className={cn(
                             "flex-1 flex flex-col min-w-0 h-screen overflow-hidden",
-                            CONTENT_PADDING_TRANSITION,
+                            sidebarAnimated && CONTENT_PADDING_TRANSITION,
                             isSidebarExpanded && "lg:pl-56"
                         )}
                     >
@@ -579,7 +592,7 @@ export function DashboardShell({
                 inert={isMobileMenuOpen}
                 className={cn(
                     "flex-1 flex flex-col min-w-0 h-screen overflow-hidden",
-                    CONTENT_PADDING_TRANSITION,
+                    sidebarAnimated && CONTENT_PADDING_TRANSITION,
                     isSidebarExpanded && "lg:pl-56"
                 )}
             >

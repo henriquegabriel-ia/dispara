@@ -49,6 +49,11 @@ export interface DashboardSidebarProps {
    * abrir a gaveta (gestão de foco em DashboardShell).
    */
   mobileCloseButtonRef?: Ref<HTMLButtonElement>
+  /**
+   * false na carga: a posição inicial (preferência salva) é aplicada sem
+   * transição — só os toggles depois disso deslizam.
+   */
+  animated?: boolean
 }
 
 /** id da gaveta de navegação (ExpandedSidebar), alvo do aria-controls do botão de menu. */
@@ -368,6 +373,7 @@ const ExpandedSidebar = memo(function ExpandedSidebar({
   onLogout,
   onPrefetchRoute,
   mobileCloseButtonRef,
+  animated = true,
 }: DashboardSidebarProps) {
   const displayName = companyName || brandName || 'Dispara'
 
@@ -390,7 +396,8 @@ const ExpandedSidebar = memo(function ExpandedSidebar({
         // Desktop (lg+): controlled by isSidebarExpanded, overrides mobile class
         isSidebarExpanded
           ? 'lg:visible lg:translate-x-0 lg:transition-[translate]'
-          : 'lg:invisible lg:-translate-x-full lg:transition-[translate,visibility]'
+          : 'lg:invisible lg:-translate-x-full lg:transition-[translate,visibility]',
+        !animated && 'transition-none lg:transition-none'
       )}
       aria-label="Menu de navegação expandido"
     >
