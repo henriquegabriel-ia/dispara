@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import {
   createWorkflowRecord,
-  ensureWorkflowRecord,
+  ensureEditorRecord,
   getCompanyId,
   toSavedWorkflow,
 } from "@/lib/builder/workflow-db";
@@ -25,7 +25,7 @@ export async function POST(_request: Request, { params }: RouteParams) {
     );
   }
   const companyId = await getCompanyId(supabase);
-  const record = await ensureWorkflowRecord(supabase, workflowId, companyId);
+  const record = await ensureEditorRecord(supabase, workflowId, companyId);
   // A cópia nasce como versão ativa (rascunho executável): mesma revalidação de
   // condições e actionTypes do PATCH — senão duplicar um grafo gravado antes
   // da revalidação "lavaria" uma condição maliciosa ou um passo removido.

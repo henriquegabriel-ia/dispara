@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import {
   createNewVersion,
-  ensureWorkflowRecord,
+  ensureEditorRecord,
   getCompanyId,
 } from "@/lib/builder/workflow-db";
 import { syncWorkflowSchedule, clearWorkflowSchedule } from "@/lib/builder/workflow-schedule";
@@ -27,7 +27,9 @@ export async function POST(_request: Request, { params }: RouteParams) {
   }
 
   const companyId = await getCompanyId(supabase);
-  const record = await ensureWorkflowRecord(supabase, workflowId, companyId);
+  // Publica o que o editor vê: o rascunho mais novo (ou a versão ativa, se não
+  // houver rascunho).
+  const record = await ensureEditorRecord(supabase, workflowId, companyId);
 
   // Não publica grafo com condição inválida/maliciosa nem com actionType fora
   // da allowlist (rascunhos salvos antes da revalidação no PATCH podem ter).
@@ -53,11 +55,15 @@ export async function POST(_request: Request, { params }: RouteParams) {
     updated_at: now,
   }).eq("id", workflowId);
 
-  if (previousVersionId) {
+  // A versão que estava no ar e o rascunho que acabou de ser publicado viram histórico.
+  const toArchive = [previousVersionId, record.version.id].filter(
+    (id): id is string => Boolean(id) && id !== published.id
+  );
+  if (toArchive.length > 0) {
     await supabase
       .from("workflow_versions")
       .update({ status: "archived", updated_at: now })
-      .eq("id", previousVersionId);
+      .in("id", Array.from(new Set(toArchive)));
   }
 
   const triggerNode = record.version.nodes.find(

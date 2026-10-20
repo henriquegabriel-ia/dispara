@@ -124,6 +124,7 @@ export function toSavedWorkflow(
     isOwner: options?.isOwner ?? true,
     status: record.workflow.status,
     lastPublishedVersion: record.lastPublishedVersion ?? null,
+    hasUnpublishedChanges: hasUnpublishedChanges(record),
   };
 }
 
@@ -215,6 +216,56 @@ export async function ensureWorkflowRecord(
   return created;
 }
 
+/**
+ * Registro que o EDITOR (builder) enxerga.
+ *
+ * `workflows.active_version_id` é a versão que RODA (webhook, /execute, cron).
+ * Depois da primeira publicação ela fica imutável: as edições vão para uma
+ * versão `draft` mais nova que a publicada, e só "Publicar" a coloca no ar.
+ * Enquanto o fluxo nunca foi publicado, a versão ativa é o próprio rascunho.
+ */
+export async function fetchEditorRecord(
+  supabase: SupabaseClient,
+  workflowId: string
+): Promise<WorkflowRecord | null> {
+  const base = await fetchWorkflowRecord(supabase, workflowId);
+  if (!base) return null;
+  const lastPublishedVersion =
+    base.version.status === "published" ? base.version.version : null;
+  if (base.version.status === "draft") {
+    return { ...base, lastPublishedVersion };
+  }
+  const { data: draft } = await supabase
+    .from("workflow_versions")
+    .select("*")
+    .eq("workflow_id", workflowId)
+    .eq("status", "draft")
+    .gt("version", base.version.version)
+    .order("version", { ascending: false })
+    .limit(1)
+    .maybeSingle<WorkflowVersionRow>();
+  return { ...base, version: draft ?? base.version, lastPublishedVersion };
+}
+
+export async function ensureEditorRecord(
+  supabase: SupabaseClient,
+  workflowId: string,
+  ownerCompanyId?: string | null
+): Promise<WorkflowRecord> {
+  await ensureWorkflowRecord(supabase, workflowId, ownerCompanyId);
+  const record = await fetchEditorRecord(supabase, workflowId);
+  if (!record) throw new Error("Failed to load workflow");
+  return record;
+}
+
+/** Há edições salvas que ainda não foram publicadas? */
+export function hasUnpublishedChanges(record: WorkflowRecord): boolean {
+  return (
+    record.version.status === "draft" &&
+    record.version.id !== record.workflow.active_version_id
+  );
+}
+
 export async function createWorkflowRecord(
   supabase: SupabaseClient,
   input: WorkflowData,
@@ -273,7 +324,9 @@ export async function updateWorkflowRecord(
   workflowId: string,
   patch: Partial<WorkflowData>
 ): Promise<WorkflowRecord> {
-  const existing = await ensureWorkflowRecord(supabase, workflowId);
+  await ensureWorkflowRecord(supabase, workflowId);
+  const existing = await fetchEditorRecord(supabase, workflowId);
+  if (!existing) throw new Error("Workflow missing active version");
   const now = new Date().toISOString();
 
   await supabase.from("workflows").update({
@@ -289,19 +342,26 @@ export async function updateWorkflowRecord(
     updated_at: now,
   }).eq("id", workflowId);
 
-  const versionId = existing.workflow.active_version_id;
-  if (!versionId) {
-    throw new Error("Workflow missing active version");
-  }
-
-  await supabase.from("workflow_versions").update({
+  const content = {
     nodes: patch.nodes ?? existing.version.nodes,
     edges: patch.edges ?? existing.version.edges,
     tree: patch.tree === undefined ? (existing.version.tree ?? null) : patch.tree,
-    updated_at: now,
-  }).eq("id", versionId);
+  };
+  const touchesGraph =
+    patch.nodes !== undefined || patch.edges !== undefined || patch.tree !== undefined;
 
-  const updated = await fetchWorkflowRecord(supabase, workflowId);
+  if (existing.version.status === "draft") {
+    const { error } = await supabase
+      .from("workflow_versions")
+      .update({ ...content, updated_at: now })
+      .eq("id", existing.version.id);
+    if (error) throw new Error(`Failed to save workflow: ${error.message}`);
+  } else if (touchesGraph) {
+    // A versão ativa já foi publicada: nunca editar no lugar — abre um rascunho.
+    await createNewVersion(supabase, workflowId, { ...content, status: "draft" });
+  }
+
+  const updated = await fetchEditorRecord(supabase, workflowId);
   if (!updated) {
     throw new Error("Failed to update workflow");
   }
@@ -387,7 +447,7 @@ export async function createNewVersion(
   const now = new Date().toISOString();
   const versionId = nanoid();
 
-  await supabase.from("workflow_versions").insert({
+  const { error: insertError } = await supabase.from("workflow_versions").insert({
     id: versionId,
     workflow_id: workflowId,
     version,
@@ -399,6 +459,9 @@ export async function createNewVersion(
     updated_at: now,
     published_at: input.status === "published" ? now : null,
   });
+  if (insertError) {
+    throw new Error(`Failed to create workflow version: ${insertError.message}`);
+  }
 
   const { data: created } = await supabase
     .from("workflow_versions")

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import {
-  ensureWorkflowRecord,
+  ensureEditorRecord,
   getCompanyId,
   toSavedWorkflow,
 } from "@/lib/builder/workflow-db";
@@ -20,7 +20,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
     );
   }
   const companyId = await getCompanyId(supabase);
-  const record = await ensureWorkflowRecord(supabase, workflowId, companyId);
+  const record = await ensureEditorRecord(supabase, workflowId, companyId);
   const workflow = toSavedWorkflow(record);
   return NextResponse.json({
     name: workflow.name,

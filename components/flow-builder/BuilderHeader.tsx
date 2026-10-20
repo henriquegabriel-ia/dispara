@@ -19,6 +19,8 @@ export type SaveState = "idle" | "saving" | "saved" | "error";
 interface BuilderHeaderProps {
   saveState: SaveState;
   publishedVersion: number | null;
+  /** há edições salvas que ainda não estão no ar */
+  hasUnpublishedChanges?: boolean;
   publishing: boolean;
   onPublish: () => void;
   onOpenSettings: () => void;
@@ -49,6 +51,7 @@ function SaveIndicator({ state }: { state: SaveState }) {
 export default function BuilderHeader({
   saveState,
   publishedVersion,
+  hasUnpublishedChanges = false,
   publishing,
   onPublish,
   onOpenSettings,
@@ -107,6 +110,15 @@ export default function BuilderHeader({
       {publishedVersion != null && (
         <span className="shrink-0 rounded-full border border-primary-500/30 bg-primary-500/10 px-2 py-0.5 text-[11px] font-medium text-primary-600 legacy-dark:text-primary-400">
           v{publishedVersion} publicada
+        </span>
+      )}
+
+      {publishedVersion != null && hasUnpublishedChanges && (
+        <span
+          className="shrink-0 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-700 legacy-dark:text-amber-300"
+          title="As edições estão salvas, mas só entram no ar quando você publicar."
+        >
+          Alterações não publicadas
         </span>
       )}
 

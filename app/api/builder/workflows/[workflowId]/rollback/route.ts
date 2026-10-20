@@ -65,11 +65,12 @@ export async function POST(request: Request, { params }: RouteParams) {
     .from("workflow_versions")
     .update({ status: "archived", updated_at: now })
     .eq("workflow_id", workflowId)
-    .neq("id", versionId);
+    .neq("id", versionId)
+    .neq("status", "draft");
 
   await supabase
     .from("workflow_versions")
-    .update({ status: "published", updated_at: now })
+    .update({ status: "published", published_at: now, updated_at: now })
     .eq("id", versionId);
 
   const { data: versionData } = await supabase

@@ -23,6 +23,21 @@ import type { Flow } from "@/lib/builder/flow/types";
 import type { WorkflowEdge, WorkflowNode } from "@/lib/builder/graph-types";
 
 const AUTOSAVE_DEBOUNCE_MS = 1000;
+const SAVE_RETRY_MS = 5000;
+
+/**
+ * Saves em andamento por workflow, fora do ciclo de vida do componente: ao sair
+ * do builder o flush do unmount ainda está no ar quando a pessoa volta, e a
+ * carga precisa esperar por ele — senão traz a árvore velha e o autosave
+ * seguinte grava por cima do que acabou de ser salvo.
+ */
+const pendingSaves = new Map<string, Promise<unknown>>();
+
+async function loadWorkflowAfterPendingSave(workflowId: string) {
+  const pending = pendingSaves.get(workflowId);
+  if (pending) await pending.catch(() => undefined);
+  return api.workflow.getById(workflowId);
+}
 
 function isFlowTree(tree: unknown): tree is Flow {
   return (
@@ -36,14 +51,19 @@ function isFlowTree(tree: unknown): tree is Flow {
 export function useWorkflowBuilder(workflowId: string) {
   const workflowQuery = useQuery({
     queryKey: ["builder-workflow", workflowId],
-    queryFn: () => api.workflow.getById(workflowId),
+    queryFn: () => loadWorkflowAfterPendingSave(workflowId),
     refetchOnWindowFocus: false,
-    staleTime: Number.POSITIVE_INFINITY,
+    // A árvore só é lida na montagem; o cache não pode sobreviver à saída do
+    // builder (ver pendingSaves).
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnMount: "always",
     retry: 1,
   });
 
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [publishedVersion, setPublishedVersion] = useState<number | null>(null);
+  const [hasUnpublishedChanges, setHasUnpublishedChanges] = useState(false);
   const [publishing, setPublishing] = useState(false);
 
   // Último grafo compilado com sucesso — fallback quando a árvore atual não compila.
@@ -55,6 +75,9 @@ export function useWorkflowBuilder(workflowId: string) {
   const lastCompileWarningRef = useRef<string | null>(null);
   /** há mudança debounced ainda não enviada — flush no unmount */
   const dirtyRef = useRef(false);
+  /** fila de saves: um por vez, na ordem (o último estado sempre vence) */
+  const saveChainRef = useRef<Promise<boolean>>(Promise.resolve(true));
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Carga inicial → injeta no store ──────────────────────────────────────
   useEffect(() => {
@@ -62,6 +85,7 @@ export function useWorkflowBuilder(workflowId: string) {
     if (!wf || loadedRef.current === workflowId) return;
     lastGraphRef.current = { nodes: wf.nodes ?? [], edges: wf.edges ?? [] };
     setPublishedVersion(wf.lastPublishedVersion ?? null);
+    setHasUnpublishedChanges(Boolean(wf.hasUnpublishedChanges));
 
     const tree = isFlowTree(wf.tree)
       ? wf.tree
@@ -73,7 +97,7 @@ export function useWorkflowBuilder(workflowId: string) {
   }, [workflowQuery.data, workflowId]);
 
   // ── Save ──────────────────────────────────────────────────────────────────
-  const doSave = useCallback(async (): Promise<boolean> => {
+  const runSave = useCallback(async (): Promise<boolean> => {
     const flow = useFlowBuilderStore.getState().flow;
     if (!flow) return false;
     dirtyRef.current = false;
@@ -97,21 +121,70 @@ export function useWorkflowBuilder(workflowId: string) {
           });
         }
       } else {
-        throw error;
+        // Erro inesperado no compile: salva só a árvore com o último grafo bom.
+        console.error("Falha ao compilar o fluxo:", error);
       }
     }
 
     try {
-      await api.workflow.update(workflowId, { name: flow.name, tree: flow, nodes, edges });
-      setSaveState("saved");
+      const saved = await api.workflow.update(workflowId, {
+        name: flow.name,
+        tree: flow,
+        nodes,
+        edges,
+      });
+      if (saved && typeof saved === "object" && "hasUnpublishedChanges" in saved) {
+        setHasUnpublishedChanges(Boolean(saved.hasUnpublishedChanges));
+      }
+      // Houve nova edição enquanto este save estava no ar: o indicador fica
+      // com o save seguinte.
+      if (!dirtyRef.current) setSaveState("saved");
       return true;
     } catch (error) {
       console.error("Falha ao salvar o fluxo:", error);
+      // Continua sujo: o unmount/sair da aba re-tenta, e há um retry automático.
+      dirtyRef.current = true;
       setSaveState("error");
-      toast.error("Falha ao salvar o fluxo");
+      toast.error("Falha ao salvar o fluxo", {
+        description: "Vamos tentar de novo em instantes.",
+        id: `builder-save-error-${workflowId}`,
+      });
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = setTimeout(() => {
+        retryTimerRef.current = null;
+        if (dirtyRef.current) void doSaveRef.current();
+      }, SAVE_RETRY_MS);
       return false;
     }
   }, [workflowId]);
+
+  /** Enfileira um save (nunca dois PATCH simultâneos fora de ordem). */
+  const doSave = useCallback((): Promise<boolean> => {
+    const next = saveChainRef.current.catch(() => false).then(() => runSave());
+    saveChainRef.current = next;
+    pendingSaves.set(workflowId, next);
+    void next.finally(() => {
+      if (pendingSaves.get(workflowId) === next) pendingSaves.delete(workflowId);
+    });
+    return next;
+  }, [runSave, workflowId]);
+  const doSaveRef = useRef(doSave);
+  useEffect(() => {
+    doSaveRef.current = doSave;
+  }, [doSave]);
+
+  // Fechar/recarregar a aba com edição não salva: avisa (o navegador não
+  // espera um PATCH assíncrono terminar).
+  useEffect(() => {
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!dirtyRef.current && !pendingSaves.has(workflowId)) return;
+      if (dirtyRef.current) void doSave();
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [workflowId, doSave]);
 
   // ── Autosave: observa mutações do store (rev) ────────────────────────────
   const rev = useFlowBuilderStore((s) => s.rev);
@@ -141,6 +214,10 @@ export function useWorkflowBuilder(workflowId: string) {
   // antes (doSave captura o flow de forma síncrona, antes do reset).
   useEffect(
     () => () => {
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
       if (dirtyRef.current) void doSave();
       useFlowBuilderStore.getState().reset();
       loadedRef.current = null;
@@ -177,6 +254,7 @@ export function useWorkflowBuilder(workflowId: string) {
       if (!saved) return;
       const result = await api.workflow.publish(workflowId);
       setPublishedVersion(result.version);
+      setHasUnpublishedChanges(false);
       toast.success(`Fluxo publicado (v${result.version})`);
     } catch (error) {
       console.error("Falha ao publicar o fluxo:", error);
@@ -191,6 +269,8 @@ export function useWorkflowBuilder(workflowId: string) {
     loadError: workflowQuery.error,
     saveState,
     publishedVersion,
+    /** há edições salvas que ainda não estão no ar */
+    hasUnpublishedChanges,
     publishing,
     publish,
     /** settings do workflow (workflows.settings) — editadas na sheet própria */

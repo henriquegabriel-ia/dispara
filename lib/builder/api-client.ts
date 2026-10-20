@@ -31,6 +31,8 @@ export type SavedWorkflow = WorkflowData & {
   isOwner?: boolean;
   status?: string;
   lastPublishedVersion?: number | null;
+  /** há edições salvas ainda não publicadas (rascunho mais novo que a versão no ar) */
+  hasUnpublishedChanges?: boolean;
 };
 
 // API error class
