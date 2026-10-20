@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { addBranch, addStep, createEmptyFlow, findStep, setGotoTarget, updateStep } from '@/lib/builder/flow/operations'
-import { validateTree } from '@/lib/builder/flow/tree-validate'
+import { lintFlow, validateTree } from '@/lib/builder/flow/tree-validate'
 import type { Branch, Flow, Step, StepType } from '@/lib/builder/flow/types'
 
 /**
@@ -199,21 +199,62 @@ describe('TV-03 split, goto e terminais', () => {
 // ─── TV-04 ─────────────────────────────────────────────────────────────────────
 
 describe('TV-04 árvore malformada', () => {
-  // BUG(tree-validate-malformed): validateTree acessa s.config.targetId e itera
-  // s.branches sem guarda (tree-validate.ts:58,105). Uma tree malformada no corpo do
-  // PATCH vira TypeError → 500, em vez de 400 "Invalid tree" com as issues.
-  it.fails('goto sem config: devolve issue em vez de lançar', () => {
+  // tree-validate-malformed: uma tree malformada no corpo do PATCH devolve issues
+  // (400 "Invalid tree") em vez de lançar TypeError (500).
+  it('goto sem config: devolve issue em vez de lançar', () => {
     const malformed = flowOf({ id: 'g', type: 'goto', name: 'x', next: null } as unknown as Step)
     expect(() => validateTree(malformed)).not.toThrow()
   })
 
-  it.fails('branches que não são array: devolve issue em vez de lançar', () => {
+  it('branches que não são array: devolve issue em vez de lançar', () => {
     const malformed = flowOf({ id: 'c', type: 'condition', name: 'x', config: {}, next: null, branches: 5 } as unknown as Step)
     expect(() => validateTree(malformed)).not.toThrow()
     expect(validateTree(malformed).valid).toBe(false)
   })
 
-  it('caracterização: hoje lança TypeError', () => {
-    expect(() => validateTree(flowOf({ id: 'g', type: 'goto', name: 'x', next: null } as unknown as Step))).toThrow(TypeError)
+  it('config que não é objeto e next primitivo não lançam', () => {
+    const malformed = flowOf({ id: 'w', type: 'whatsapp', name: 'x', config: 'oi', next: 7 } as unknown as Step)
+    expect(() => validateTree(malformed)).not.toThrow()
+    expect(validateTree(malformed).valid).toBe(false)
+  })
+})
+
+// ─── TV-05 ─────────────────────────────────────────────────────────────────────
+
+describe('TV-05 lintFlow (pendências que bloqueiam o publish)', () => {
+  const ok = step('a', 'whatsapp', { config: { message: 'x' } })
+
+  it('fluxo completo: sem pendências', () => {
+    expect(lintFlow(flowOf(ok))).toEqual([])
+  })
+
+  it('gatilho de palavra-chave sem palavras (ou só espaços) é pendência do gatilho', () => {
+    const issues = lintFlow(flowOf(ok, { trigger: { type: 'keywords', label: '', keywords: ['  ', ''] } }))
+    expect(issues).toEqual([{ stepId: null, message: expect.stringContaining('sem nenhuma palavra') }])
+    expect(lintFlow(flowOf(ok, { trigger: { type: 'none', label: '', keywords: [] } }))).toEqual([])
+  })
+
+  it('condição com valor vazio aponta a branch', () => {
+    const cond = step('c', 'condition', {
+      name: 'Cond',
+      branches: [br('b1', 'Sim', { operator: 'contains', value: ' ' }), br('n', 'None', { locked: true })],
+    })
+    expect(lintFlow(flowOf(cond))).toEqual([{ stepId: 'c', message: 'Condição "Cond": a branch "Sim" está sem valor.' }])
+  })
+
+  it('template com variável sem valor e cabeçalho de mídia sem URL', () => {
+    const w = step('w', 'whatsapp', {
+      name: 'Boas-vindas',
+      config: { template: 'boas_vindas', templateBodyParams: ['{{var.nome}}', ''], templateHeaderMediaType: 'image' },
+    })
+    expect(lintFlow(flowOf(w)).map((i) => i.message)).toEqual([
+      'Passo WhatsApp "Boas-vindas": preencha a variável do template.',
+      'Passo WhatsApp "Boas-vindas": o template tem mídia no cabeçalho — informe a URL.',
+    ])
+  })
+
+  it('pergunta sem texto ou com botões repetidos', () => {
+    const q = step('q', 'interactive', { name: 'Q', config: { message: '' }, branches: [br('b1', 'Sim'), br('b2', 'sim')] })
+    expect(lintFlow(flowOf(q)).map((i) => i.message)).toEqual(['Pergunta "Q" está sem texto.', 'Pergunta "Q" tem botões com o mesmo texto.'])
   })
 })
