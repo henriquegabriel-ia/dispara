@@ -1,17 +1,16 @@
 import "server-only";
 import { nanoid } from "nanoid";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import {
-  ensureWorkflowRecord,
-  getCompanyId,
-  toSavedWorkflow,
-} from "@/lib/builder/workflow-db";
+import { fetchPublishedRecord, toSavedWorkflow } from "@/lib/builder/workflow-db";
 import { executeWorkflow } from "@/lib/builder/workflow-executor.workflow";
+import { isPhoneBlocked } from "@/lib/builder/contact-eligibility";
+import { closeContinuedRun } from "@/lib/builder/workflow-run-outcome";
 import {
   claimDueEnrollments,
   reapStuckEnrollments,
   rescheduleEnrollment,
   backoffEnrollment,
+  cancelEnrollment,
   completeEnrollment,
   failEnrollment,
   MAX_ENROLLMENT_ATTEMPTS,
@@ -25,12 +24,19 @@ import {
  * dos resume_node_ids (multi-head), re-hidratando resolved_nodes (anti-double-send) e
  * outputs ({{@node}} a montante do Delay). Erro transitório → backoff; excesso de
  * tentativas → fail (anti-poison); node de retomada ausente (republicação) → fail visível.
+ *
+ * Regras de segurança do contato:
+ *   - só a versão PUBLICADA roda; workflow excluído/despublicado → falha sem recriar nada;
+ *   - contato com opt-out/supressão → enrollment cancelado, nada é enviado.
+ *
+ * Runs: a run da retomada fica "waiting" quando pausa de novo; a run que tinha pausado
+ * (enrollment.run_id) é finalizada; exceção no meio fecha a run inserida como erro.
  */
 
 type ExecShape = {
   success?: boolean;
   paused?: boolean;
-  wait?: { kind: string; resumeNodeIds: string[]; resumeInMs: number };
+  wait?: { kind: string; reason?: string; resumeNodeIds: string[]; resumeInMs: number };
   variables?: Record<string, unknown>;
   resolvedNodeIds?: string[];
   outputs?: Record<string, unknown>;
@@ -56,7 +62,6 @@ export async function drainWorkflowEnrollments(): Promise<{
     return { reaped, claimed: 0, completed: 0, paused: 0, failed: 0 };
   }
 
-  const companyId = await getCompanyId(supabase);
   let completed = 0;
   let paused = 0;
   let failed = 0;
@@ -73,12 +78,27 @@ export async function drainWorkflowEnrollments(): Promise<{
       continue;
     }
 
+    let executionId: string | null = null;
     try {
-      const record = await ensureWorkflowRecord(
-        supabase,
-        e.workflow_id,
-        companyId
-      );
+      // Nunca recria um workflow excluído (o enrollment não tem FK) nem roda rascunho.
+      const record = await fetchPublishedRecord(supabase, e.workflow_id);
+      if (!record) {
+        await failEnrollment(
+          supabase,
+          e.id,
+          "Nó de retomada ausente: workflow excluído ou sem versão publicada"
+        );
+        failed++;
+        continue;
+      }
+
+      // Quem pediu para sair (opt-out/supressão) não recebe o resto do fluxo.
+      if (await isPhoneBlocked(supabase, e.phone)) {
+        await cancelEnrollment(supabase, e.id, "Contato com opt-out/supressão ativa");
+        failed++;
+        continue;
+      }
+
       const workflow = toSavedWorkflow(record);
 
       const startNodeIds =
@@ -88,11 +108,12 @@ export async function drainWorkflowEnrollments(): Promise<{
             ? [e.current_node_id]
             : undefined;
 
-      const executionId = nanoid();
+      const runId = nanoid();
+      executionId = runId;
       await supabase.from("workflow_runs").insert({
-        id: executionId,
+        id: runId,
         workflow_id: e.workflow_id,
-        version_id: record.workflow.active_version_id,
+        version_id: record.version.id,
         status: "running",
         trigger_type: "DelayResume",
         input: {},
@@ -103,7 +124,7 @@ export async function drainWorkflowEnrollments(): Promise<{
         nodes: workflow.nodes,
         edges: workflow.edges,
         triggerInput: { from: e.phone, to: e.phone },
-        executionId,
+        executionId: runId,
         workflowId: e.workflow_id,
         startNodeIds,
         initialVariables: e.variables ?? {},
@@ -113,8 +134,9 @@ export async function drainWorkflowEnrollments(): Promise<{
       })) as ExecShape;
 
       if (execution.paused && execution.wait?.kind === "delay") {
-        // Caiu em outro Delay: reagenda o mesmo enrollment.
-        await rescheduleEnrollment(supabase, e.id, {
+        // Caiu em outro Delay (ou na janela de horário): reagenda o mesmo enrollment.
+        const waitKind = execution.wait.reason === "window" ? "window" : "delay";
+        const rescheduled = await rescheduleEnrollment(supabase, e.id, {
           resumeNodeIds: execution.wait.resumeNodeIds,
           resumeAt: new Date(
             Date.now() + (execution.wait.resumeInMs || 0)
@@ -122,7 +144,25 @@ export async function drainWorkflowEnrollments(): Promise<{
           variables: execution.variables ?? e.variables ?? {},
           resolvedNodeIds: execution.resolvedNodeIds ?? e.resolved_nodes ?? [],
           outputs: execution.outputs ?? e.outputs ?? {},
+          waitKind,
+          runId,
         });
+        // A espera anterior terminou: a run que tinha pausado deixa de ficar "waiting".
+        await closeContinuedRun(supabase, e.run_id, runId);
+        await supabase
+          .from("workflow_runs")
+          .update(
+            rescheduled
+              ? { status: "waiting", output: { status: "waiting", waitKind }, finished_at: null }
+              : {
+                  // O contato respondeu durante a retomada (Stop on Response): a
+                  // espera foi cancelada e o fluxo para aqui.
+                  status: "success",
+                  output: { status: "stopped_on_response" },
+                  finished_at: new Date().toISOString(),
+                }
+          )
+          .eq("id", runId);
         paused++;
       } else if (
         !execution.paused &&
@@ -139,10 +179,23 @@ export async function drainWorkflowEnrollments(): Promise<{
         failed++;
       } else {
         // Terminou, ou pausou por ask-question (a conversation já foi persistida).
+        await closeContinuedRun(supabase, e.run_id, runId);
         await completeEnrollment(supabase, e.id);
         completed++;
       }
     } catch (err) {
+      // A run inserida não pode ficar "running" para sempre.
+      if (executionId) {
+        await supabase
+          .from("workflow_runs")
+          .update({
+            status: "error",
+            error: String(err).slice(0, 500),
+            finished_at: new Date().toISOString(),
+          })
+          .eq("id", executionId)
+          .eq("status", "running");
+      }
       // Erro transitório (DB/rede): backoff e retry até o teto; só depois falha.
       if (e.attempts >= MAX_ENROLLMENT_ATTEMPTS) {
         await failEnrollment(supabase, e.id, err);

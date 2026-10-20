@@ -157,7 +157,7 @@ describe('Inscrição de contatos', () => {
       phone: ANA,
       contact_id: SEED_IDS.contacts.ana,
       status: 'waiting',
-      wait_kind: 'delay',
+      wait_kind: 'enroll', // pontapé da inscrição: o Stop on Response não cancela
       current_node_id: 'm1',
       resume_node_ids: ['m1'],
       resume_at: '2026-10-18T12:00:00.000Z',
@@ -265,11 +265,11 @@ describe('Inscrição de contatos', () => {
     expect((await routes.enroll('wf-a', { phones: [ANA] })).body).toMatchObject({ enrolled: 1, blockedByReentry: 0 })
   })
 
-  // BUG(enroll-contadores): com reentrada desligada, o select de "já participou" (qualquer status)
+  // Corrigido BUG(enroll-contadores): com reentrada desligada, o select de "já participou" (qualquer status)
   // também pega quem está ATIVO, então o mesmo telefone conta em blockedByReentry E em
   // alreadyActive; o toast de useContacts mostra números que não fecham (requested < soma).
   // enroll/route.ts:103-124,181-187.
-  it.fails('BUG(enroll-contadores): contato já ativo não deveria contar também como bloqueado por reentrada', async () => {
+  it('enroll-contadores: contato já ativo não deveria contar também como bloqueado por reentrada', async () => {
     await publishNone('wf-a', { settings: { allowReentry: false } })
     seedEnrollment({ workflowId: 'wf-a', phone: ANA, status: 'waiting' })
     const res = await routes.enroll('wf-a', { phones: [ANA] })
@@ -310,11 +310,11 @@ describe('Inscrição de contatos', () => {
     expect(res.body).toMatchObject({ requested: 2, enrolled: 2 })
   })
 
-  // BUG(enroll-optout): o enroll seleciona só id/phone, sem olhar contacts.status 'Opt-out' nem
+  // Corrigido BUG(enroll-optout): o enroll seleciona só id/phone, sem olhar contacts.status 'Opt-out' nem
   // phone_suppressions ativas (getActiveSuppressionsByPhone existe em lib/phone-suppressions.ts), e
   // nem o drain nem os passos de envio checam: quem pediu para sair recebe o fluxo. O disparo de
   // campanhas respeita a supressão; o workflow não. enroll/route.ts:79-99,127-157.
-  it.fails('BUG(enroll-optout): contato Opt-out ou com supressão ativa não deveria ser inscrito', async () => {
+  it('enroll-optout: contato Opt-out ou com supressão ativa não deveria ser inscrito', async () => {
     await publishNone('wf-a')
     h.db.update('contacts', { id: SEED_IDS.contacts.ana }, { status: 'Opt-out' })
     h.db.insert('phone_suppressions', { phone: BRUNO, is_active: true, source: 'inbound_keyword', reason: 'PARAR' })
@@ -326,7 +326,7 @@ describe('Inscrição de contatos', () => {
     expect(enrollments('wf-a').map((r) => r.phone)).toEqual([CARLA])
   })
 
-  it.fails('BUG(enroll-optout) ponta a ponta: contato suprimido não deveria receber a mensagem do fluxo', async () => {
+  it('BUG(enroll-optout) ponta a ponta: contato suprimido não deveria receber a mensagem do fluxo', async () => {
     await publishNone('wf-a')
     h.db.insert('phone_suppressions', { phone: ANA, is_active: true, source: 'inbound_keyword', reason: 'PARAR' })
     await routes.enroll('wf-a', { contactIds: [SEED_IDS.contacts.ana] })
@@ -334,10 +334,10 @@ describe('Inscrição de contatos', () => {
     expect(h.meta.sentTo(ANA)).toEqual([])
   })
 
-  // BUG(enroll-telefone-invalido): normalizePhoneNumber devolve o número "limpo" quando não
+  // Corrigido BUG(enroll-telefone-invalido): normalizePhoneNumber devolve o número "limpo" quando não
   // consegue validar, e o enroll aceita qualquer string não vazia: "123" vira uma inscrição que
   // o drain vai tentar enviar (e a Meta rejeitar). enroll/route.ts:90-93; lib/phone-formatter.ts.
-  it.fails('BUG(enroll-telefone-invalido): telefone inválido ("123") não deveria ser inscrito', async () => {
+  it('enroll-telefone-invalido: telefone inválido ("123") não deveria ser inscrito', async () => {
     await publishNone('wf-a')
     const res = await routes.enroll('wf-a', { phones: ['123'] })
     expect(res.status).toBe(400)
@@ -421,10 +421,10 @@ describe('EN-10: inscrição → drain (pg_cron) → passos executados', () => {
     expect(h.db.row('workflow_conversations', { id: conversation!.id as string })?.status).toBe('completed')
   })
 
-  // BUG(pendente-nono-digito): a conversa do Perguntar de um fluxo inscrito manualmente é salva com
+  // Corrigido BUG(pendente-nono-digito): a conversa do Perguntar de um fluxo inscrito manualmente é salva com
   // o telefone do CONTATO (com o 9). Se a Meta manda o wa_id legado sem o 9, getPendingConversation
   // (eq exato) não acha a conversa e a resposta se perde. workflow-conversations.ts:50-65.
-  it.fails('BUG(pendente-nono-digito): resposta pelo wa_id sem o 9 deveria retomar a pergunta do fluxo inscrito', async () => {
+  it('pendente-nono-digito: resposta pelo wa_id sem o 9 deveria retomar a pergunta do fluxo inscrito', async () => {
     h.db.update('contacts', { id: SEED_IDS.contacts.ana }, { phone: '+5511988887777' })
     await publishNone('wf-menu', {
       root: steps.interactive({

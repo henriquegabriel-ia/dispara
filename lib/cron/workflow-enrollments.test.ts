@@ -497,7 +497,7 @@ describe('esperas duráveis ponta a ponta (publicar → execute → dreno do cro
     expect(h.meta.texts()).toEqual(['Podemos falar agora?', 'Obrigado!'])
   })
 
-  it('DRN-12a: fluxo com 5 Aguardar seguidos (via /execute) termina — limite do orçamento atual', async () => {
+  it('DRN-12a: fluxo com 5 Aguardar seguidos (via /execute) termina; cada retomada OK zera as tentativas', async () => {
     const { workflowId } = await publishFlow(h.db, flowOf('wf-5w', chain(...waitChain(5))))
     await startViaExecute(workflowId)
     for (let i = 0; i < 5; i += 1) {
@@ -505,14 +505,14 @@ describe('esperas duráveis ponta a ponta (publicar → execute → dreno do cro
       await drainWorkflowEnrollments()
     }
     expect(h.meta.texts()).toEqual(['m0', 'm1', 'm2', 'm3', 'm4', 'm5'])
-    expect(enrollmentOf(workflowId)).toMatchObject({ status: 'completed', attempts: 5 })
+    expect(enrollmentOf(workflowId)).toMatchObject({ status: 'completed', attempts: 1 })
   })
 
-  // BUG(attempts-acumulam): cada retomada bem-sucedida gasta 1 tentativa (claim faz
+  // Corrigido BUG(attempts-acumulam) — antes: cada retomada bem-sucedida gastava 1 tentativa (claim faz
   // attempts+1 e reschedule não zera). No 6º Aguardar o claim chega com attempts 6 > 5 e o
   // anti-poison marca 'failed' "Máximo de tentativas (6) excedido" — a última mensagem nunca
   // sai, sem erro nenhum. lib/builder/workflow-enrollments.ts:145/177; lib/cron/workflow-enrollments.ts:66.
-  it.fails('DRN-12: BUG(attempts-acumulam) — fluxo com 6 Aguardar seguidos (via /execute) deveria terminar', async () => {
+  it('DRN-12: attempts-acumulam — fluxo com 6 Aguardar seguidos (via /execute) termina', async () => {
     const { workflowId } = await publishFlow(h.db, flowOf('wf-6w', chain(...waitChain(6))))
     await startViaExecute(workflowId)
     for (let i = 0; i < 6; i += 1) {
@@ -523,9 +523,9 @@ describe('esperas duráveis ponta a ponta (publicar → execute → dreno do cro
     expect(enrollmentOf(workflowId)?.status).toBe('completed')
   })
 
-  // BUG(attempts-acumulam), variante da inscrição manual: o /enroll já gasta 1 claim no
+  // Corrigido BUG(attempts-acumulam), variante da inscrição manual: o /enroll já gasta 1 claim no
   // início, então bastam 5 Aguardar para o contato ser marcado 'failed' no meio do fluxo.
-  it.fails('DRN-12b: BUG(attempts-acumulam) — "Sem gatilho" + inscrição manual com 5 Aguardar deveria terminar', async () => {
+  it('DRN-12b: attempts-acumulam — "Sem gatilho" + inscrição manual com 5 Aguardar termina', async () => {
     const { workflowId } = await seedPublishedFlow(h.db, flowOf('wf-enroll-5w', chain(...waitChain(5)), triggers.none()))
     expect((await routes.enroll(workflowId, { contactIds: [SEED_IDS.contacts.ana] })).body).toMatchObject({ enrolled: 1 })
     await drainWorkflowEnrollments() // envia m0 e pausa no 1º Aguardar
@@ -537,12 +537,12 @@ describe('esperas duráveis ponta a ponta (publicar → execute → dreno do cro
     expect(enrollmentOf(workflowId)?.status).toBe('completed')
   })
 
-  // BUG(drain-run-running): o dreno insere o run 'DelayResume' como 'running'; quando a
+  // Corrigido BUG(drain-run-running) — antes: o dreno inseria o run 'DelayResume' como 'running'; quando a
   // retomada pausa de novo (outro Aguardar ou janela de horário) o executor retorna antes
   // do _workflowComplete e o ramo de reschedule do dreno não atualiza workflow_runs — o run
   // fica 'running' para sempre. A rota /execute trata o mesmo caso marcando 'waiting'.
   // lib/cron/workflow-enrollments.ts:91-126.
-  it.fails('DRN-13: BUG(drain-run-running) — run de retomada que cai em outro Aguardar deveria ficar "waiting"', async () => {
+  it('DRN-13: drain-run-running — run de retomada que cai em outro Aguardar fica "waiting"', async () => {
     const { workflowId } = await publishFlow(h.db, flowOf('wf-2w', chain(...waitChain(2))))
     await startViaExecute(workflowId)
     advanceTime(MIN)
@@ -550,8 +550,8 @@ describe('esperas duráveis ponta a ponta (publicar → execute → dreno do cro
     expect(runsOf(workflowId, 'DelayResume').map((r) => r.status)).toEqual(['waiting'])
   })
 
-  // BUG(drain-run-running), variante da janela de horário: retomada fora da janela.
-  it.fails('DRN-13b: BUG(drain-run-running) — run de retomada pausado pela janela de horário deveria ficar "waiting"', async () => {
+  // Corrigido BUG(drain-run-running), variante da janela de horário: retomada fora da janela.
+  it('DRN-13b: drain-run-running — run de retomada pausado pela janela de horário fica "waiting"', async () => {
     freezeTime('2026-10-19T17:59:00.000Z')
     const { workflowId } = await publishFlow(
       h.db,
@@ -564,11 +564,11 @@ describe('esperas duráveis ponta a ponta (publicar → execute → dreno do cro
     expect(runsOf(workflowId, 'DelayResume').map((r) => r.status)).toEqual(['waiting'])
   })
 
-  // BUG(run-original-waiting): a retomada sempre cria um run NOVO e nunca fecha o run que
+  // Corrigido BUG(run-original-waiting) — antes: a retomada criava um run NOVO e nunca fechava o run que
   // pausou (enrollment.run_id é gravado mas ninguém lê). Todo contato que passa por um
   // Aguardar deixa o 1º run em 'waiting' para sempre — o histórico mostra o fluxo "em espera"
   // mesmo depois de concluído. execute/route.ts:182-189 + lib/cron/workflow-enrollments.ts:91.
-  it.fails('DRN-14: BUG(run-original-waiting) — o run que pausou deveria ser finalizado quando a espera termina', async () => {
+  it('DRN-14: run-original-waiting — o run que pausou é finalizado quando a espera termina', async () => {
     const { workflowId } = await publishFlow(h.db, flowOf('wf-orig', chain(...waitChain(1))))
     const res = await startViaExecute(workflowId)
     const originalRunId = (res.body as { executionId: string }).executionId
@@ -578,11 +578,11 @@ describe('esperas duráveis ponta a ponta (publicar → execute → dreno do cro
     expect(h.db.row('workflow_runs', { id: originalRunId })?.status).not.toBe('waiting')
   })
 
-  // BUG(drain-run-on-throw): quando executeWorkflow lança (ex.: versão com grafo corrompido —
+  // Corrigido BUG(drain-run-on-throw) — antes: quando executeWorkflow lançava (ex.: versão com grafo corrompido —
   // uma aresta null derruba o executor antes do try interno), o catch do dreno só faz
   // backoff: o run 'DelayResume' recém-inserido fica 'running' para sempre, um por tentativa.
   // lib/cron/workflow-enrollments.ts:102-111.
-  it.fails('DRN-15: BUG(drain-run-on-throw) — exceção na retomada deveria fechar o run inserido', async () => {
+  it('DRN-15: drain-run-on-throw — exceção na retomada fecha o run inserido', async () => {
     const { workflowId, versionId } = await publishFlow(h.db, flowOf('wf-throw', chain(...waitChain(1))))
     await startViaExecute(workflowId)
     const version = h.db.row('workflow_versions', { id: versionId })!
@@ -607,11 +607,11 @@ describe('esperas duráveis ponta a ponta (publicar → execute → dreno do cro
     expect(h.meta.texts()).toEqual(['m0'])
   })
 
-  // BUG(drain-ressuscita-workflow): workflow_enrollments não tem FK e o DELETE do workflow
+  // Corrigido BUG(drain-ressuscita-workflow) — antes: workflow_enrollments não tem FK e o DELETE do workflow
   // não cancela os waits. No dreno, ensureWorkflowRecord não acha o workflow e CRIA um
   // rascunho "Fluxo inicial" com o mesmo id (grafo default Webhook → Send Message) — o
   // fluxo excluído reaparece na lista. lib/cron/workflow-enrollments.ts:77 + workflow-db.ts:162.
-  it.fails('DRN-16: BUG(drain-ressuscita-workflow) — wait de workflow excluído não deveria recriar o workflow', async () => {
+  it('DRN-16: drain-ressuscita-workflow — wait de workflow excluído não recria o workflow', async () => {
     const { workflowId } = await publishFlow(h.db, flowOf('wf-del', chain(...waitChain(1))))
     await startViaExecute(workflowId)
     expect((await routes.deleteWorkflow(workflowId)).status).toBe(200)
@@ -633,11 +633,11 @@ describe('esperas duráveis ponta a ponta (publicar → execute → dreno do cro
     expect(String(enrollmentOf(workflowId)?.last_error)).toMatch(/Nó de retomada ausente/)
   })
 
-  // BUG(run-no-ausente-success): se o nó de retomada sumiu (republicação removeu o passo),
+  // Corrigido BUG(run-no-ausente-success) — antes: se o nó de retomada sumia (republicação removeu o passo),
   // o executor não roda nada, results fica {} e [].every() === true — o run 'DelayResume'
   // é gravado 'success' enquanto o enrollment é marcado 'failed'. O painel de execuções
   // mostra sucesso para um contato que nunca recebeu o resto do fluxo.
-  it.fails('DRN-16b: BUG(run-no-ausente-success) — retomada sem o nó de retomada não deveria gravar run "success"', async () => {
+  it('DRN-16b: run-no-ausente-success — retomada sem o nó de retomada não grava run "success"', async () => {
     const { workflowId } = await publishFlow(
       h.db,
       flowOf('wf-repub', chain(steps.whatsapp({ id: 'm0', message: 'm0' }), steps.wait({ id: 'w', value: 1 }), steps.whatsapp({ id: 'old', message: 'antigo' })))
@@ -653,7 +653,7 @@ describe('esperas duráveis ponta a ponta (publicar → execute → dreno do cro
     expect(runsOf(workflowId, 'DelayResume')[0]?.status).not.toBe('success')
   })
 
-  it('DRN-17: o dreno usa a versão ATIVA no momento da retomada, não o version_id do enrollment (caracterização)', async () => {
+  it('DRN-17: o dreno usa a versão PUBLICADA no momento da retomada (republicar vale para quem está esperando)', async () => {
     const v1 = await publishFlow(
       h.db,
       flowOf('wf-ver', chain(steps.whatsapp({ id: 'm0', message: 'm0' }), steps.wait({ id: 'w', value: 1 }), steps.whatsapp({ id: 'm1', message: 'Versão 1' })))
@@ -670,11 +670,11 @@ describe('esperas duráveis ponta a ponta (publicar → execute → dreno do cro
     expect(h.meta.texts()).toEqual(['m0', 'Versão 2'])
   })
 
-  // BUG(autosave-edita-publicada): depois do 1º publicar, active_version_id aponta para a
+  // Corrigido BUG(autosave-edita-publicada) — antes: depois do 1º publicar, active_version_id apontava para a
   // versão 'published' e todo PATCH (autosave do builder) faz UPDATE nessa MESMA linha
   // (lib/builder/workflow-db.ts:292-302). Quem está num Aguardar retoma com a edição que o
   // usuário ainda NÃO publicou (e disparos novos também a usam).
-  it.fails('DRN-17b: BUG(autosave-edita-publicada) — wait retomado deveria usar a versão publicada, não o rascunho salvo', async () => {
+  it('DRN-17b: autosave-edita-publicada — wait retomado usa a versão publicada, não o rascunho salvo', async () => {
     const flow = flowOf('wf-draft', chain(steps.whatsapp({ id: 'm0', message: 'm0' }), steps.wait({ id: 'w', value: 1 }), steps.whatsapp({ id: 'm1', message: 'Publicado' })))
     const { workflowId } = await publishFlow(h.db, flow)
     await startViaExecute(workflowId)
@@ -719,12 +719,12 @@ describe('Stop on Response: resposta do contato encerra o Aguardar', () => {
     expect(h.meta.texts()).toEqual(['m0', 'm1'])
   })
 
-  // BUG(stop-on-response-corrida): o cancelamento faz CAS só em status 'waiting'. Se a resposta
+  // Corrigido BUG(stop-on-response-corrida) — antes: o cancelamento fazia CAS só em status 'waiting'. Se a resposta
   // chega enquanto o dreno está processando o enrollment ('active' — entre o envio de uma
   // mensagem e o próximo Aguardar), nada é cancelado e o reschedule devolve o enrollment para
   // 'waiting': o contato que pediu para parar continua recebendo o fluxo.
   // app/api/webhook/route.ts:569-596 × lib/builder/workflow-enrollments.ts:177.
-  it.fails('STOP-03: BUG(stop-on-response-corrida) — resposta durante a retomada deveria impedir o próximo Aguardar', async () => {
+  it('STOP-03: stop-on-response-corrida — resposta durante a retomada impede o próximo Aguardar', async () => {
     const { workflowId } = await publishFlow(h.db, flowOf('wf-stop-race', chain(...waitChain(2))), { settings: { stopOnResponse: true } })
     await startViaExecute(workflowId)
     let fired = false
