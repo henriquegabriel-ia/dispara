@@ -22,6 +22,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/legacy-ui/dropdown-menu";
 import { api } from "@/lib/builder/api-client";
+import { triggerTypeOf, type Flow, type FlowTrigger } from "@/lib/builder/flow/types";
 import { cn } from "@/lib/utils";
 
 type WorkflowItem = Awaited<ReturnType<typeof api.workflow.getAll>>[number];
@@ -56,20 +57,48 @@ function StatusBadge({ status }: { status?: string }) {
   );
 }
 
+/**
+ * Rótulo do gatilho coerente com o builder (TriggerPanelBody): a árvore manda;
+ * sem árvore (fluxo do builder antigo ou recém-criado), o grafo compilado.
+ */
 function getTriggerLabel(workflow: WorkflowItem): string {
+  const tree = workflow.tree as Partial<Flow> | null | undefined;
+  if (tree && typeof tree === "object" && tree.trigger && typeof tree.trigger === "object") {
+    const trigger = tree.trigger as FlowTrigger;
+    switch (triggerTypeOf(trigger)) {
+      case "none":
+        return "Sem gatilho";
+      case "campaign_reply":
+        return trigger.campaignName
+          ? `Respondeu ao disparo · ${trigger.campaignName}`
+          : "Respondeu ao disparo";
+      default:
+        return "Palavra-chave";
+    }
+  }
+
   const triggerNode = workflow.nodes.find((node) => node?.data?.type === "trigger");
-  const triggerType = triggerNode?.data?.config?.triggerType;
-  if (typeof triggerType === "string" && triggerType.trim()) {
-    const trimmed = triggerType.trim();
-    if (trimmed === "Keywords") return "Palavras-chave";
-    if (trimmed === "Webhook") return "Webhook";
-    if (trimmed === "Manual") return "Manual";
-    return trimmed;
+  const raw = triggerNode?.data?.config?.triggerType;
+  const triggerType = typeof raw === "string" ? raw.trim() : "";
+  switch (triggerType) {
+    case "Keywords":
+      return "Palavra-chave";
+    case "CampaignReply":
+      return "Respondeu ao disparo";
+    case "None":
+    case "":
+      return "Sem gatilho";
+    case "Webhook":
+    case "Manual": {
+      // Grafo default de um fluxo recém-criado (só o gatilho): o builder o abre
+      // como "Sem gatilho". Com passos, é um fluxo do builder antigo.
+      const hasSteps = workflow.nodes.some((node) => node?.data?.type !== "trigger");
+      if (!hasSteps) return "Sem gatilho";
+      return triggerType === "Webhook" ? "Webhook (legado)" : "Manual (legado)";
+    }
+    default:
+      return "Sem gatilho";
   }
-  if (triggerType === "Keywords") {
-    return "Palavras-chave";
-  }
-  return "Manual";
 }
 
 export default function WorkflowsPage() {
