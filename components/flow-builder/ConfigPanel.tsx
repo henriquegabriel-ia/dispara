@@ -57,7 +57,7 @@ function Hint({ children }: { children: React.ReactNode }) {
 /** Mensagem de validação inline (campo obrigatório vazio etc.). */
 function FieldError({ children }: { children: React.ReactNode }) {
   return (
-    <p className="mt-1 text-[12px] font-medium text-red-600 legacy-dark:text-red-400" role="alert">
+    <p className="mt-1 text-[12px] font-medium text-eia-danger" role="alert">
       {children}
     </p>
   );
@@ -71,7 +71,7 @@ function usePanelDirty(dirty: boolean) {
   useEffect(() => () => useFlowBuilderStore.getState().setPanelDirty(false), []);
 }
 
-const invalidCls = "border-red-400 focus:border-red-500 focus:ring-red-500/20";
+const invalidCls = "border-eia-danger focus:border-eia-danger focus:ring-eia-danger/20";
 
 const inputCls =
   "w-full rounded-lg border border-border bg-[var(--ds-bg-surface)]/60 px-2.5 py-1.5 text-[13px] text-[var(--ds-text-primary)] outline-none placeholder:text-[var(--ds-text-muted)] focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 disabled:cursor-not-allowed disabled:opacity-50";
@@ -823,7 +823,7 @@ function WhatsappForm({ config, set }: FormProps) {
       </div>
 
       {selectedTemplate && (
-        <div className="rounded-lg border border-border bg-[var(--ds-bg-surface)]/50 p-2.5 text-[12px] leading-relaxed whitespace-pre-wrap text-[var(--ds-text-secondary)]">
+        <div className="rounded-lg border border-eia-border-subtle bg-eia-subtle p-2.5 text-[12px] leading-relaxed whitespace-pre-wrap text-eia-muted">
           {highlightVars(templateBodyText(selectedTemplate))}
         </div>
       )}
@@ -836,7 +836,7 @@ function WhatsappForm({ config, set }: FormProps) {
             const empty = value.trim() === "";
             return (
               <div key={v}>
-                <label className="mb-1 block text-[12px] text-[var(--ds-text-secondary)]">
+                <label className="mb-1 block text-[12px] text-eia-muted">
                   Valor de {`{{${v}}}`}
                 </label>
                 <input
@@ -1378,9 +1378,9 @@ function InteractiveForm({
           Até {MAX_BUTTON_CHARS} caracteres cada.
         </Hint>
         <div className="mt-3 rounded-lg border border-dashed border-border bg-[var(--ds-bg-surface)]/40 p-3 text-[12px] text-[var(--ds-text-muted)]">
-          O fluxo reconhece a resposta pelo <span className="font-medium text-[var(--ds-text-secondary)]">texto</span>{" "}
+          O fluxo reconhece a resposta pelo <span className="font-medium text-eia-text">texto</span>{" "}
           do botão — respostas fora dos botões seguem pela{" "}
-          <span className="font-medium text-[var(--ds-text-secondary)]">continuação</span> (o
+          <span className="font-medium text-eia-text">continuação</span> (o
           &quot;+&quot; abaixo das opções no canvas).
         </div>
       </div>

@@ -66,7 +66,7 @@ const TriggerNode = memo(function TriggerNode({ data, selected }: NodeProps) {
         <div className="truncate text-[11px] text-[var(--ds-text-muted)]">{subtitle}</div>
       </div>
       {issue && (
-        <span className="shrink-0 text-amber-500" title={issue} aria-label={`Pendência: ${issue}`} role="img">
+        <span className="shrink-0 text-eia-warning" title={issue} aria-label={`Pendência: ${issue}`} role="img">
           <TriangleAlert size={14} />
         </span>
       )}

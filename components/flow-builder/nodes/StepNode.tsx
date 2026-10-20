@@ -86,7 +86,7 @@ const StepNode = memo(function StepNode({ data, selected }: NodeProps) {
       </div>
       {issue && (
         <span
-          className="shrink-0 text-amber-500"
+          className="shrink-0 text-eia-warning"
           title={issue}
           aria-label={`Pendência: ${issue}`}
           role="img"

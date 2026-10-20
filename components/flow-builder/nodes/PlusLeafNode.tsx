@@ -32,7 +32,7 @@ const PlusLeafNode = memo(function PlusLeafNode({ data }: NodeProps) {
         <Plus size={16} />
       </button>
       {label && (
-        <span className="pointer-events-none absolute top-1/2 left-full ml-2 -translate-y-1/2 rounded-full border border-[var(--ds-border-default)] bg-[var(--ds-bg-surface)] px-2 py-0.5 text-[11px] whitespace-nowrap text-[var(--ds-text-secondary)]">
+        <span className="pointer-events-none absolute top-1/2 left-full ml-2 -translate-y-1/2 rounded-full border border-eia-border bg-eia-surface px-2 py-0.5 text-[11px] whitespace-nowrap text-eia-muted">
           {label}
         </span>
       )}
